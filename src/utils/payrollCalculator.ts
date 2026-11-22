@@ -131,17 +131,19 @@ export function calculateEmployeePayroll(params: {
       monthRecords.reduce((acc, r) => acc + (r.overtimeHours || 0), 0) * 10
     ) / 10;
 
-  // Lateness calculation integrated with LateSettlements
+  // Lateness calculation unified with ReportsView & Excel export (integrated with LateSettlements)
   const tolerance = getEmployeeShiftTolerance(employee, shifts);
   let totalLateMinutes = 0;
   for (const r of monthRecords) {
-    if (r.status !== 'terlambat') continue;
     const rawLate = r.checkIn
       ? calculateLatenessMinutes(r.checkIn, employee.shiftStart)
       : 0;
-    const effectiveLate =
-      rawLate > 0 ? Math.max(0, rawLate - tolerance) : 0;
-    totalLateMinutes += effectiveLate;
+    const isLateRecord =
+      r.status === 'terlambat' ||
+      (r.status === 'hadir' && Boolean(r.checkIn) && rawLate > tolerance);
+    if (isLateRecord) {
+      totalLateMinutes += rawLate;
+    }
   }
 
   const empSettlements = lateSettlements.filter(

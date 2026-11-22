@@ -61,6 +61,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const [busyEmpId, setBusyEmpId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState<boolean>(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [unloggedSearch, setUnloggedSearch] = useState<string>('');
 
   const today = getTodayDateStr();
@@ -260,6 +261,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   ) => {
     setBusyEmpId(emp.id);
     setBannerMessage(null);
+    setErrorMessage(null);
     try {
       let quickCheckIn = '';
       if (status === 'hadir') {
@@ -298,6 +300,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       setBannerMessage(
         `${emp.name} dicatat sebagai ${ATTENDANCE_STATUS_META[status].label}.`
       );
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : `Gagal mencatat absensi ${emp.name}.`
+      );
     } finally {
       setBusyEmpId(null);
     }
@@ -306,6 +312,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const handleBulkMarkOff = async () => {
     setBulkBusy(true);
     setBannerMessage(null);
+    setErrorMessage(null);
     try {
       const res = await bulkMarkScheduledOffDays(today);
       await onRefresh();
@@ -313,6 +320,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         res.createdCount > 0
           ? `${res.createdCount} karyawan libur terjadwal hari ini telah ditandai otomatis.`
           : 'Seluruh karyawan libur hari ini sudah memiliki catatan.'
+      );
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : 'Gagal menandai staf libur hari ini.'
       );
     } finally {
       setBulkBusy(false);
@@ -358,6 +369,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <span>{bannerMessage}</span>
               </div>
             )}
+            {errorMessage && (
+              <div className="mt-2.5 inline-flex items-center gap-2 text-xs font-medium text-red-800 bg-red-50 border border-red-200 px-3 py-1.5 rounded-md">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 shrink-0">
@@ -386,7 +403,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
-                <span>Input Absensi Manual</span>
+                <span>Input Absensi</span>
               </button>
             </div>
           </div>
@@ -463,7 +480,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         <div className="bg-white border border-slate-200 rounded-xl p-5">
           <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Jam Lembur Manual (Bulan Ini)</span>
+            <span>Jam Lembur (Bulan Ini)</span>
             <Clock className="w-4 h-4 text-slate-400" />
           </div>
           <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">

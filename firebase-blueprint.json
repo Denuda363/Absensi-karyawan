@@ -167,7 +167,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["hadir", "terlambat", "izin", "sakit", "alpha", "libur"]
+          "enum": ["hadir", "terlambat", "izin_terlambat", "izin", "sakit", "alpha", "libur"]
         },
         "checkIn": {
           "type": "string",
@@ -393,6 +393,114 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "TestConnectionDoc": {
+      "title": "TestConnectionDoc",
+      "description": "Firestore connectivity check document.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "status": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "status", "updatedAt"]
+    },
+    "AppSettingsDoc": {
+      "title": "AppSettingsDoc",
+      "description": "Company general settings and shifts snapshot.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "companyName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "companySubtitle": { "type": "string", "maxLength": 120 },
+        "lateDeductionPerMinute": { "type": "number" },
+        "shiftCount": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "companyName", "companySubtitle", "lateDeductionPerMinute", "shiftCount", "updatedAt"]
+    },
+    "LateSettlementDoc": {
+      "title": "LateSettlementDoc",
+      "description": "Employee late compensation or deduction settlement record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "yearMonth": { "type": "string", "maxLength": 7, "pattern": "^\\d{4}-\\d{2}$" },
+        "date": { "type": "string", "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "method": { "type": "string", "enum": ["tambahan_jam_kerja", "potongan_gaji"] },
+        "minutesSettled": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "recordedBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "employeeId", "employeeName", "yearMonth", "date", "method", "minutesSettled", "notes", "recordedBy", "createdAt"]
+    },
+    "FinanceAccountDoc": {
+      "title": "FinanceAccountDoc",
+      "description": "Company cash or bank account definition.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "kind": { "type": "string", "enum": ["cash", "rekening"] },
+        "bankName": { "type": "string", "maxLength": 60 },
+        "accountNumber": { "type": "string", "maxLength": 60 },
+        "holderName": { "type": "string", "maxLength": 100 },
+        "openingBalance": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "kind", "bankName", "accountNumber", "holderName", "openingBalance", "updatedAt"]
+    },
+    "FinanceCategoryDoc": {
+      "title": "FinanceCategoryDoc",
+      "description": "Income or expense category definition.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "type": { "type": "string", "enum": ["pendapatan", "pengeluaran"] },
+        "description": { "type": "string", "maxLength": 300 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "type", "description", "updatedAt"]
+    },
+    "FinanceTransactionDoc": {
+      "title": "FinanceTransactionDoc",
+      "description": "Company financial income or expense transaction.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "type": { "type": "string", "enum": ["pendapatan", "pengeluaran"] },
+        "method": { "type": "string", "enum": ["cash", "transfer"] },
+        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "categoryName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "accountId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "amount": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "date", "type", "method", "categoryId", "categoryName", "accountId", "title", "amount", "notes", "updatedAt"]
+    },
+    "FinanceTransferDoc": {
+      "title": "FinanceTransferDoc",
+      "description": "Internal fund transfer between company cash and bank accounts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "fromAccountId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fromAccountName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "toAccountId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "toAccountName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "amount": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "date", "fromAccountId", "fromAccountName", "toAccountId", "toAccountName", "amount", "notes", "updatedAt"]
     }
   },
   "firestore": {
@@ -415,6 +523,34 @@
     "/leaveRequests/{requestId}": {
       "schema": { "$ref": "#/entities/LeaveRequest" },
       "description": "Employee leave, permission, and sick request records."
+    },
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/TestConnectionDoc" },
+      "description": "Connectivity verification document."
+    },
+    "/appSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSettingsDoc" },
+      "description": "Company settings and shift configuration metadata."
+    },
+    "/lateSettlements/{settlementId}": {
+      "schema": { "$ref": "#/entities/LateSettlementDoc" },
+      "description": "Employee late compensation settlements."
+    },
+    "/financeAccounts/{accountId}": {
+      "schema": { "$ref": "#/entities/FinanceAccountDoc" },
+      "description": "Company cash and bank accounts."
+    },
+    "/financeCategories/{categoryId}": {
+      "schema": { "$ref": "#/entities/FinanceCategoryDoc" },
+      "description": "Company finance income/expense categories."
+    },
+    "/financeTransactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/FinanceTransactionDoc" },
+      "description": "Company financial transactions."
+    },
+    "/financeTransfers/{transferId}": {
+      "schema": { "$ref": "#/entities/FinanceTransferDoc" },
+      "description": "Internal transfers between cash and bank accounts."
     }
   }
 }

@@ -47,6 +47,10 @@ service cloud.firestore {
       return d is string && d.size() == 10 && d.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
 
+    function isValidYearMonthStr(ym) {
+      return ym is string && ym.size() == 7 && ym.matches('^\\d{4}-\\d{2}$');
+    }
+
     function isValidTimeStr(t) {
       return t is string && t.size() == 5 && t.matches('^([01]\\d|2[0-3]):[0-5]\\d$');
     }
@@ -111,7 +115,7 @@ service cloud.firestore {
         && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
         && isValidId(data.userId)
         && isValidDateStr(data.date)
-        && data.status in ['hadir', 'terlambat', 'izin', 'sakit', 'alpha', 'libur']
+        && data.status in ['hadir', 'terlambat', 'izin_terlambat', 'izin', 'sakit', 'alpha', 'libur']
         && isValidOptionalTimeStr(data.checkIn)
         && isValidOptionalTimeStr(data.checkOut)
         && data.entryType in ['manual_karyawan', 'manual_admin']
@@ -168,6 +172,93 @@ service cloud.firestore {
         && data.reviewedBy is string && data.reviewedBy.size() <= 128
         && data.reviewNotes is string && data.reviewNotes.size() <= 300
         && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTestConnection(data) {
+      return data.keys().hasAll(['id', 'status', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'status', 'updatedAt'])
+        && isValidId(data.id)
+        && data.status is string && data.status.size() >= 1 && data.status.size() <= 32
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAppSettings(data) {
+      return data.keys().hasAll(['id', 'companyName', 'companySubtitle', 'lateDeductionPerMinute', 'shiftCount', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'companyName', 'companySubtitle', 'lateDeductionPerMinute', 'shiftCount', 'updatedAt'])
+        && isValidId(data.id)
+        && data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 120
+        && data.companySubtitle is string && data.companySubtitle.size() <= 120
+        && (data.lateDeductionPerMinute is int || data.lateDeductionPerMinute is float) && data.lateDeductionPerMinute >= 0
+        && (data.shiftCount is int || data.shiftCount is float) && data.shiftCount >= 0 && data.shiftCount <= 50
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLateSettlement(data) {
+      return data.keys().hasAll(['id', 'employeeId', 'employeeName', 'yearMonth', 'date', 'method', 'minutesSettled', 'notes', 'recordedBy', 'createdAt'])
+        && data.keys().hasOnly(['id', 'employeeId', 'employeeName', 'yearMonth', 'date', 'method', 'minutesSettled', 'notes', 'recordedBy', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 1 && data.employeeName.size() <= 100
+        && isValidYearMonthStr(data.yearMonth)
+        && isValidDateStr(data.date)
+        && data.method in ['tambahan_jam_kerja', 'potongan_gaji']
+        && (data.minutesSettled is int || data.minutesSettled is float) && data.minutesSettled >= 0
+        && data.notes is string && data.notes.size() <= 300
+        && data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFinanceAccount(data) {
+      return data.keys().hasAll(['id', 'name', 'kind', 'bankName', 'accountNumber', 'holderName', 'openingBalance', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'kind', 'bankName', 'accountNumber', 'holderName', 'openingBalance', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.kind in ['cash', 'rekening']
+        && data.bankName is string && data.bankName.size() <= 60
+        && data.accountNumber is string && data.accountNumber.size() <= 60
+        && data.holderName is string && data.holderName.size() <= 100
+        && (data.openingBalance is int || data.openingBalance is float)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFinanceCategory(data) {
+      return data.keys().hasAll(['id', 'name', 'type', 'description', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'type', 'description', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.type in ['pendapatan', 'pengeluaran']
+        && data.description is string && data.description.size() <= 300
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFinanceTransaction(data) {
+      return data.keys().hasAll(['id', 'date', 'type', 'method', 'categoryId', 'categoryName', 'accountId', 'title', 'amount', 'notes', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'date', 'type', 'method', 'categoryId', 'categoryName', 'accountId', 'title', 'amount', 'notes', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidDateStr(data.date)
+        && data.type in ['pendapatan', 'pengeluaran']
+        && data.method in ['cash', 'transfer']
+        && isValidId(data.categoryId)
+        && data.categoryName is string && data.categoryName.size() >= 1 && data.categoryName.size() <= 100
+        && isValidId(data.accountId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 150
+        && (data.amount is int || data.amount is float) && data.amount >= 0
+        && data.notes is string && data.notes.size() <= 300
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFinanceTransfer(data) {
+      return data.keys().hasAll(['id', 'date', 'fromAccountId', 'fromAccountName', 'toAccountId', 'toAccountName', 'amount', 'notes', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'date', 'fromAccountId', 'fromAccountName', 'toAccountId', 'toAccountName', 'amount', 'notes', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidDateStr(data.date)
+        && isValidId(data.fromAccountId)
+        && data.fromAccountName is string && data.fromAccountName.size() >= 1 && data.fromAccountName.size() <= 100
+        && isValidId(data.toAccountId)
+        && data.toAccountName is string && data.toAccountName.size() >= 1 && data.toAccountName.size() <= 100
+        && (data.amount is int || data.amount is float) && data.amount > 0
+        && data.notes is string && data.notes.size() <= 300
         && data.updatedAt is timestamp;
     }
 
@@ -362,6 +453,89 @@ service cloud.firestore {
         );
 
       allow delete: if isValidId(requestId) && isAdmin();
+    }
+
+    match /test/{docId} {
+      allow get: if isValidId(docId) && isSignedIn();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(docId)
+        && docId == 'connection'
+        && isAdmin()
+        && isValidTestConnection(incoming())
+        && incoming().id == docId
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /appSettings/{settingId} {
+      allow get: if isValidId(settingId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(settingId)
+        && isAdmin()
+        && isValidAppSettings(incoming())
+        && incoming().id == settingId
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /lateSettlements/{settlementId} {
+      allow get: if isValidId(settlementId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(settlementId)
+        && isAdmin()
+        && isValidLateSettlement(incoming())
+        && incoming().id == settlementId
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(settlementId)
+        && isAdmin()
+        && isValidLateSettlement(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(settlementId) && isAdmin();
+    }
+
+    match /financeAccounts/{accountId} {
+      allow get: if isValidId(accountId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(accountId)
+        && isAdmin()
+        && isValidFinanceAccount(incoming())
+        && incoming().id == accountId
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(accountId) && isAdmin();
+    }
+
+    match /financeCategories/{categoryId} {
+      allow get: if isValidId(categoryId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(categoryId)
+        && isAdmin()
+        && isValidFinanceCategory(incoming())
+        && incoming().id == categoryId
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(categoryId) && isAdmin();
+    }
+
+    match /financeTransactions/{transactionId} {
+      allow get: if isValidId(transactionId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(transactionId)
+        && isAdmin()
+        && isValidFinanceTransaction(incoming())
+        && incoming().id == transactionId
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(transactionId) && isAdmin();
+    }
+
+    match /financeTransfers/{transferId} {
+      allow get: if isValidId(transferId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(transferId)
+        && isAdmin()
+        && isValidFinanceTransfer(incoming())
+        && incoming().id == transferId
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(transferId) && isAdmin();
     }
   }
 }

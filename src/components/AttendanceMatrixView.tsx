@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   CalendarOff,
+  CheckCircle2,
   Clock,
   ClipboardList,
   Download,
@@ -96,6 +98,10 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   const [deptFilter, setDeptFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [exporting, setExporting] = useState<boolean>(false);
+  const [actionBanner, setActionBanner] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Log Catatan Absensi filters & quick-action state
   const [logSelectedDate, setLogSelectedDate] = useState<string>(getTodayDateStr());
@@ -191,6 +197,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
   // If navigated from Dashboard "Izin Telat" or "Input Detail", open input modal directly
   useEffect(() => {
+    if (activeEmployees.length === 0) return;
     if (preselectedEmployeeId || preselectedStatus) {
       const emp =
         (preselectedEmployeeId
@@ -335,6 +342,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
   const handleExportExcel = async () => {
     setExporting(true);
+    setActionBanner(null);
     try {
       await exportAttendanceMatrixToExcel({
         employees: scopedEmployees,
@@ -346,6 +354,11 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
         companyName: settings?.companyName,
         companySubtitle: settings?.companySubtitle,
         companyProfile: settings?.companyProfile,
+      });
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal mengekspor Excel matriks absensi.',
       });
     } finally {
       setExporting(false);
@@ -415,9 +428,15 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
   const handleQuickArriveLog = async (rec: AttendanceRecord) => {
     setLogBusyId(rec.id);
+    setActionBanner(null);
     try {
       await updateAttendanceRecord(rec.id, { checkIn: getCurrentTimeStr() });
       await onRefresh();
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal mencatat jam tiba karyawan.',
+      });
     } finally {
       setLogBusyId(null);
     }
@@ -425,9 +444,15 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
   const handleQuickCheckOutLog = async (rec: AttendanceRecord) => {
     setLogBusyId(rec.id);
+    setActionBanner(null);
     try {
       await updateAttendanceRecord(rec.id, { checkOut: getCurrentTimeStr() });
       await onRefresh();
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal mencatat jam pulang karyawan.',
+      });
     } finally {
       setLogBusyId(null);
     }
@@ -435,9 +460,15 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
   const handleDeleteLog = async (recordId: string) => {
     setLogBusyId(recordId);
+    setActionBanner(null);
     try {
       await deleteAttendanceRecord(recordId);
       await onRefresh();
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal menghapus catatan absensi.',
+      });
     } finally {
       setLogBusyId(null);
     }
@@ -445,11 +476,24 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
   const handleBulkMarkOff = async () => {
     setBulkBusy(true);
+    setActionBanner(null);
     try {
       const targetDate =
         activeSubTab === 'log' && !logShowAllDates ? logSelectedDate : getTodayDateStr();
-      await bulkMarkScheduledOffDays(targetDate);
+      const res = await bulkMarkScheduledOffDays(targetDate);
       await onRefresh();
+      setActionBanner({
+        type: 'success',
+        text:
+          res.createdCount > 0
+            ? `${res.createdCount} karyawan libur terjadwal pada ${targetDate} telah ditandai.`
+            : `Seluruh karyawan libur terjadwal pada ${targetDate} sudah tercatat.`,
+      });
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal menandai libur terjadwal.',
+      });
     } finally {
       setBulkBusy(false);
     }
@@ -464,7 +508,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       'Perkiraan Tiba (Izin Telat)',
       'Jam Keluar',
       'Durasi Kerja',
-      'Lembur Manual (Jam)',
+      'Lembur (Jam)',
       'Alasan / Catatan',
     ];
     const rows = filteredLogRecords.map((r) => {
@@ -488,12 +532,14 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       ];
     });
     const csv = [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = `log-absensi-${logShowAllDates ? selectedMonth : logSelectedDate}.csv`;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
@@ -702,10 +748,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   const handleDeleteCellRecord = async () => {
     if (!cellModal?.record) return;
     setSaving(true);
+    setFormError(null);
     try {
       await deleteAttendanceRecord(cellModal.record.id);
       await onRefresh();
       setCellModal(null);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Gagal menghapus catatan absensi.');
     } finally {
       setSaving(false);
     }
@@ -824,6 +873,33 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
             )}
           </div>
         </div>
+
+        {actionBanner && (
+          <div
+            className={`px-3.5 py-2.5 rounded-lg border text-xs font-medium flex items-center justify-between gap-2 ${
+              actionBanner.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-red-50 border-red-200 text-red-800'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {actionBanner.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+              )}
+              <span>{actionBanner.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionBanner(null)}
+              aria-label="Tutup notifikasi"
+              className="opacity-70 hover:opacity-100 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Shared Filters */}
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1627,7 +1703,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           <div className="bg-white border border-slate-200 rounded-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto shadow-xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <h3 className="font-display text-lg font-semibold text-slate-900">
-                Input Absensi Manual (Admin)
+                Input Absensi Karyawan (Admin)
               </h3>
               <button
                 type="button"

@@ -143,6 +143,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [expandedLateEmpIds, setExpandedLateEmpIds] = useState<Set<string>>(new Set());
   const [exportingExcel, setExportingExcel] = useState<boolean>(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deletingSettlementId, setDeletingSettlementId] = useState<string | null>(null);
 
   // Settlement / Cicilan Modal state
@@ -647,11 +648,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const handleDeleteSettlement = async (settlement: LateSettlement) => {
     setDeletingSettlementId(settlement.id);
     setBannerMessage(null);
+    setErrorMessage(null);
     try {
       await deleteLateSettlement(settlement.id);
       if (onRefresh) await onRefresh();
       setBannerMessage(
         `Catatan ganti keterlambatan ${settlement.employeeName} (${settlement.minutesSettled} menit) telah dihapus.`
+      );
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : 'Gagal menghapus catatan ganti keterlambatan.'
       );
     } finally {
       setDeletingSettlementId(null);
@@ -671,7 +679,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       'Izin/Sakit',
       'Alpha',
       'Total Jam Kerja',
-      'Lembur Manual (Jam)',
+      'Lembur (Jam)',
       'Kehadiran (%)',
     ];
     const rows = summaries.map((s) => [
@@ -690,12 +698,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       `${s.attendancePct}%`,
     ]);
     const csv = [header.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = `rekap-absensi-${selectedMonth}.csv`;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
@@ -796,12 +806,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       ...detailRows.map((r) => r.join(',')),
     ].join('\n');
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = `rekap-keterlambatan-${selectedMonth}.csv`;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
@@ -1000,6 +1012,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               disabled={exportingExcel || scopedEmployees.length === 0}
               onClick={async () => {
                 setExportingExcel(true);
+                setErrorMessage(null);
                 try {
                   await exportAttendanceMatrixToExcel({
                     employees: scopedEmployees,
@@ -1012,6 +1025,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     companySubtitle: settings?.companySubtitle,
                     companyProfile: settings?.companyProfile,
                   });
+                } catch (err) {
+                  setErrorMessage(
+                    err instanceof Error
+                      ? err.message
+                      : 'Gagal mengekspor laporan absensi ke Excel.'
+                  );
                 } finally {
                   setExportingExcel(false);
                 }
@@ -1036,6 +1055,23 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             onClick={() => setBannerMessage(null)}
             className="text-emerald-700 hover:text-emerald-900 cursor-pointer"
             aria-label="Tutup notifikasi"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl text-xs font-medium flex items-center justify-between gap-3 no-print">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="text-red-700 hover:text-red-900 cursor-pointer"
+            aria-label="Tutup error"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1086,7 +1122,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 </div>
               </div>
               <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-xs font-medium text-slate-500">Total Lembur Manual</div>
+                <div className="text-xs font-medium text-slate-500">Total Jam Lembur</div>
                 <div className="mt-2 font-mono text-2xl font-bold text-blue-700 tabular-nums">
                   {aggregate.totalOtHours.toFixed(1)}{' '}
                   <span className="text-xs font-normal text-slate-500">jam</span>

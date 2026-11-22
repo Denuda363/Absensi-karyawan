@@ -563,3 +563,94 @@ export function getMonthMetadata(yearMonth: string): {
   };
 }
 
+export type DatabaseEngineType =
+  | 'supabase'
+  | 'local-json'
+  | 'firestore'
+  | 'postgresql'
+  | 'mysql'
+  | 'sqlite';
+
+export interface DatabaseConnectionConfig {
+  engine: DatabaseEngineType;
+  host: string;
+  port: number;
+  databaseName: string;
+  schemaName: string;
+  tablePrefix: string;
+  username: string;
+  sslMode: 'disable' | 'require' | 'verify-full';
+  autoCreateMissingTables: boolean;
+  hasCustomDatabasePin: boolean;
+  firestoreProjectId: string;
+  firestoreDatabaseId: string;
+  supabaseProjectName?: string;
+  supabaseProjectId?: string;
+  supabaseUrl?: string;
+  supabaseRestUrl?: string;
+  supabasePublishableKey?: string;
+  hasSupabaseSecretKey?: boolean;
+  hasSupabaseDbUrl?: boolean;
+  supabaseConnected?: boolean;
+  supabaseLastError?: string | null;
+  lastCheckedAt: string | null;
+  lastAutoInitAt: string | null;
+  updatedAt: string;
+}
+
+export interface DatabaseTableStatus {
+  tableName: string;
+  firestoreCollection: string;
+  module: 'Absensi' | 'Pengaturan' | 'Penggajian' | 'Keuangan' | 'Keamanan';
+  description: string;
+  storageFile: string;
+  exists: boolean;
+  recordCount: number;
+  localRecordCount?: number;
+  remoteStatus?: 'available' | 'missing' | 'rls_blocked' | 'unreachable' | 'local';
+  requiredColumns: string[];
+}
+
+export interface DatabaseSchemaStatusResponse {
+  config: DatabaseConnectionConfig;
+  tables: DatabaseTableStatus[];
+  summary: {
+    totalRequired: number;
+    existingCount: number;
+    missingCount: number;
+    totalRecords: number;
+  };
+}
+
+export interface DatabaseAutoInitResult {
+  createdTables: string[];
+  alreadyExistingTables: string[];
+  message: string;
+  requiresManualSql?: boolean;
+  status: DatabaseSchemaStatusResponse;
+}
+
+export interface SupabaseTestResult {
+  ok: boolean;
+  reachable: boolean;
+  latencyMs: number;
+  projectName: string;
+  projectId: string;
+  projectUrl: string;
+  restUrl: string;
+  existingTablesCount: number;
+  missingTablesCount: number;
+  rlsBlockedCount: number;
+  hasDbUrl: boolean;
+  message: string;
+  status: DatabaseSchemaStatusResponse;
+}
+
+export interface SupabaseSyncResult {
+  ok: boolean;
+  direction: 'push' | 'pull';
+  syncedTables: { tableName: string; rowCount: number }[];
+  failedTables: { tableName: string; error: string }[];
+  message: string;
+  status: DatabaseSchemaStatusResponse;
+}

@@ -1345,6 +1345,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const handleExportExcel = async () => {
     setExportingExcel(true);
+    setErrorMessage(null);
     try {
       await exportFinanceToExcel({
         transactions: filteredTransactions,
@@ -1360,6 +1361,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         companyName: settings.companyName,
         companyProfile: settings.companyProfile,
       });
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : 'Gagal mengekspor data keuangan ke Excel.'
+      );
     } finally {
       setExportingExcel(false);
     }

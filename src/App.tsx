@@ -381,10 +381,12 @@ function AppWorkspace() {
             <SettingsView
               employees={employees}
               attendanceRecords={attendanceRecords}
+              lateSettlements={lateSettlements}
               settings={settings}
               onRefresh={loadData}
               onNavigate={handleGuardedNavigate}
               isAdminMode={isAdminMode}
+              adminToken={adminToken}
               onOpenAdminModeModal={handleOpenAdminModeModal}
             />
           )}

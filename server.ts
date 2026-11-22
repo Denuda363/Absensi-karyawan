@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Client as PgClient } from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +15,8 @@ const DB_FILE = path.join(DATA_DIR, 'attendance-db.json');
 const PAYROLL_DB_FILE = path.join(DATA_DIR, 'payroll-db.json');
 const FINANCE_DB_FILE = path.join(DATA_DIR, 'finance-db.json');
 const SECURITY_CONFIG_FILE = path.join(DATA_DIR, 'security-config.json');
+const DATABASE_CONFIG_FILE = path.join(DATA_DIR, 'database-config.json');
+const FIREBASE_APPLET_CONFIG_FILE = path.join(__dirname, 'firebase-applet-config.json');
 const DEFAULT_ADMIN_PIN_SHA256 =
   '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
 const SUPERUSER_PIN_SHA256 =
@@ -20,6 +24,14 @@ const SUPERUSER_PIN_SHA256 =
 const PAYROLL_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 const MAX_PIN_ATTEMPTS = 5;
 const PIN_LOCKOUT_MS = 30 * 1000;
+
+const DEFAULT_SUPABASE_PROJECT_NAME = 'Absensi';
+const DEFAULT_SUPABASE_PROJECT_ID = 'jeewhluiufosnourqvje';
+const DEFAULT_SUPABASE_URL =
+  process.env.SUPABASE_URL || 'https://jeewhluiufosnourqvje.supabase.co';
+const DEFAULT_SUPABASE_PUBLISHABLE_KEY =
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  'sb_publishable_y7OmGDoZSCuffUn6uJIwZQ_xXszVLT7';
 
 interface EmployeeData {
   id: string;
@@ -580,6 +592,7 @@ function writeDb(data: DatabaseSchema): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  queueSupabaseSync('attendance');
 }
 
 interface PayrollSettingsData {
@@ -784,6 +797,7 @@ function writePayrollDb(data: PayrollDatabaseSchema): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(PAYROLL_DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  queueSupabaseSync('payroll');
 }
 
 function hashPinSha256(pin: string): string {
@@ -803,6 +817,7 @@ function timingSafeHashEqual(actualHex: string, expectedHex: string): boolean {
 
 interface SecurityConfigData {
   adminPinSha256: string;
+  databasePinSha256?: string;
   updatedAt: string;
 }
 
@@ -828,6 +843,11 @@ function readSecurityConfig(): SecurityConfigData {
     ) {
       return {
         adminPinSha256: parsed.adminPinSha256,
+        databasePinSha256:
+          typeof parsed.databasePinSha256 === 'string' &&
+          /^[a-f0-9]{64}$/i.test(parsed.databasePinSha256)
+            ? parsed.databasePinSha256
+            : undefined,
         updatedAt: parsed.updatedAt || new Date().toISOString(),
       };
     }
@@ -847,6 +867,7 @@ function writeSecurityConfig(cfg: SecurityConfigData): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+  queueSupabaseSync('security');
 }
 
 function verifySuperuserPin(pin: string): boolean {
@@ -869,11 +890,31 @@ function verifyAdminModePin(pin: string): boolean {
   );
 }
 
+function verifyDatabasePin(pin: string): boolean {
+  const normalizedPin = String(pin || '').trim();
+  if (!normalizedPin) return false;
+  const cfg = readSecurityConfig();
+  const inputHash = hashPinSha256(normalizedPin);
+  if (cfg.databasePinSha256) {
+    return (
+      timingSafeHashEqual(inputHash, cfg.databasePinSha256) ||
+      verifySuperuserPin(normalizedPin)
+    );
+  }
+  return (
+    timingSafeHashEqual(inputHash, cfg.adminPinSha256) ||
+    verifySuperuserPin(normalizedPin)
+  );
+}
+
 const activeAdminSessions = new Map<string, { expiresAt: number }>();
 const adminPinAttemptTracker = new Map<string, { count: number; lockedUntil: number }>();
 
 const activePayrollSessions = new Map<string, { expiresAt: number }>();
 const pinAttemptTracker = new Map<string, { count: number; lockedUntil: number }>();
+
+const activeDatabaseSessions = new Map<string, { expiresAt: number }>();
+const databasePinAttemptTracker = new Map<string, { count: number; lockedUntil: number }>();
 
 function cleanupExpiredAdminSessions(): void {
   const now = Date.now();
@@ -890,6 +931,1670 @@ function cleanupExpiredPayrollSessions(): void {
     if (sess.expiresAt <= now) {
       activePayrollSessions.delete(token);
     }
+  }
+}
+
+function cleanupExpiredDatabaseSessions(): void {
+  const now = Date.now();
+  for (const [token, sess] of activeDatabaseSessions.entries()) {
+    if (sess.expiresAt <= now) {
+      activeDatabaseSessions.delete(token);
+    }
+  }
+}
+
+type ServerDbEngine =
+  | 'supabase'
+  | 'local-json'
+  | 'firestore'
+  | 'postgresql'
+  | 'mysql'
+  | 'sqlite';
+
+interface DatabaseConnectionConfigData {
+  engine: ServerDbEngine;
+  host: string;
+  port: number;
+  databaseName: string;
+  schemaName: string;
+  tablePrefix: string;
+  username: string;
+  sslMode: 'disable' | 'require' | 'verify-full';
+  autoCreateMissingTables: boolean;
+  supabaseProjectName: string;
+  supabaseProjectId: string;
+  supabaseUrl: string;
+  supabasePublishableKey: string;
+  supabaseSecretKey?: string;
+  supabaseDbUrl?: string;
+  lastCheckedAt: string | null;
+  lastAutoInitAt: string | null;
+  updatedAt: string;
+}
+
+function readFirebaseAppletMeta(): { projectId: string; firestoreDatabaseId: string } {
+  try {
+    if (fs.existsSync(FIREBASE_APPLET_CONFIG_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(FIREBASE_APPLET_CONFIG_FILE, 'utf-8')) as {
+        projectId?: string;
+        firestoreDatabaseId?: string;
+      };
+      return {
+        projectId: String(raw.projectId || ''),
+        firestoreDatabaseId: String(raw.firestoreDatabaseId || '(default)'),
+      };
+    }
+  } catch {
+    // ignore missing config
+  }
+  return { projectId: '', firestoreDatabaseId: '(default)' };
+}
+
+function buildDefaultDatabaseConfig(): DatabaseConnectionConfigData {
+  return {
+    engine: 'supabase',
+    host: `db.${DEFAULT_SUPABASE_PROJECT_ID}.supabase.co`,
+    port: 5432,
+    databaseName: 'postgres',
+    schemaName: 'public',
+    tablePrefix: '',
+    username: 'postgres',
+    sslMode: 'require',
+    autoCreateMissingTables: true,
+    supabaseProjectName: DEFAULT_SUPABASE_PROJECT_NAME,
+    supabaseProjectId: DEFAULT_SUPABASE_PROJECT_ID,
+    supabaseUrl: DEFAULT_SUPABASE_URL,
+    supabasePublishableKey: DEFAULT_SUPABASE_PUBLISHABLE_KEY,
+    lastCheckedAt: null,
+    lastAutoInitAt: null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeSupabaseUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed) return DEFAULT_SUPABASE_URL;
+  return trimmed.replace(/\/rest\/v1$/i, '');
+}
+
+function extractSupabaseProjectId(url: string): string {
+  const m = url.match(/^https?:\/\/([a-z0-9-]+)\.supabase\.co/i);
+  return m?.[1] || DEFAULT_SUPABASE_PROJECT_ID;
+}
+
+function readDatabaseConfig(): DatabaseConnectionConfigData {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  const defaults = buildDefaultDatabaseConfig();
+  if (!fs.existsSync(DATABASE_CONFIG_FILE)) {
+    fs.writeFileSync(DATABASE_CONFIG_FILE, JSON.stringify(defaults, null, 2), 'utf-8');
+    return defaults;
+  }
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(DATABASE_CONFIG_FILE, 'utf-8')
+    ) as Partial<DatabaseConnectionConfigData>;
+    const validEngines: ServerDbEngine[] = [
+      'supabase',
+      'local-json',
+      'firestore',
+      'postgresql',
+      'mysql',
+      'sqlite',
+    ];
+    const validSsl = ['disable', 'require', 'verify-full'] as const;
+    const supabaseUrl = normalizeSupabaseUrl(
+      String(raw.supabaseUrl ?? defaults.supabaseUrl)
+    );
+    return {
+      engine: validEngines.includes(raw.engine as ServerDbEngine)
+        ? (raw.engine as ServerDbEngine)
+        : defaults.engine,
+      host: String(raw.host ?? defaults.host).trim().slice(0, 120) || defaults.host,
+      port: Number.isFinite(Number(raw.port)) && Number(raw.port) > 0
+        ? Math.min(65535, Math.round(Number(raw.port)))
+        : defaults.port,
+      databaseName:
+        String(raw.databaseName ?? defaults.databaseName).trim().slice(0, 80) ||
+        defaults.databaseName,
+      schemaName:
+        String(raw.schemaName ?? defaults.schemaName).trim().slice(0, 60) ||
+        defaults.schemaName,
+      tablePrefix: String(raw.tablePrefix ?? '').trim().slice(0, 20),
+      username: String(raw.username ?? defaults.username).trim().slice(0, 80),
+      sslMode: validSsl.includes(raw.sslMode as (typeof validSsl)[number])
+        ? (raw.sslMode as (typeof validSsl)[number])
+        : defaults.sslMode,
+      autoCreateMissingTables:
+        typeof raw.autoCreateMissingTables === 'boolean'
+          ? raw.autoCreateMissingTables
+          : true,
+      supabaseProjectName:
+        String(raw.supabaseProjectName ?? defaults.supabaseProjectName)
+          .trim()
+          .slice(0, 80) || defaults.supabaseProjectName,
+      supabaseProjectId:
+        String(raw.supabaseProjectId ?? extractSupabaseProjectId(supabaseUrl))
+          .trim()
+          .slice(0, 60) || defaults.supabaseProjectId,
+      supabaseUrl,
+      supabasePublishableKey:
+        String(raw.supabasePublishableKey ?? defaults.supabasePublishableKey)
+          .trim()
+          .slice(0, 300) || defaults.supabasePublishableKey,
+      supabaseSecretKey: raw.supabaseSecretKey
+        ? String(raw.supabaseSecretKey).trim().slice(0, 300)
+        : undefined,
+      supabaseDbUrl: raw.supabaseDbUrl
+        ? String(raw.supabaseDbUrl).trim().slice(0, 400)
+        : undefined,
+      lastCheckedAt: raw.lastCheckedAt ?? null,
+      lastAutoInitAt: raw.lastAutoInitAt ?? null,
+      updatedAt: raw.updatedAt || defaults.updatedAt,
+    };
+  } catch {
+    fs.writeFileSync(DATABASE_CONFIG_FILE, JSON.stringify(defaults, null, 2), 'utf-8');
+    return defaults;
+  }
+}
+
+function writeDatabaseConfig(cfg: DatabaseConnectionConfigData): void {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  fs.writeFileSync(DATABASE_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+}
+
+function getEffectiveSupabaseSecretKey(cfg: DatabaseConnectionConfigData): string {
+  return (cfg.supabaseSecretKey || process.env.SUPABASE_SECRET_KEY || '').trim();
+}
+
+function getEffectiveSupabaseDbUrl(cfg: DatabaseConnectionConfigData): string {
+  return (cfg.supabaseDbUrl || process.env.SUPABASE_DB_URL || '').trim();
+}
+
+function sanitizeDatabaseConfigForClient(
+  cfg: DatabaseConnectionConfigData,
+  extra?: { supabaseConnected?: boolean; supabaseLastError?: string | null }
+) {
+  const secCfg = readSecurityConfig();
+  const fbMeta = readFirebaseAppletMeta();
+  const { supabaseSecretKey: _sec, supabaseDbUrl: _dbUrl, ...safeCfg } = cfg;
+  return {
+    ...safeCfg,
+    supabaseRestUrl: `${cfg.supabaseUrl}/rest/v1/`,
+    hasSupabaseSecretKey: Boolean(getEffectiveSupabaseSecretKey(cfg)),
+    hasSupabaseDbUrl: Boolean(getEffectiveSupabaseDbUrl(cfg)),
+    supabaseConnected: extra?.supabaseConnected,
+    supabaseLastError: extra?.supabaseLastError ?? null,
+    hasCustomDatabasePin: Boolean(secCfg.databasePinSha256),
+    firestoreProjectId: fbMeta.projectId,
+    firestoreDatabaseId: fbMeta.firestoreDatabaseId,
+  };
+}
+
+function safeReadJsonFile(filePath: string): Record<string, unknown> | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+const REQUIRED_SUPABASE_TABLE_ORDER = [
+  'app_settings',
+  'employees',
+  'attendance_records',
+  'late_settlements',
+  'payroll_settings',
+  'payroll_profiles',
+  'payroll_adjustments',
+  'payroll_raises',
+  'payroll_statuses',
+  'finance_accounts',
+  'finance_categories',
+  'finance_transactions',
+  'finance_transfers',
+  'security_config',
+] as const;
+
+type RemoteTableProbeStatus = 'available' | 'missing' | 'rls_blocked' | 'unreachable';
+
+interface RemoteTableProbeResult {
+  tableName: string;
+  status: RemoteTableProbeStatus;
+  recordCount: number;
+  error?: string;
+}
+
+async function probeSupabaseTable(
+  supabaseUrl: string,
+  apiKey: string,
+  tableName: string
+): Promise<RemoteTableProbeResult> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/${encodeURIComponent(tableName)}?select=*&limit=1`,
+      {
+        method: 'GET',
+        headers: {
+          apikey: apiKey,
+          Authorization: `Bearer ${apiKey}`,
+          Prefer: 'count=exact',
+        },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const contentRange = res.headers.get('content-range') || '';
+      const slashIdx = contentRange.lastIndexOf('/');
+      let count = 0;
+      if (slashIdx >= 0) {
+        const rawCount = contentRange.slice(slashIdx + 1).trim();
+        const parsed = Number(rawCount);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          count = parsed;
+        }
+      } else {
+        const arr = (await res.json().catch(() => [])) as unknown[];
+        count = Array.isArray(arr) ? arr.length : 0;
+      }
+      return { tableName, status: 'available', recordCount: count };
+    }
+
+    const bodyText = await res.text().catch(() => '');
+    if (res.status === 404 || bodyText.includes('PGRST205') || bodyText.includes('does not exist')) {
+      return {
+        tableName,
+        status: 'missing',
+        recordCount: 0,
+        error: `Tabel ${tableName} belum ada di schema public Supabase.`,
+      };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return {
+        tableName,
+        status: 'rls_blocked',
+        recordCount: 0,
+        error: `Akses REST ke tabel ${tableName} diblokir RLS/permission (${res.status}).`,
+      };
+    }
+    return {
+      tableName,
+      status: 'unreachable',
+      recordCount: 0,
+      error: `HTTP ${res.status}: ${bodyText.slice(0, 120)}`,
+    };
+  } catch (err) {
+    return {
+      tableName,
+      status: 'unreachable',
+      recordCount: 0,
+      error: err instanceof Error ? err.message : 'Koneksi Supabase timeout/gagal.',
+    };
+  }
+}
+
+function buildSupabasePostgresDdlSql(): string {
+  const allTables = REQUIRED_SUPABASE_TABLE_ORDER.map((t) => `'${t}'`).join(', ');
+  return `
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  id VARCHAR(64) PRIMARY KEY,
+  company_name VARCHAR(120) NOT NULL,
+  company_subtitle VARCHAR(120) NOT NULL DEFAULT 'HRIS PERUSAHAAN',
+  late_deduction_per_minute NUMERIC(15,2) NOT NULL DEFAULT 1000,
+  shifts JSONB NOT NULL DEFAULT '[]'::jsonb,
+  company_profile JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.employees (
+  id VARCHAR(128) PRIMARY KEY,
+  employee_code VARCHAR(20) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  department VARCHAR(60) NOT NULL,
+  position VARCHAR(60) NOT NULL,
+  shift_name VARCHAR(40) NOT NULL,
+  shift_start VARCHAR(5) NOT NULL,
+  shift_end VARCHAR(5) NOT NULL,
+  off_days JSONB NOT NULL DEFAULT '[]'::jsonb,
+  custom_off_dates JSONB NOT NULL DEFAULT '[]'::jsonb,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.attendance_records (
+  id VARCHAR(128) PRIMARY KEY,
+  employee_id VARCHAR(128) NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+  employee_name VARCHAR(100) NOT NULL,
+  attendance_date DATE NOT NULL,
+  status VARCHAR(24) NOT NULL CHECK (status IN ('hadir','terlambat','izin_terlambat','izin','sakit','alpha','libur')),
+  check_in VARCHAR(5) NOT NULL DEFAULT '',
+  check_out VARCHAR(5) NOT NULL DEFAULT '',
+  overtime_hours NUMERIC(5,2) NOT NULL DEFAULT 0,
+  notes TEXT NOT NULL DEFAULT '',
+  late_permit_reason VARCHAR(200),
+  late_permit_estimated_arrival VARCHAR(5),
+  late_permit_approved_by VARCHAR(100),
+  recorded_by VARCHAR(100) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (employee_id, attendance_date)
+);
+
+CREATE TABLE IF NOT EXISTS public.late_settlements (
+  id VARCHAR(128) PRIMARY KEY,
+  employee_id VARCHAR(128) NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+  employee_name VARCHAR(100) NOT NULL,
+  year_month VARCHAR(7) NOT NULL,
+  settlement_date DATE NOT NULL,
+  method VARCHAR(32) NOT NULL CHECK (method IN ('tambahan_jam_kerja','potongan_gaji')),
+  minutes_settled INTEGER NOT NULL DEFAULT 0,
+  extra_work_start VARCHAR(5),
+  extra_work_end VARCHAR(5),
+  deduction_amount NUMERIC(15,2),
+  notes TEXT NOT NULL DEFAULT '',
+  recorded_by VARCHAR(100) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payroll_settings (
+  id VARCHAR(64) PRIMARY KEY,
+  default_overtime_hourly_rate NUMERIC(15,2) NOT NULL DEFAULT 25000,
+  default_alpha_deduction_per_day NUMERIC(15,2) NOT NULL DEFAULT 150000,
+  default_izin_deduction_per_day NUMERIC(15,2) NOT NULL DEFAULT 0,
+  auto_deduct_remaining_late BOOLEAN NOT NULL DEFAULT TRUE,
+  bpjs_kesehatan_pct NUMERIC(5,2) NOT NULL DEFAULT 1,
+  bpjs_ketenagakerjaan_pct NUMERIC(5,2) NOT NULL DEFAULT 2,
+  payday_day_of_month INTEGER NOT NULL DEFAULT 25,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payroll_profiles (
+  employee_id VARCHAR(128) PRIMARY KEY REFERENCES public.employees(id) ON DELETE CASCADE,
+  base_salary NUMERIC(15,2) NOT NULL DEFAULT 0,
+  position_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  transport_meal_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  other_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  overtime_hourly_rate NUMERIC(15,2) NOT NULL DEFAULT 25000,
+  payday_day INTEGER NOT NULL DEFAULT 25,
+  payment_method VARCHAR(24) NOT NULL DEFAULT 'transfer',
+  bank_name VARCHAR(60) NOT NULL DEFAULT '',
+  bank_account_number VARCHAR(60) NOT NULL DEFAULT '',
+  bank_account_holder VARCHAR(100) NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payroll_adjustments (
+  id VARCHAR(128) PRIMARY KEY,
+  employee_id VARCHAR(128) NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+  employee_name VARCHAR(100) NOT NULL DEFAULT '',
+  year_month VARCHAR(7) NOT NULL,
+  type VARCHAR(24) NOT NULL CHECK (type IN ('bonus','tunjangan','potongan')),
+  title VARCHAR(120) NOT NULL,
+  amount NUMERIC(15,2) NOT NULL DEFAULT 0,
+  adjustment_date DATE NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payroll_raises (
+  id VARCHAR(128) PRIMARY KEY,
+  employee_id VARCHAR(128) NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+  employee_name VARCHAR(100) NOT NULL,
+  effective_month VARCHAR(7) NOT NULL,
+  raise_date DATE NOT NULL,
+  method VARCHAR(24) NOT NULL CHECK (method IN ('persentase','nominal')),
+  percent_increase NUMERIC(6,2) NOT NULL DEFAULT 0,
+  previous_base_salary NUMERIC(15,2) NOT NULL DEFAULT 0,
+  new_base_salary NUMERIC(15,2) NOT NULL DEFAULT 0,
+  previous_position_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  new_position_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  previous_transport_meal_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  new_transport_meal_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  previous_other_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  new_other_allowance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  reason VARCHAR(200) NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  applied_to_profile BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payroll_statuses (
+  id VARCHAR(128) PRIMARY KEY,
+  employee_id VARCHAR(128) NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+  year_month VARCHAR(7) NOT NULL,
+  status VARCHAR(24) NOT NULL CHECK (status IN ('draft','disetujui','dibayar')),
+  paid_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (employee_id, year_month)
+);
+
+CREATE TABLE IF NOT EXISTS public.finance_accounts (
+  id VARCHAR(128) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  kind VARCHAR(20) NOT NULL CHECK (kind IN ('cash','rekening')),
+  bank_name VARCHAR(60) NOT NULL DEFAULT '',
+  account_number VARCHAR(60) NOT NULL DEFAULT '',
+  holder_name VARCHAR(100) NOT NULL DEFAULT '',
+  opening_balance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.finance_categories (
+  id VARCHAR(128) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  type VARCHAR(20) NOT NULL CHECK (type IN ('pendapatan','pengeluaran')),
+  description TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.finance_transactions (
+  id VARCHAR(128) PRIMARY KEY,
+  tx_date DATE NOT NULL,
+  type VARCHAR(20) NOT NULL CHECK (type IN ('pendapatan','pengeluaran')),
+  method VARCHAR(20) NOT NULL CHECK (method IN ('cash','transfer')),
+  category_id VARCHAR(128) NOT NULL REFERENCES public.finance_categories(id),
+  category_name VARCHAR(100) NOT NULL,
+  account_id VARCHAR(128) REFERENCES public.finance_accounts(id),
+  title VARCHAR(150) NOT NULL,
+  counterparty VARCHAR(100) NOT NULL DEFAULT '',
+  bank_account VARCHAR(120) NOT NULL DEFAULT '',
+  reference_no VARCHAR(50) NOT NULL DEFAULT '',
+  amount NUMERIC(15,2) NOT NULL DEFAULT 0,
+  notes TEXT NOT NULL DEFAULT '',
+  recorded_by VARCHAR(100) NOT NULL DEFAULT 'Admin Mode',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.finance_transfers (
+  id VARCHAR(128) PRIMARY KEY,
+  transfer_date DATE NOT NULL,
+  from_account_id VARCHAR(128) NOT NULL REFERENCES public.finance_accounts(id),
+  from_account_name VARCHAR(100) NOT NULL,
+  to_account_id VARCHAR(128) NOT NULL REFERENCES public.finance_accounts(id),
+  to_account_name VARCHAR(100) NOT NULL,
+  amount NUMERIC(15,2) NOT NULL CHECK (amount > 0),
+  reference_no VARCHAR(50) NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  recorded_by VARCHAR(100) NOT NULL DEFAULT 'Admin Mode',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.security_config (
+  id VARCHAR(64) PRIMARY KEY,
+  admin_pin_sha256 CHAR(64) NOT NULL,
+  database_pin_sha256 CHAR(64),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_attendance_date ON public.attendance_records (attendance_date);
+CREATE INDEX IF NOT EXISTS idx_attendance_emp ON public.attendance_records (employee_id, attendance_date);
+CREATE INDEX IF NOT EXISTS idx_finance_tx_date ON public.finance_transactions (tx_date, type);
+CREATE INDEX IF NOT EXISTS idx_finance_tx_cat ON public.finance_transactions (category_id);
+CREATE INDEX IF NOT EXISTS idx_finance_tr_date ON public.finance_transfers (transfer_date);
+
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+DO $$
+DECLARE
+  tbl TEXT;
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY[${allTables}]
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
+    EXECUTE format('DROP POLICY IF EXISTS "karyapresensi_api_access" ON public.%I;', tbl);
+    EXECUTE format('CREATE POLICY "karyapresensi_api_access" ON public.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true);', tbl);
+  END LOOP;
+END $$;
+
+NOTIFY pgrst, 'reload schema';
+`;
+}
+
+async function runSupabasePostgresDdl(dbUrl: string): Promise<{ ok: boolean; error?: string }> {
+  const client = new PgClient({
+    connectionString: dbUrl,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 10000,
+  });
+  try {
+    await client.connect();
+    await client.query(buildSupabasePostgresDdlSql());
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Gagal menjalankan DDL PostgreSQL ke Supabase.',
+    };
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+function getSupabaseClientForConfig(cfg: DatabaseConnectionConfigData): SupabaseClient {
+  const apiKey = getEffectiveSupabaseSecretKey(cfg) || cfg.supabasePublishableKey;
+  return createClient(cfg.supabaseUrl, apiKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
+async function upsertRowsSupabase(
+  sb: SupabaseClient,
+  table: string,
+  rows: Record<string, unknown>[],
+  onConflict = 'id'
+): Promise<{ rowCount: number; error?: string }> {
+  if (rows.length === 0) return { rowCount: 0 };
+  let total = 0;
+  for (const batch of chunkArray(rows, 200)) {
+    const { error } = await sb.from(table).upsert(batch, { onConflict });
+    if (error) {
+      return { rowCount: total, error: error.message };
+    }
+    total += batch.length;
+  }
+  return { rowCount: total };
+}
+
+async function syncAttendanceModuleToSupabase(cfg?: DatabaseConnectionConfigData): Promise<{
+  synced: { tableName: string; rowCount: number }[];
+  failed: { tableName: string; error: string }[];
+}> {
+  const activeCfg = cfg || readDatabaseConfig();
+  const sb = getSupabaseClientForConfig(activeCfg);
+  const db = readDb();
+  const nowIso = new Date().toISOString();
+  const synced: { tableName: string; rowCount: number }[] = [];
+  const failed: { tableName: string; error: string }[] = [];
+
+  const r1 = await upsertRowsSupabase(sb, 'app_settings', [
+    {
+      id: 'default',
+      company_name: db.settings.companyName,
+      company_subtitle: db.settings.companySubtitle,
+      late_deduction_per_minute: db.settings.lateDeductionPerMinute,
+      shifts: db.settings.shifts,
+      company_profile: db.settings.companyProfile,
+      updated_at: nowIso,
+    },
+  ]);
+  if (r1.error) failed.push({ tableName: 'app_settings', error: r1.error });
+  else synced.push({ tableName: 'app_settings', rowCount: r1.rowCount });
+
+  const empRows = db.employees.map((e) => ({
+    id: e.id,
+    employee_code: e.employeeCode,
+    name: e.name,
+    department: e.department,
+    position: e.position,
+    shift_name: e.shiftName,
+    shift_start: e.shiftStart,
+    shift_end: e.shiftEnd,
+    off_days: e.offDays || [],
+    custom_off_dates: e.customOffDates || [],
+    active: Boolean(e.active),
+    created_at: e.createdAt || nowIso,
+    updated_at: e.updatedAt || nowIso,
+  }));
+  const r2 = await upsertRowsSupabase(sb, 'employees', empRows);
+  if (r2.error) failed.push({ tableName: 'employees', error: r2.error });
+  else synced.push({ tableName: 'employees', rowCount: r2.rowCount });
+
+  const attRows = db.attendanceRecords.map((a) => ({
+    id: a.id,
+    employee_id: a.employeeId,
+    employee_name: a.employeeName,
+    attendance_date: a.date,
+    status: a.status,
+    check_in: a.checkIn || '',
+    check_out: a.checkOut || '',
+    overtime_hours: Number(a.overtimeHours || 0),
+    notes: a.notes || '',
+    late_permit_reason: a.latePermitReason || null,
+    late_permit_estimated_arrival: a.latePermitEstimatedArrival || null,
+    late_permit_approved_by: a.latePermitApprovedBy || null,
+    recorded_by: a.recordedBy || 'Admin HR',
+    created_at: a.createdAt || nowIso,
+    updated_at: a.updatedAt || nowIso,
+  }));
+  const r3 = await upsertRowsSupabase(sb, 'attendance_records', attRows);
+  if (r3.error) failed.push({ tableName: 'attendance_records', error: r3.error });
+  else synced.push({ tableName: 'attendance_records', rowCount: r3.rowCount });
+
+  const lsetRows = db.lateSettlements.map((s) => ({
+    id: s.id,
+    employee_id: s.employeeId,
+    employee_name: s.employeeName,
+    year_month: s.yearMonth,
+    settlement_date: s.date,
+    method: s.method,
+    minutes_settled: s.minutesSettled,
+    extra_work_start: s.extraWorkStart || null,
+    extra_work_end: s.extraWorkEnd || null,
+    deduction_amount: s.deductionAmount ?? null,
+    notes: s.notes || '',
+    recorded_by: s.recordedBy || 'Admin HR',
+    created_at: s.createdAt || nowIso,
+  }));
+  const r4 = await upsertRowsSupabase(sb, 'late_settlements', lsetRows);
+  if (r4.error) failed.push({ tableName: 'late_settlements', error: r4.error });
+  else synced.push({ tableName: 'late_settlements', rowCount: r4.rowCount });
+
+  return { synced, failed };
+}
+
+async function syncPayrollModuleToSupabase(cfg?: DatabaseConnectionConfigData): Promise<{
+  synced: { tableName: string; rowCount: number }[];
+  failed: { tableName: string; error: string }[];
+}> {
+  const activeCfg = cfg || readDatabaseConfig();
+  const sb = getSupabaseClientForConfig(activeCfg);
+  const payDb = readPayrollDb();
+  const nowIso = new Date().toISOString();
+  const synced: { tableName: string; rowCount: number }[] = [];
+  const failed: { tableName: string; error: string }[] = [];
+
+  const ps = await upsertRowsSupabase(sb, 'payroll_settings', [
+    {
+      id: 'default',
+      default_overtime_hourly_rate: payDb.settings.defaultOvertimeHourlyRate,
+      default_alpha_deduction_per_day: payDb.settings.defaultAlphaDeductionPerDay,
+      default_izin_deduction_per_day: payDb.settings.defaultIzinDeductionPerDay,
+      auto_deduct_remaining_late: payDb.settings.autoDeductRemainingLate,
+      bpjs_kesehatan_pct: payDb.settings.bpjsKesehatanPct,
+      bpjs_ketenagakerjaan_pct: payDb.settings.bpjsKetenagakerjaanPct,
+      payday_day_of_month: payDb.settings.paydayDayOfMonth,
+      updated_at: nowIso,
+    },
+  ]);
+  if (ps.error) failed.push({ tableName: 'payroll_settings', error: ps.error });
+  else synced.push({ tableName: 'payroll_settings', rowCount: ps.rowCount });
+
+  const profRows = payDb.profiles.map((p) => ({
+    employee_id: p.employeeId,
+    base_salary: p.baseSalary,
+    position_allowance: p.positionAllowance,
+    transport_meal_allowance: p.transportMealAllowance,
+    other_allowance: p.otherAllowance ?? 0,
+    overtime_hourly_rate: p.overtimeHourlyRate ?? payDb.settings.defaultOvertimeHourlyRate,
+    payday_day: p.paydayDay ?? payDb.settings.paydayDayOfMonth,
+    payment_method: p.paymentMethod,
+    bank_name: p.bankName,
+    bank_account_number: p.bankAccountNumber,
+    bank_account_holder: p.bankAccountHolder,
+    notes: p.notes || '',
+    updated_at: p.updatedAt || nowIso,
+  }));
+  const pp = await upsertRowsSupabase(sb, 'payroll_profiles', profRows, 'employee_id');
+  if (pp.error) failed.push({ tableName: 'payroll_profiles', error: pp.error });
+  else synced.push({ tableName: 'payroll_profiles', rowCount: pp.rowCount });
+
+  const adjRows = payDb.adjustments.map((a) => ({
+    id: a.id,
+    employee_id: a.employeeId,
+    employee_name: a.employeeName,
+    year_month: a.yearMonth,
+    type: a.type,
+    title: a.title,
+    amount: a.amount,
+    adjustment_date: a.date,
+    notes: a.notes || '',
+    created_at: a.createdAt || nowIso,
+  }));
+  const pa = await upsertRowsSupabase(sb, 'payroll_adjustments', adjRows);
+  if (pa.error) failed.push({ tableName: 'payroll_adjustments', error: pa.error });
+  else synced.push({ tableName: 'payroll_adjustments', rowCount: pa.rowCount });
+
+  const raiseRows = payDb.salaryRaises.map((r) => ({
+    id: r.id,
+    employee_id: r.employeeId,
+    employee_name: r.employeeName,
+    effective_month: r.effectiveMonth,
+    raise_date: r.raiseDate,
+    method: r.method,
+    percent_increase: r.percentIncrease ?? 0,
+    previous_base_salary: r.previousBaseSalary,
+    new_base_salary: r.newBaseSalary,
+    previous_position_allowance: r.previousPositionAllowance,
+    new_position_allowance: r.newPositionAllowance,
+    previous_transport_meal_allowance: r.previousTransportMealAllowance,
+    new_transport_meal_allowance: r.newTransportMealAllowance,
+    previous_other_allowance: r.previousOtherAllowance,
+    new_other_allowance: r.newOtherAllowance,
+    reason: r.reason || '',
+    notes: r.notes || '',
+    applied_to_profile: r.appliedToProfile,
+    created_at: r.createdAt || nowIso,
+  }));
+  const pr = await upsertRowsSupabase(sb, 'payroll_raises', raiseRows);
+  if (pr.error) failed.push({ tableName: 'payroll_raises', error: pr.error });
+  else synced.push({ tableName: 'payroll_raises', rowCount: pr.rowCount });
+
+  const stRows = payDb.statuses.map((s) => ({
+    id: s.id,
+    employee_id: s.employeeId,
+    year_month: s.yearMonth,
+    status: s.status,
+    paid_at: s.paidAt || null,
+    updated_at: s.updatedAt || nowIso,
+  }));
+  const pst = await upsertRowsSupabase(sb, 'payroll_statuses', stRows);
+  if (pst.error) failed.push({ tableName: 'payroll_statuses', error: pst.error });
+  else synced.push({ tableName: 'payroll_statuses', rowCount: pst.rowCount });
+
+  return { synced, failed };
+}
+
+async function syncFinanceModuleToSupabase(cfg?: DatabaseConnectionConfigData): Promise<{
+  synced: { tableName: string; rowCount: number }[];
+  failed: { tableName: string; error: string }[];
+}> {
+  const activeCfg = cfg || readDatabaseConfig();
+  const sb = getSupabaseClientForConfig(activeCfg);
+  const finDb = readFinanceDb();
+  const nowIso = new Date().toISOString();
+  const synced: { tableName: string; rowCount: number }[] = [];
+  const failed: { tableName: string; error: string }[] = [];
+
+  const accRows = finDb.accounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    kind: a.kind,
+    bank_name: a.bankName,
+    account_number: a.accountNumber,
+    holder_name: a.holderName,
+    opening_balance: a.openingBalance,
+    created_at: a.createdAt || nowIso,
+  }));
+  const fa = await upsertRowsSupabase(sb, 'finance_accounts', accRows);
+  if (fa.error) failed.push({ tableName: 'finance_accounts', error: fa.error });
+  else synced.push({ tableName: 'finance_accounts', rowCount: fa.rowCount });
+
+  const catRows = finDb.categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    type: c.type,
+    description: c.description || '',
+    created_at: c.createdAt || nowIso,
+  }));
+  const fc = await upsertRowsSupabase(sb, 'finance_categories', catRows);
+  if (fc.error) failed.push({ tableName: 'finance_categories', error: fc.error });
+  else synced.push({ tableName: 'finance_categories', rowCount: fc.rowCount });
+
+  const txRows = finDb.transactions.map((t) => ({
+    id: t.id,
+    tx_date: t.date,
+    type: t.type,
+    method: t.method,
+    category_id: t.categoryId,
+    category_name: t.categoryName,
+    account_id: t.accountId || null,
+    title: t.title,
+    counterparty: t.counterparty || '',
+    bank_account: t.bankAccount || '',
+    reference_no: t.referenceNo || '',
+    amount: t.amount,
+    notes: t.notes || '',
+    recorded_by: t.recordedBy || 'Admin Mode',
+    created_at: t.createdAt || nowIso,
+    updated_at: t.updatedAt || nowIso,
+  }));
+  const ft = await upsertRowsSupabase(sb, 'finance_transactions', txRows);
+  if (ft.error) failed.push({ tableName: 'finance_transactions', error: ft.error });
+  else synced.push({ tableName: 'finance_transactions', rowCount: ft.rowCount });
+
+  const trRows = finDb.transfers.map((tr) => ({
+    id: tr.id,
+    transfer_date: tr.date,
+    from_account_id: tr.fromAccountId,
+    from_account_name: tr.fromAccountName,
+    to_account_id: tr.toAccountId,
+    to_account_name: tr.toAccountName,
+    amount: tr.amount,
+    reference_no: tr.referenceNo || '',
+    notes: tr.notes || '',
+    recorded_by: tr.recordedBy || 'Admin Mode',
+    created_at: tr.createdAt || nowIso,
+  }));
+  const ftr = await upsertRowsSupabase(sb, 'finance_transfers', trRows);
+  if (ftr.error) failed.push({ tableName: 'finance_transfers', error: ftr.error });
+  else synced.push({ tableName: 'finance_transfers', rowCount: ftr.rowCount });
+
+  return { synced, failed };
+}
+
+async function syncSecurityModuleToSupabase(cfg?: DatabaseConnectionConfigData): Promise<{
+  synced: { tableName: string; rowCount: number }[];
+  failed: { tableName: string; error: string }[];
+}> {
+  const activeCfg = cfg || readDatabaseConfig();
+  const sb = getSupabaseClientForConfig(activeCfg);
+  const sec = readSecurityConfig();
+  const res = await upsertRowsSupabase(sb, 'security_config', [
+    {
+      id: 'default',
+      admin_pin_sha256: sec.adminPinSha256,
+      database_pin_sha256: sec.databasePinSha256 || null,
+      updated_at: sec.updatedAt || new Date().toISOString(),
+    },
+  ]);
+  if (res.error) {
+    return { synced: [], failed: [{ tableName: 'security_config', error: res.error }] };
+  }
+  return { synced: [{ tableName: 'security_config', rowCount: res.rowCount }], failed: [] };
+}
+
+let isBootHydratingSupabase = false;
+const pendingSupabaseScopes = new Set<'attendance' | 'payroll' | 'finance' | 'security'>();
+let supabaseSyncTimer: NodeJS.Timeout | null = null;
+
+function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'security'): void {
+  if (isBootHydratingSupabase) return;
+  try {
+    const cfg = readDatabaseConfig();
+    if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !cfg.supabasePublishableKey) return;
+  } catch {
+    return;
+  }
+  pendingSupabaseScopes.add(scope);
+  if (supabaseSyncTimer) return;
+  supabaseSyncTimer = setTimeout(async () => {
+    supabaseSyncTimer = null;
+    const scopes = Array.from(pendingSupabaseScopes);
+    pendingSupabaseScopes.clear();
+    const cfg = readDatabaseConfig();
+    if (cfg.engine !== 'supabase') return;
+    for (const s of scopes) {
+      try {
+        if (s === 'attendance') await syncAttendanceModuleToSupabase(cfg);
+        else if (s === 'payroll') await syncPayrollModuleToSupabase(cfg);
+        else if (s === 'finance') await syncFinanceModuleToSupabase(cfg);
+        else if (s === 'security') await syncSecurityModuleToSupabase(cfg);
+      } catch {
+        // Non-blocking background sync; errors reported in DB diagnostics
+      }
+    }
+  }, 150);
+}
+
+async function deleteSupabaseRowById(table: string, id: string): Promise<void> {
+  try {
+    const cfg = readDatabaseConfig();
+    if (cfg.engine !== 'supabase') return;
+    const sb = getSupabaseClientForConfig(cfg);
+    await sb.from(table).delete().eq('id', id);
+  } catch {
+    // Non-blocking delete sync
+  }
+}
+
+async function pushAllLocalToSupabase(): Promise<{
+  syncedTables: { tableName: string; rowCount: number }[];
+  failedTables: { tableName: string; error: string }[];
+}> {
+  const cfg = readDatabaseConfig();
+  const rAtt = await syncAttendanceModuleToSupabase(cfg);
+  const rPay = await syncPayrollModuleToSupabase(cfg);
+  const rFin = await syncFinanceModuleToSupabase(cfg);
+  const rSec = await syncSecurityModuleToSupabase(cfg);
+  return {
+    syncedTables: [...rAtt.synced, ...rPay.synced, ...rFin.synced, ...rSec.synced],
+    failedTables: [...rAtt.failed, ...rPay.failed, ...rFin.failed, ...rSec.failed],
+  };
+}
+
+async function pullAllSupabaseToLocal(): Promise<{
+  syncedTables: { tableName: string; rowCount: number }[];
+  failedTables: { tableName: string; error: string }[];
+}> {
+  const cfg = readDatabaseConfig();
+  const sb = getSupabaseClientForConfig(cfg);
+  const syncedTables: { tableName: string; rowCount: number }[] = [];
+  const failedTables: { tableName: string; error: string }[] = [];
+
+  isBootHydratingSupabase = true;
+  try {
+    // 1. Attendance & Settings module
+    const curAtt = readDb();
+    let attChanged = false;
+
+    const { data: settingsRows, error: settingsErr } = await sb
+      .from('app_settings')
+      .select('*')
+      .eq('id', 'default')
+      .limit(1);
+    if (settingsErr) {
+      failedTables.push({ tableName: 'app_settings', error: settingsErr.message });
+    } else {
+      syncedTables.push({ tableName: 'app_settings', rowCount: settingsRows?.length || 0 });
+      if (settingsRows && settingsRows.length > 0) {
+        const s = settingsRows[0] as Record<string, unknown>;
+        curAtt.settings = normalizeSettings({
+          companyName: String(s.company_name || curAtt.settings.companyName),
+          companySubtitle: String(s.company_subtitle || curAtt.settings.companySubtitle),
+          lateDeductionPerMinute: Number(s.late_deduction_per_minute ?? 1000),
+          shifts: Array.isArray(s.shifts) ? (s.shifts as ShiftConfigData[]) : curAtt.settings.shifts,
+          companyProfile:
+            s.company_profile && typeof s.company_profile === 'object'
+              ? (s.company_profile as CompanyProfileData)
+              : curAtt.settings.companyProfile,
+        });
+        attChanged = true;
+      }
+    }
+
+    const { data: empRows, error: empErr } = await sb.from('employees').select('*');
+    if (empErr) {
+      failedTables.push({ tableName: 'employees', error: empErr.message });
+    } else {
+      syncedTables.push({ tableName: 'employees', rowCount: empRows?.length || 0 });
+      if (empRows && empRows.length > 0) {
+        curAtt.employees = empRows.map((e: Record<string, unknown>) => ({
+          id: String(e.id),
+          employeeCode: String(e.employee_code || ''),
+          name: String(e.name || ''),
+          department: String(e.department || 'Operasional'),
+          position: String(e.position || 'Staf'),
+          shiftName: String(e.shift_name || 'Reguler'),
+          shiftStart: String(e.shift_start || '08:00'),
+          shiftEnd: String(e.shift_end || '17:00'),
+          offDays: Array.isArray(e.off_days) ? (e.off_days as number[]) : [],
+          customOffDates: Array.isArray(e.custom_off_dates)
+            ? (e.custom_off_dates as string[])
+            : [],
+          active: Boolean(e.active),
+          createdAt: String(e.created_at || new Date().toISOString()),
+          updatedAt: String(e.updated_at || new Date().toISOString()),
+        }));
+        attChanged = true;
+      }
+    }
+
+    const { data: attRows, error: attErr } = await sb.from('attendance_records').select('*');
+    if (attErr) {
+      failedTables.push({ tableName: 'attendance_records', error: attErr.message });
+    } else {
+      syncedTables.push({ tableName: 'attendance_records', rowCount: attRows?.length || 0 });
+      if (attRows && attRows.length > 0) {
+        curAtt.attendanceRecords = attRows.map((a: Record<string, unknown>) => ({
+          id: String(a.id),
+          employeeId: String(a.employee_id),
+          employeeName: String(a.employee_name || ''),
+          date: String(a.attendance_date || '').slice(0, 10),
+          status: (a.status as AttendanceData['status']) || 'hadir',
+          checkIn: String(a.check_in || ''),
+          checkOut: String(a.check_out || ''),
+          overtimeHours: Number(a.overtime_hours || 0),
+          notes: String(a.notes || ''),
+          latePermitReason: a.late_permit_reason ? String(a.late_permit_reason) : undefined,
+          latePermitEstimatedArrival: a.late_permit_estimated_arrival
+            ? String(a.late_permit_estimated_arrival)
+            : undefined,
+          latePermitApprovedBy: a.late_permit_approved_by
+            ? String(a.late_permit_approved_by)
+            : undefined,
+          recordedBy: String(a.recorded_by || 'Admin HR'),
+          createdAt: String(a.created_at || new Date().toISOString()),
+          updatedAt: String(a.updated_at || new Date().toISOString()),
+        }));
+        attChanged = true;
+      }
+    }
+
+    const { data: lsetRows, error: lsetErr } = await sb.from('late_settlements').select('*');
+    if (lsetErr) {
+      failedTables.push({ tableName: 'late_settlements', error: lsetErr.message });
+    } else {
+      syncedTables.push({ tableName: 'late_settlements', rowCount: lsetRows?.length || 0 });
+      if (lsetRows && lsetRows.length > 0) {
+        curAtt.lateSettlements = lsetRows.map((s: Record<string, unknown>) => ({
+          id: String(s.id),
+          employeeId: String(s.employee_id),
+          employeeName: String(s.employee_name || ''),
+          yearMonth: String(s.year_month || ''),
+          date: String(s.settlement_date || '').slice(0, 10),
+          method:
+            s.method === 'potongan_gaji' ? 'potongan_gaji' : 'tambahan_jam_kerja',
+          minutesSettled: Number(s.minutes_settled || 0),
+          extraWorkStart: s.extra_work_start ? String(s.extra_work_start) : undefined,
+          extraWorkEnd: s.extra_work_end ? String(s.extra_work_end) : undefined,
+          deductionAmount:
+            s.deduction_amount !== null && s.deduction_amount !== undefined
+              ? Number(s.deduction_amount)
+              : undefined,
+          notes: String(s.notes || ''),
+          recordedBy: String(s.recorded_by || 'Admin HR'),
+          createdAt: String(s.created_at || new Date().toISOString()),
+        }));
+        attChanged = true;
+      }
+    }
+
+    if (attChanged) {
+      writeDb(curAtt);
+    }
+
+    // 2. Payroll module
+    const curPay = readPayrollDb();
+    let payChanged = false;
+
+    const { data: pSetRows, error: pSetErr } = await sb
+      .from('payroll_settings')
+      .select('*')
+      .eq('id', 'default')
+      .limit(1);
+    if (pSetErr) {
+      failedTables.push({ tableName: 'payroll_settings', error: pSetErr.message });
+    } else {
+      syncedTables.push({ tableName: 'payroll_settings', rowCount: pSetRows?.length || 0 });
+      if (pSetRows && pSetRows.length > 0) {
+        const ps = pSetRows[0] as Record<string, unknown>;
+        curPay.settings = normalizePayrollSettings({
+          defaultOvertimeHourlyRate: Number(ps.default_overtime_hourly_rate ?? 25000),
+          defaultAlphaDeductionPerDay: Number(ps.default_alpha_deduction_per_day ?? 150000),
+          defaultIzinDeductionPerDay: Number(ps.default_izin_deduction_per_day ?? 0),
+          autoDeductRemainingLate: Boolean(ps.auto_deduct_remaining_late),
+          bpjsKesehatanPct: Number(ps.bpjs_kesehatan_pct ?? 1),
+          bpjsKetenagakerjaanPct: Number(ps.bpjs_ketenagakerjaan_pct ?? 2),
+          paydayDayOfMonth: Number(ps.payday_day_of_month ?? 25),
+        });
+        payChanged = true;
+      }
+    }
+
+    const { data: pProfRows, error: pProfErr } = await sb.from('payroll_profiles').select('*');
+    if (pProfErr) {
+      failedTables.push({ tableName: 'payroll_profiles', error: pProfErr.message });
+    } else {
+      syncedTables.push({ tableName: 'payroll_profiles', rowCount: pProfRows?.length || 0 });
+      if (pProfRows && pProfRows.length > 0) {
+        curPay.profiles = pProfRows.map((p: Record<string, unknown>) => ({
+          employeeId: String(p.employee_id),
+          baseSalary: Number(p.base_salary || 0),
+          positionAllowance: Number(p.position_allowance || 0),
+          transportMealAllowance: Number(p.transport_meal_allowance || 0),
+          otherAllowance: Number(p.other_allowance || 0),
+          overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
+          paydayDay: Number(p.payday_day || 25),
+          paymentMethod: p.payment_method === 'tunai' ? 'tunai' : 'transfer',
+          bankName: String(p.bank_name || ''),
+          bankAccountNumber: String(p.bank_account_number || ''),
+          bankAccountHolder: String(p.bank_account_holder || ''),
+          notes: String(p.notes || ''),
+          updatedAt: String(p.updated_at || new Date().toISOString()),
+        }));
+        payChanged = true;
+      }
+    }
+
+    const { data: pAdjRows, error: pAdjErr } = await sb.from('payroll_adjustments').select('*');
+    if (pAdjErr) {
+      failedTables.push({ tableName: 'payroll_adjustments', error: pAdjErr.message });
+    } else {
+      syncedTables.push({ tableName: 'payroll_adjustments', rowCount: pAdjRows?.length || 0 });
+      if (pAdjRows && pAdjRows.length > 0) {
+        curPay.adjustments = pAdjRows.map((a: Record<string, unknown>) => ({
+          id: String(a.id),
+          employeeId: String(a.employee_id),
+          employeeName: String(a.employee_name || ''),
+          yearMonth: String(a.year_month || ''),
+          type: (a.type as PayrollAdjustmentData['type']) || 'bonus',
+          title: String(a.title || ''),
+          amount: Number(a.amount || 0),
+          date: String(a.adjustment_date || '').slice(0, 10),
+          notes: String(a.notes || ''),
+          createdAt: String(a.created_at || new Date().toISOString()),
+        }));
+        payChanged = true;
+      }
+    }
+
+    const { data: pRaiseRows, error: pRaiseErr } = await sb.from('payroll_raises').select('*');
+    if (pRaiseErr) {
+      failedTables.push({ tableName: 'payroll_raises', error: pRaiseErr.message });
+    } else {
+      syncedTables.push({ tableName: 'payroll_raises', rowCount: pRaiseRows?.length || 0 });
+      if (pRaiseRows && pRaiseRows.length > 0) {
+        curPay.salaryRaises = pRaiseRows.map((r: Record<string, unknown>) => ({
+          id: String(r.id),
+          employeeId: String(r.employee_id),
+          employeeName: String(r.employee_name || ''),
+          effectiveMonth: String(r.effective_month || ''),
+          raiseDate: String(r.raise_date || '').slice(0, 10),
+          method: r.method === 'persentase' ? 'persentase' : 'nominal',
+          percentIncrease:
+            r.percent_increase !== null && r.percent_increase !== undefined
+              ? Number(r.percent_increase)
+              : undefined,
+          previousBaseSalary: Number(r.previous_base_salary || 0),
+          newBaseSalary: Number(r.new_base_salary || 0),
+          previousPositionAllowance: Number(r.previous_position_allowance || 0),
+          newPositionAllowance: Number(r.new_position_allowance || 0),
+          previousTransportMealAllowance: Number(r.previous_transport_meal_allowance || 0),
+          newTransportMealAllowance: Number(r.new_transport_meal_allowance || 0),
+          previousOtherAllowance: Number(r.previous_other_allowance || 0),
+          newOtherAllowance: Number(r.new_other_allowance || 0),
+          reason: String(r.reason || ''),
+          notes: String(r.notes || ''),
+          appliedToProfile: Boolean(r.applied_to_profile),
+          createdAt: String(r.created_at || new Date().toISOString()),
+        }));
+        payChanged = true;
+      }
+    }
+
+    const { data: pStatRows, error: pStatErr } = await sb.from('payroll_statuses').select('*');
+    if (pStatErr) {
+      failedTables.push({ tableName: 'payroll_statuses', error: pStatErr.message });
+    } else {
+      syncedTables.push({ tableName: 'payroll_statuses', rowCount: pStatRows?.length || 0 });
+      if (pStatRows && pStatRows.length > 0) {
+        curPay.statuses = pStatRows.map((s: Record<string, unknown>) => ({
+          id: String(s.id),
+          employeeId: String(s.employee_id),
+          yearMonth: String(s.year_month || ''),
+          status: (s.status as PayrollMonthlyStatusData['status']) || 'draft',
+          paidAt: s.paid_at ? String(s.paid_at) : undefined,
+          updatedAt: String(s.updated_at || new Date().toISOString()),
+        }));
+        payChanged = true;
+      }
+    }
+
+    if (payChanged) {
+      writePayrollDb(curPay);
+    }
+
+    // 3. Finance module
+    const curFin = readFinanceDb();
+    let finChanged = false;
+
+    const { data: fAccRows, error: fAccErr } = await sb.from('finance_accounts').select('*');
+    if (fAccErr) {
+      failedTables.push({ tableName: 'finance_accounts', error: fAccErr.message });
+    } else {
+      syncedTables.push({ tableName: 'finance_accounts', rowCount: fAccRows?.length || 0 });
+      if (fAccRows && fAccRows.length > 0) {
+        curFin.accounts = fAccRows.map((a: Record<string, unknown>) => ({
+          id: String(a.id),
+          name: String(a.name || ''),
+          kind: a.kind === 'cash' ? 'cash' : 'rekening',
+          bankName: String(a.bank_name || ''),
+          accountNumber: String(a.account_number || ''),
+          holderName: String(a.holder_name || ''),
+          openingBalance: Number(a.opening_balance || 0),
+          createdAt: String(a.created_at || new Date().toISOString()),
+        }));
+        finChanged = true;
+      }
+    }
+
+    const { data: fCatRows, error: fCatErr } = await sb.from('finance_categories').select('*');
+    if (fCatErr) {
+      failedTables.push({ tableName: 'finance_categories', error: fCatErr.message });
+    } else {
+      syncedTables.push({ tableName: 'finance_categories', rowCount: fCatRows?.length || 0 });
+      if (fCatRows && fCatRows.length > 0) {
+        curFin.categories = fCatRows.map((c: Record<string, unknown>) => ({
+          id: String(c.id),
+          name: String(c.name || ''),
+          type: c.type === 'pendapatan' ? 'pendapatan' : 'pengeluaran',
+          description: String(c.description || ''),
+          createdAt: String(c.created_at || new Date().toISOString()),
+        }));
+        finChanged = true;
+      }
+    }
+
+    const { data: fTxRows, error: fTxErr } = await sb.from('finance_transactions').select('*');
+    if (fTxErr) {
+      failedTables.push({ tableName: 'finance_transactions', error: fTxErr.message });
+    } else {
+      syncedTables.push({ tableName: 'finance_transactions', rowCount: fTxRows?.length || 0 });
+      if (fTxRows && fTxRows.length > 0) {
+        curFin.transactions = fTxRows.map((t: Record<string, unknown>) => ({
+          id: String(t.id),
+          date: String(t.tx_date || '').slice(0, 10),
+          type: t.type === 'pendapatan' ? 'pendapatan' : 'pengeluaran',
+          method: t.method === 'cash' ? 'cash' : 'transfer',
+          categoryId: String(t.category_id || ''),
+          categoryName: String(t.category_name || ''),
+          accountId: t.account_id ? String(t.account_id) : undefined,
+          title: String(t.title || ''),
+          counterparty: String(t.counterparty || ''),
+          bankAccount: String(t.bank_account || ''),
+          referenceNo: String(t.reference_no || ''),
+          amount: Number(t.amount || 0),
+          notes: String(t.notes || ''),
+          recordedBy: String(t.recorded_by || 'Admin Mode'),
+          createdAt: String(t.created_at || new Date().toISOString()),
+          updatedAt: String(t.updated_at || new Date().toISOString()),
+        }));
+        finChanged = true;
+      }
+    }
+
+    const { data: fTrRows, error: fTrErr } = await sb.from('finance_transfers').select('*');
+    if (fTrErr) {
+      failedTables.push({ tableName: 'finance_transfers', error: fTrErr.message });
+    } else {
+      syncedTables.push({ tableName: 'finance_transfers', rowCount: fTrRows?.length || 0 });
+      if (fTrRows && fTrRows.length > 0) {
+        curFin.transfers = fTrRows.map((tr: Record<string, unknown>) => ({
+          id: String(tr.id),
+          date: String(tr.transfer_date || '').slice(0, 10),
+          fromAccountId: String(tr.from_account_id || ''),
+          fromAccountName: String(tr.from_account_name || ''),
+          toAccountId: String(tr.to_account_id || ''),
+          toAccountName: String(tr.to_account_name || ''),
+          amount: Number(tr.amount || 0),
+          referenceNo: String(tr.reference_no || ''),
+          notes: String(tr.notes || ''),
+          recordedBy: String(tr.recorded_by || 'Admin Mode'),
+          createdAt: String(tr.created_at || new Date().toISOString()),
+        }));
+        finChanged = true;
+      }
+    }
+
+    if (finChanged) {
+      writeFinanceDb(normalizeFinanceDb(curFin));
+    }
+
+    // 4. Security config
+    const { data: secRows, error: secErr } = await sb
+      .from('security_config')
+      .select('*')
+      .eq('id', 'default')
+      .limit(1);
+    if (secErr) {
+      failedTables.push({ tableName: 'security_config', error: secErr.message });
+    } else {
+      syncedTables.push({ tableName: 'security_config', rowCount: secRows?.length || 0 });
+      if (secRows && secRows.length > 0) {
+        const sr = secRows[0] as Record<string, unknown>;
+        if (typeof sr.admin_pin_sha256 === 'string' && /^[a-f0-9]{64}$/i.test(sr.admin_pin_sha256)) {
+          writeSecurityConfig({
+            adminPinSha256: sr.admin_pin_sha256,
+            databasePinSha256:
+              typeof sr.database_pin_sha256 === 'string' &&
+              /^[a-f0-9]{64}$/i.test(sr.database_pin_sha256)
+                ? sr.database_pin_sha256
+                : undefined,
+            updatedAt: String(sr.updated_at || new Date().toISOString()),
+          });
+        }
+      }
+    }
+  } finally {
+    isBootHydratingSupabase = false;
+  }
+
+  return { syncedTables, failedTables };
+}
+
+function inspectLocalDatabaseTables() {
+  const attRaw = safeReadJsonFile(DB_FILE);
+  const payRaw = safeReadJsonFile(PAYROLL_DB_FILE);
+  const finRaw = safeReadJsonFile(FINANCE_DB_FILE);
+  const secRaw = safeReadJsonFile(SECURITY_CONFIG_FILE);
+
+  return [
+    {
+      tableName: 'employees',
+      firestoreCollection: 'employees',
+      module: 'Absensi' as const,
+      description: 'Data master karyawan, shift, dan jadwal libur individu',
+      storageFile: 'data/attendance-db.json',
+      exists: Boolean(attRaw && Array.isArray(attRaw.employees)),
+      recordCount: attRaw && Array.isArray(attRaw.employees) ? attRaw.employees.length : 0,
+      requiredColumns: ['id', 'employee_code', 'name', 'department', 'position', 'shift_name', 'off_days', 'active'],
+    },
+    {
+      tableName: 'attendance_records',
+      firestoreCollection: 'attendance',
+      module: 'Absensi' as const,
+      description: 'Log kehadiran harian, jam masuk/pulang, lembur, & izin datang terlambat',
+      storageFile: 'data/attendance-db.json',
+      exists: Boolean(attRaw && Array.isArray(attRaw.attendanceRecords)),
+      recordCount: attRaw && Array.isArray(attRaw.attendanceRecords) ? attRaw.attendanceRecords.length : 0,
+      requiredColumns: ['id', 'employee_id', 'attendance_date', 'status', 'check_in', 'check_out', 'overtime_hours'],
+    },
+    {
+      tableName: 'late_settlements',
+      firestoreCollection: 'lateSettlements',
+      module: 'Absensi' as const,
+      description: 'Riwayat penyelesaian / ganti keterlambatan karyawan',
+      storageFile: 'data/attendance-db.json',
+      exists: Boolean(attRaw && Array.isArray(attRaw.lateSettlements)),
+      recordCount: attRaw && Array.isArray(attRaw.lateSettlements) ? attRaw.lateSettlements.length : 0,
+      requiredColumns: ['id', 'employee_id', 'year_month', 'settlement_date', 'method', 'minutes_settled'],
+    },
+    {
+      tableName: 'app_settings',
+      firestoreCollection: 'appSettings',
+      module: 'Pengaturan' as const,
+      description: 'Identitas perusahaan, profil legalitas, cabang, dan konfigurasi shift',
+      storageFile: 'data/attendance-db.json',
+      exists: Boolean(attRaw && attRaw.settings && typeof attRaw.settings === 'object'),
+      recordCount: attRaw && attRaw.settings ? 1 : 0,
+      requiredColumns: ['id', 'company_name', 'company_subtitle', 'late_deduction_per_minute', 'shifts', 'company_profile'],
+    },
+    {
+      tableName: 'payroll_settings',
+      firestoreCollection: '(server-protected)',
+      module: 'Penggajian' as const,
+      description: 'Kebijakan lembur, potongan alpha/izin, BPJS, dan tanggal gajian',
+      storageFile: 'data/payroll-db.json',
+      exists: Boolean(payRaw && payRaw.settings && typeof payRaw.settings === 'object'),
+      recordCount: payRaw && payRaw.settings ? 1 : 0,
+      requiredColumns: ['id', 'default_overtime_hourly_rate', 'default_alpha_deduction_per_day', 'bpjs_kesehatan_pct', 'payday_day_of_month'],
+    },
+    {
+      tableName: 'payroll_profiles',
+      firestoreCollection: '(server-protected)',
+      module: 'Penggajian' as const,
+      description: 'Gaji pokok, tunjangan, dan rekening payroll tiap karyawan (PIN Superuser)',
+      storageFile: 'data/payroll-db.json',
+      exists: Boolean(payRaw && Array.isArray(payRaw.profiles)),
+      recordCount: payRaw && Array.isArray(payRaw.profiles) ? payRaw.profiles.length : 0,
+      requiredColumns: ['employee_id', 'base_salary', 'position_allowance', 'transport_meal_allowance', 'bank_account_number'],
+    },
+    {
+      tableName: 'payroll_adjustments',
+      firestoreCollection: '(server-protected)',
+      module: 'Penggajian' as const,
+      description: 'Bonus, tunjangan tambahan, dan potongan kasbon bulanan',
+      storageFile: 'data/payroll-db.json',
+      exists: Boolean(payRaw && Array.isArray(payRaw.adjustments)),
+      recordCount: payRaw && Array.isArray(payRaw.adjustments) ? payRaw.adjustments.length : 0,
+      requiredColumns: ['id', 'employee_id', 'year_month', 'type', 'title', 'amount'],
+    },
+    {
+      tableName: 'payroll_raises',
+      firestoreCollection: '(server-protected)',
+      module: 'Penggajian' as const,
+      description: 'Catatan riwayat kenaikan gaji karyawan',
+      storageFile: 'data/payroll-db.json',
+      exists: Boolean(payRaw && Array.isArray(payRaw.salaryRaises)),
+      recordCount: payRaw && Array.isArray(payRaw.salaryRaises) ? payRaw.salaryRaises.length : 0,
+      requiredColumns: ['id', 'employee_id', 'effective_month', 'method', 'previous_base_salary', 'new_base_salary'],
+    },
+    {
+      tableName: 'payroll_statuses',
+      firestoreCollection: '(server-protected)',
+      module: 'Penggajian' as const,
+      description: 'Status persetujuan & pembayaran slip gaji per bulan',
+      storageFile: 'data/payroll-db.json',
+      exists: Boolean(payRaw && Array.isArray(payRaw.statuses)),
+      recordCount: payRaw && Array.isArray(payRaw.statuses) ? payRaw.statuses.length : 0,
+      requiredColumns: ['id', 'employee_id', 'year_month', 'status', 'paid_at'],
+    },
+    {
+      tableName: 'finance_accounts',
+      firestoreCollection: 'financeAccounts',
+      module: 'Keuangan' as const,
+      description: 'Akun kas tunai & rekening bank perusahaan (BCA, BRI, Mandiri, dll)',
+      storageFile: 'data/finance-db.json',
+      exists: Boolean(finRaw && Array.isArray(finRaw.accounts) && finRaw.accounts.length > 0),
+      recordCount: finRaw && Array.isArray(finRaw.accounts) ? finRaw.accounts.length : 0,
+      requiredColumns: ['id', 'name', 'kind', 'bank_name', 'account_number', 'opening_balance'],
+    },
+    {
+      tableName: 'finance_categories',
+      firestoreCollection: 'financeCategories',
+      module: 'Keuangan' as const,
+      description: 'Kategori pendapatan dan pengeluaran perusahaan',
+      storageFile: 'data/finance-db.json',
+      exists: Boolean(finRaw && Array.isArray(finRaw.categories)),
+      recordCount: finRaw && Array.isArray(finRaw.categories) ? finRaw.categories.length : 0,
+      requiredColumns: ['id', 'name', 'type', 'description'],
+    },
+    {
+      tableName: 'finance_transactions',
+      firestoreCollection: 'financeTransactions',
+      module: 'Keuangan' as const,
+      description: 'Jurnal transaksi pendapatan & pengeluaran (cash & transfer)',
+      storageFile: 'data/finance-db.json',
+      exists: Boolean(finRaw && Array.isArray(finRaw.transactions)),
+      recordCount: finRaw && Array.isArray(finRaw.transactions) ? finRaw.transactions.length : 0,
+      requiredColumns: ['id', 'tx_date', 'type', 'method', 'category_id', 'account_id', 'title', 'amount'],
+    },
+    {
+      tableName: 'finance_transfers',
+      firestoreCollection: 'financeTransfers',
+      module: 'Keuangan' as const,
+      description: 'Catatan perpindahan dana antar kas tunai dan rekening bank',
+      storageFile: 'data/finance-db.json',
+      exists: Boolean(finRaw && Array.isArray(finRaw.transfers)),
+      recordCount: finRaw && Array.isArray(finRaw.transfers) ? finRaw.transfers.length : 0,
+      requiredColumns: ['id', 'transfer_date', 'from_account_id', 'to_account_id', 'amount'],
+    },
+    {
+      tableName: 'security_config',
+      firestoreCollection: '(server-protected)',
+      module: 'Keamanan' as const,
+      description: 'Hash SHA-256 PIN Mode Admin dan PIN Pengaturan Database',
+      storageFile: 'data/security-config.json',
+      exists: Boolean(secRaw && typeof secRaw.adminPinSha256 === 'string'),
+      recordCount: secRaw ? 1 : 0,
+      requiredColumns: ['id', 'admin_pin_sha256', 'database_pin_sha256', 'updated_at'],
+    },
+  ];
+}
+
+async function inspectAllDatabaseTablesLive() {
+  const dbCfg = readDatabaseConfig();
+  const localTables = inspectLocalDatabaseTables();
+
+  if (dbCfg.engine !== 'supabase') {
+    const tables = localTables.map((t) => ({
+      ...t,
+      localRecordCount: t.recordCount,
+      remoteStatus: 'local' as const,
+    }));
+    const existingCount = tables.filter((t) => t.exists).length;
+    const totalRecords = tables.reduce((s, t) => s + t.recordCount, 0);
+    return {
+      config: sanitizeDatabaseConfigForClient(dbCfg),
+      tables,
+      summary: {
+        totalRequired: tables.length,
+        existingCount,
+        missingCount: tables.length - existingCount,
+        totalRecords,
+      },
+    };
+  }
+
+  const apiKey = getEffectiveSupabaseSecretKey(dbCfg) || dbCfg.supabasePublishableKey;
+  const probes = await Promise.all(
+    localTables.map((t) => probeSupabaseTable(dbCfg.supabaseUrl, apiKey, t.tableName))
+  );
+  const probeMap = new Map(probes.map((p) => [p.tableName, p]));
+
+  const anyReachable = probes.some((p) => p.status !== 'unreachable');
+  const firstErr = probes.find((p) => p.error)?.error ?? null;
+
+  const tables = localTables.map((t) => {
+    const probe = probeMap.get(t.tableName);
+    const remoteAvailable = probe?.status === 'available';
+    return {
+      ...t,
+      storageFile: `supabase://${dbCfg.supabaseProjectId}/public/${t.tableName}`,
+      exists: remoteAvailable,
+      recordCount: remoteAvailable ? probe.recordCount : 0,
+      localRecordCount: t.recordCount,
+      remoteStatus: probe?.status ?? ('unreachable' as const),
+    };
+  });
+
+  const existingCount = tables.filter((t) => t.exists).length;
+  const totalRecords = tables.reduce((s, t) => s + t.recordCount, 0);
+
+  return {
+    config: sanitizeDatabaseConfigForClient(dbCfg, {
+      supabaseConnected: anyReachable && existingCount === tables.length,
+      supabaseLastError: existingCount === tables.length ? null : firstErr,
+    }),
+    tables,
+    summary: {
+      totalRequired: tables.length,
+      existingCount,
+      missingCount: tables.length - existingCount,
+      totalRecords,
+    },
+  };
+}
+
+function ensureLocalFallbackFiles() {
+  const localTables = inspectLocalDatabaseTables();
+  const missingLocal = localTables.filter((t) => !t.exists).map((t) => t.tableName);
+  if (missingLocal.some((n) => ['employees', 'attendance_records', 'late_settlements', 'app_settings'].includes(n))) {
+    const db = readDb();
+    writeDb(db);
+  }
+  if (missingLocal.some((n) => n.startsWith('payroll_'))) {
+    const payrollDb = readPayrollDb();
+    writePayrollDb(payrollDb);
+  }
+  if (missingLocal.some((n) => n.startsWith('finance_'))) {
+    const finDb = readFinanceDb();
+    writeFinanceDb(finDb);
+  }
+  if (missingLocal.includes('security_config')) {
+    const secCfg = readSecurityConfig();
+    writeSecurityConfig(secCfg);
+  }
+  return missingLocal;
+}
+
+async function autoInitializeMissingDatabaseTablesLive() {
+  ensureLocalFallbackFiles();
+  const before = await inspectAllDatabaseTablesLive();
+  const missingNames = before.tables.filter((t) => !t.exists).map((t) => t.tableName);
+  const existingNames = before.tables.filter((t) => t.exists).map((t) => t.tableName);
+  const curCfg = readDatabaseConfig();
+  const nowIso = new Date().toISOString();
+
+  if (curCfg.engine === 'supabase') {
+    const dbUrl = getEffectiveSupabaseDbUrl(curCfg);
+    if (missingNames.length > 0 && dbUrl) {
+      const ddlRes = await runSupabasePostgresDdl(dbUrl);
+      if (!ddlRes.ok) {
+        writeDatabaseConfig({ ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso });
+        const after = await inspectAllDatabaseTablesLive();
+        return {
+          createdTables: [],
+          alreadyExistingTables: existingNames,
+          requiresManualSql: true,
+          message: `Gagal menjalankan DDL otomatis via Postgres URI (${ddlRes.error}). Pastikan Connection String benar atau jalankan script SQL Supabase di SQL Editor.`,
+          status: after,
+        };
+      }
+      await pushAllLocalToSupabase();
+      writeDatabaseConfig({
+        ...curCfg,
+        lastCheckedAt: nowIso,
+        lastAutoInitAt: nowIso,
+        updatedAt: nowIso,
+      });
+      const after = await inspectAllDatabaseTablesLive();
+      const createdNow = missingNames.filter(
+        (n) => after.tables.find((t) => t.tableName === n)?.exists
+      );
+      return {
+        createdTables: createdNow,
+        alreadyExistingTables: existingNames,
+        requiresManualSql: false,
+        message:
+          createdNow.length > 0
+            ? `${createdNow.length} tabel Supabase berhasil dibuat otomatis via PostgreSQL & seluruh data awal telah disinkronkan.`
+            : 'Seluruh 14 tabel Supabase sudah tersedia dan aktif.',
+        status: after,
+      };
+    }
+
+    if (missingNames.length === 0) {
+      await pushAllLocalToSupabase();
+      writeDatabaseConfig({ ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso });
+      const after = await inspectAllDatabaseTablesLive();
+      return {
+        createdTables: [],
+        alreadyExistingTables: existingNames,
+        requiresManualSql: false,
+        message: 'Seluruh 14 tabel Supabase tersedia dan data berhasil disinkronkan.',
+        status: after,
+      };
+    }
+
+    writeDatabaseConfig({ ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso });
+    return {
+      createdTables: [],
+      alreadyExistingTables: existingNames,
+      requiresManualSql: true,
+      message: `Terdeteksi ${missingNames.length} tabel belum tersedia di Supabase (${curCfg.supabaseProjectName}). API REST Supabase hanya mendukung CRUD dan tidak dapat membuat tabel tanpa Postgres Connection URI. Masukkan URI Postgres di tab "Koneksi & PIN Database" untuk buat otomatis, atau klik tab "Copy Script Setting Tabel" -> pilih "Supabase" lalu jalankan di Supabase SQL Editor.`,
+      status: before,
+    };
+  }
+
+  writeDatabaseConfig({
+    ...curCfg,
+    lastCheckedAt: nowIso,
+    lastAutoInitAt: missingNames.length > 0 ? nowIso : curCfg.lastAutoInitAt,
+    updatedAt: nowIso,
+  });
+
+  const after = await inspectAllDatabaseTablesLive();
+  return {
+    createdTables: missingNames,
+    alreadyExistingTables: existingNames,
+    requiresManualSql: false,
+    message:
+      missingNames.length > 0
+        ? `${missingNames.length} tabel yang belum ada berhasil dibuat dan diinisialisasi otomatis.`
+        : 'Seluruh 14 tabel yang dibutuhkan sudah tersedia dan valid.',
+    status: after,
+  };
+}
+
+async function bootHydrateFromSupabase(): Promise<void> {
+  const cfg = readDatabaseConfig();
+  if (cfg.engine !== 'supabase') return;
+  try {
+    const status = await inspectAllDatabaseTablesLive();
+    if (status.summary.existingCount === status.summary.totalRequired) {
+      if (status.summary.totalRecords > 0) {
+        await pullAllSupabaseToLocal();
+      } else {
+        await pushAllLocalToSupabase();
+      }
+    } else if (cfg.autoCreateMissingTables && getEffectiveSupabaseDbUrl(cfg)) {
+      await autoInitializeMissingDatabaseTablesLive();
+    }
+  } catch {
+    // Keep server boot resilient even when Supabase is unreachable or uninitialized
   }
 }
 
@@ -1280,11 +2985,15 @@ function writeFinanceDb(data: FinanceDatabaseSchema): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(FINANCE_DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  queueSupabaseSync('finance');
 }
 
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
+
+  ensureLocalFallbackFiles();
+  await bootHydrateFromSupabase();
 
   const requireAdminModeAuth: express.RequestHandler = (req, res, next) => {
     cleanupExpiredAdminSessions();
@@ -1321,6 +3030,27 @@ async function startServer() {
       activePayrollSessions.delete(token);
       res.status(401).json({
         error: 'Sesi Superuser telah kedaluwarsa. Masukkan kembali PIN Superuser.',
+      });
+      return;
+    }
+    session.expiresAt = Date.now() + PAYROLL_TOKEN_TTL_MS;
+    next();
+  };
+
+  const requireDatabaseAuth: express.RequestHandler = (req, res, next) => {
+    cleanupExpiredDatabaseSessions();
+    const token = String(req.headers['x-database-token'] || '');
+    if (!token) {
+      res.status(401).json({
+        error: 'Akses pengaturan database terkunci. Masukkan PIN terlebih dahulu.',
+      });
+      return;
+    }
+    const session = activeDatabaseSessions.get(token);
+    if (!session || session.expiresAt <= Date.now()) {
+      activeDatabaseSessions.delete(token);
+      res.status(401).json({
+        error: 'Sesi pengaturan database telah berakhir. Masukkan kembali PIN.',
       });
       return;
     }
@@ -1413,16 +3143,25 @@ async function startServer() {
   app.post('/api/employees', (req, res) => {
     const db = readDb();
     const body = req.body as Partial<EmployeeData>;
-    if (!body.name || !body.employeeCode) {
+    const cleanCode = String(body.employeeCode || '').trim().toUpperCase().slice(0, 20);
+    const cleanName = String(body.name || '').trim().slice(0, 100);
+    if (!cleanName || !cleanCode) {
       res.status(400).json({ error: 'Nama dan kode karyawan wajib diisi.' });
+      return;
+    }
+    const duplicateCode = db.employees.some(
+      (e) => e.employeeCode.toLowerCase() === cleanCode.toLowerCase()
+    );
+    if (duplicateCode) {
+      res.status(400).json({ error: `Kode karyawan "${cleanCode}" sudah digunakan.` });
       return;
     }
     const nowIso = new Date().toISOString();
     const id = body.id || `emp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newEmp: EmployeeData = {
       id,
-      employeeCode: String(body.employeeCode).trim().toUpperCase().slice(0, 20),
-      name: String(body.name).trim().slice(0, 100),
+      employeeCode: cleanCode,
+      name: cleanName,
       department: String(body.department || 'Operasional').trim().slice(0, 60),
       position: String(body.position || 'Staf').trim().slice(0, 60),
       shiftName: String(body.shiftName || 'Reguler').trim().slice(0, 40),
@@ -1449,10 +3188,29 @@ async function startServer() {
     }
     const existing = db.employees[idx];
     const body = req.body as Partial<EmployeeData>;
+    const nextCode =
+      body.employeeCode !== undefined
+        ? String(body.employeeCode).trim().toUpperCase().slice(0, 20)
+        : existing.employeeCode;
+    const nextName =
+      body.name !== undefined ? String(body.name).trim().slice(0, 100) : existing.name;
+
+    if (!nextCode || !nextName) {
+      res.status(400).json({ error: 'Nama dan kode karyawan tidak boleh kosong.' });
+      return;
+    }
+    const duplicateCode = db.employees.some(
+      (e) => e.id !== id && e.employeeCode.toLowerCase() === nextCode.toLowerCase()
+    );
+    if (duplicateCode) {
+      res.status(400).json({ error: `Kode karyawan "${nextCode}" sudah digunakan.` });
+      return;
+    }
+
     const updated: EmployeeData = {
       ...existing,
-      employeeCode: body.employeeCode !== undefined ? String(body.employeeCode).trim().toUpperCase().slice(0, 20) : existing.employeeCode,
-      name: body.name !== undefined ? String(body.name).trim().slice(0, 100) : existing.name,
+      employeeCode: nextCode,
+      name: nextName,
       department: body.department !== undefined ? String(body.department).trim().slice(0, 60) : existing.department,
       position: body.position !== undefined ? String(body.position).trim().slice(0, 60) : existing.position,
       shiftName: body.shiftName !== undefined ? String(body.shiftName).trim().slice(0, 40) : existing.shiftName,
@@ -1464,6 +3222,43 @@ async function startServer() {
       updatedAt: new Date().toISOString(),
     };
     db.employees[idx] = updated;
+
+    // Cascade name rename to attendance, settlements, and payroll records
+    if (nextName !== existing.name) {
+      db.attendanceRecords = db.attendanceRecords.map((r) =>
+        r.employeeId === id ? { ...r, employeeName: nextName } : r
+      );
+      db.lateSettlements = db.lateSettlements.map((s) =>
+        s.employeeId === id ? { ...s, employeeName: nextName } : s
+      );
+      const payrollDb = readPayrollDb();
+      let payTouched = false;
+      payrollDb.profiles = payrollDb.profiles.map((p) => {
+        if (p.employeeId === id && p.bankAccountHolder === existing.name) {
+          payTouched = true;
+          return { ...p, bankAccountHolder: nextName };
+        }
+        return p;
+      });
+      payrollDb.adjustments = payrollDb.adjustments.map((a) => {
+        if (a.employeeId === id) {
+          payTouched = true;
+          return { ...a, employeeName: nextName };
+        }
+        return a;
+      });
+      payrollDb.salaryRaises = payrollDb.salaryRaises.map((sr) => {
+        if (sr.employeeId === id) {
+          payTouched = true;
+          return { ...sr, employeeName: nextName };
+        }
+        return sr;
+      });
+      if (payTouched) {
+        writePayrollDb(payrollDb);
+      }
+    }
+
     writeDb(db);
     res.json(updated);
   });
@@ -1471,8 +3266,31 @@ async function startServer() {
   app.delete('/api/employees/:id', (req, res) => {
     const db = readDb();
     const { id } = req.params;
+    const exists = db.employees.some((e) => e.id === id);
+    if (!exists) {
+      res.status(404).json({ error: 'Karyawan tidak ditemukan.' });
+      return;
+    }
     db.employees = db.employees.filter((e) => e.id !== id);
+    db.attendanceRecords = db.attendanceRecords.filter((r) => r.employeeId !== id);
+    db.lateSettlements = db.lateSettlements.filter((s) => s.employeeId !== id);
     writeDb(db);
+
+    const payrollDb = readPayrollDb();
+    const hadPayroll =
+      payrollDb.profiles.some((p) => p.employeeId === id) ||
+      payrollDb.adjustments.some((a) => a.employeeId === id) ||
+      payrollDb.salaryRaises.some((r) => r.employeeId === id) ||
+      payrollDb.statuses.some((s) => s.employeeId === id);
+    if (hadPayroll) {
+      payrollDb.profiles = payrollDb.profiles.filter((p) => p.employeeId !== id);
+      payrollDb.adjustments = payrollDb.adjustments.filter((a) => a.employeeId !== id);
+      payrollDb.salaryRaises = payrollDb.salaryRaises.filter((r) => r.employeeId !== id);
+      payrollDb.statuses = payrollDb.statuses.filter((s) => s.employeeId !== id);
+      writePayrollDb(payrollDb);
+    }
+
+    void deleteSupabaseRowById('employees', id);
     res.json({ ok: true });
   });
 
@@ -1492,6 +3310,11 @@ async function startServer() {
       res.status(400).json({ error: 'Karyawan, tanggal, dan status absensi wajib diisi.' });
       return;
     }
+    const dateStr = String(body.date).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      res.status(400).json({ error: 'Format tanggal absensi harus YYYY-MM-DD.' });
+      return;
+    }
     if (!validStatuses.includes(body.status)) {
       res.status(400).json({ error: 'Status absensi tidak valid.' });
       return;
@@ -1504,11 +3327,44 @@ async function startServer() {
     const nowIso = new Date().toISOString();
     const isLatePermit = body.status === 'izin_terlambat';
     const needsTime = body.status === 'hadir' || body.status === 'terlambat' || isLatePermit;
+
+    // Enforce 1 attendance record per (employeeId, date) via upsert
+    const existingIdx = db.attendanceRecords.findIndex(
+      (r) => r.employeeId === emp.id && r.date === dateStr
+    );
+    if (existingIdx >= 0) {
+      const existing = db.attendanceRecords[existingIdx];
+      const updatedRecord: AttendanceData = {
+        ...existing,
+        employeeName: emp.name,
+        status: body.status,
+        checkIn: needsTime ? String(body.checkIn || '') : '',
+        checkOut: needsTime ? String(body.checkOut || '') : '',
+        overtimeHours: Math.max(0, Math.min(16, Number(body.overtimeHours || 0))),
+        notes: String(body.notes || '').trim().slice(0, 300),
+        latePermitReason: isLatePermit
+          ? String(body.latePermitReason || '').trim().slice(0, 200)
+          : undefined,
+        latePermitEstimatedArrival: isLatePermit
+          ? String(body.latePermitEstimatedArrival || '').trim().slice(0, 5)
+          : undefined,
+        latePermitApprovedBy: isLatePermit
+          ? String(body.latePermitApprovedBy || 'Admin HR').trim().slice(0, 80)
+          : undefined,
+        recordedBy: 'Admin HR',
+        updatedAt: nowIso,
+      };
+      db.attendanceRecords[existingIdx] = updatedRecord;
+      writeDb(db);
+      res.status(200).json(updatedRecord);
+      return;
+    }
+
     const record: AttendanceData = {
       id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       employeeId: emp.id,
       employeeName: emp.name,
-      date: String(body.date),
+      date: dateStr,
       status: body.status,
       checkIn: needsTime ? String(body.checkIn || '') : '',
       checkOut: needsTime ? String(body.checkOut || '') : '',
@@ -1639,6 +3495,7 @@ async function startServer() {
     const { id } = req.params;
     db.attendanceRecords = db.attendanceRecords.filter((r) => r.id !== id);
     writeDb(db);
+    void deleteSupabaseRowById('attendance_records', id);
     res.json({ ok: true });
   });
 
@@ -1695,6 +3552,7 @@ async function startServer() {
     const { id } = req.params;
     db.lateSettlements = db.lateSettlements.filter((s) => s.id !== id);
     writeDb(db);
+    void deleteSupabaseRowById('late_settlements', id);
     res.json({ ok: true });
   });
 
@@ -1791,11 +3649,266 @@ async function startServer() {
       });
       return;
     }
+    const prevSec = readSecurityConfig();
     writeSecurityConfig({
+      ...prevSec,
       adminPinSha256: hashPinSha256(cleanNew),
       updatedAt: new Date().toISOString(),
     });
     res.json({ ok: true });
+  });
+
+  // Protected Database Settings Routes (PIN-gated)
+  app.post('/api/database/unlock', (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const tracker = databasePinAttemptTracker.get(clientIp);
+    if (tracker && tracker.lockedUntil > now) {
+      const waitSeconds = Math.ceil((tracker.lockedUntil - now) / 1000);
+      res.status(429).json({
+        error: `Terlalu banyak percobaan PIN database salah. Coba lagi dalam ${waitSeconds} detik.`,
+      });
+      return;
+    }
+
+    const { pin } = (req.body || {}) as { pin?: string };
+    if (!verifyDatabasePin(pin || '')) {
+      const prevCount = tracker && tracker.lockedUntil <= now ? tracker.count : 0;
+      const nextCount = prevCount + 1;
+      if (nextCount >= MAX_PIN_ATTEMPTS) {
+        databasePinAttemptTracker.set(clientIp, {
+          count: 0,
+          lockedUntil: now + PIN_LOCKOUT_MS,
+        });
+        res.status(429).json({
+          error: 'PIN database salah 5 kali. Akses ditahan selama 30 detik.',
+        });
+        return;
+      }
+      databasePinAttemptTracker.set(clientIp, { count: nextCount, lockedUntil: 0 });
+      res.status(401).json({
+        error: 'PIN pengaturan database tidak valid.',
+      });
+      return;
+    }
+
+    databasePinAttemptTracker.delete(clientIp);
+    cleanupExpiredDatabaseSessions();
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = now + PAYROLL_TOKEN_TTL_MS;
+    activeDatabaseSessions.set(token, { expiresAt });
+    res.json({ token, expiresAt });
+  });
+
+  app.post('/api/database/lock', (req, res) => {
+    const token = String(req.headers['x-database-token'] || '');
+    if (token) {
+      activeDatabaseSessions.delete(token);
+    }
+    res.json({ ok: true });
+  });
+
+  app.put('/api/database/pin', requireDatabaseAuth, (req, res) => {
+    const { currentPin, newPin } = (req.body || {}) as {
+      currentPin?: string;
+      newPin?: string;
+    };
+    if (!verifyDatabasePin(currentPin || '')) {
+      res.status(401).json({
+        error: 'PIN database saat ini tidak sesuai.',
+      });
+      return;
+    }
+    const cleanNew = String(newPin || '').trim();
+    if (cleanNew.length < 4 || cleanNew.length > 20) {
+      res.status(400).json({
+        error: 'PIN database baru harus terdiri dari 4 hingga 20 karakter.',
+      });
+      return;
+    }
+    const prevSec = readSecurityConfig();
+    writeSecurityConfig({
+      ...prevSec,
+      databasePinSha256: hashPinSha256(cleanNew),
+      updatedAt: new Date().toISOString(),
+    });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/database/status', requireDatabaseAuth, async (_req, res) => {
+    const nowIso = new Date().toISOString();
+    const cfg = readDatabaseConfig();
+    writeDatabaseConfig({ ...cfg, lastCheckedAt: nowIso });
+    const status = await inspectAllDatabaseTablesLive();
+    res.json(status);
+  });
+
+  app.post('/api/database/auto-init', requireDatabaseAuth, async (_req, res) => {
+    const result = await autoInitializeMissingDatabaseTablesLive();
+    res.json(result);
+  });
+
+  app.post('/api/database/supabase/test', requireDatabaseAuth, async (_req, res) => {
+    const startedAt = Date.now();
+    const cfg = readDatabaseConfig();
+    const status = await inspectAllDatabaseTablesLive();
+    const latencyMs = Date.now() - startedAt;
+
+    const existingTablesCount = status.summary.existingCount;
+    const missingTablesCount = status.tables.filter(
+      (t) => t.remoteStatus === 'missing'
+    ).length;
+    const rlsBlockedCount = status.tables.filter(
+      (t) => t.remoteStatus === 'rls_blocked'
+    ).length;
+    const reachable = status.tables.some((t) => t.remoteStatus !== 'unreachable');
+    const hasDbUrl = Boolean(getEffectiveSupabaseDbUrl(cfg));
+
+    let message = '';
+    if (!reachable) {
+      message = `Tidak dapat menjangkau endpoint Supabase (${cfg.supabaseUrl}). Periksa URL dan koneksi internet server.`;
+    } else if (existingTablesCount === status.summary.totalRequired) {
+      message = `Terhubung penuh ke Supabase Project "${cfg.supabaseProjectName}" (${cfg.supabaseProjectId}) dalam ${latencyMs} ms — seluruh 14 tabel siap digunakan.`;
+    } else if (rlsBlockedCount > 0) {
+      message = `Supabase terjangkau (${latencyMs} ms), namun ${rlsBlockedCount} tabel terblokir RLS/policy dan ${missingTablesCount} tabel belum ada. Jalankan script SQL + RLS Supabase di SQL Editor.`;
+    } else {
+      message = `Koneksi ke Supabase (${cfg.supabaseProjectName}) berhasil (${latencyMs} ms), namun ${missingTablesCount} dari 14 tabel belum dibuat di schema public. Klik "Buat Tabel Otomatis" (jika URI Postgres terisi) atau salin & jalankan Script SQL Supabase.`;
+    }
+
+    res.json({
+      ok: reachable && existingTablesCount === status.summary.totalRequired,
+      reachable,
+      latencyMs,
+      projectName: cfg.supabaseProjectName,
+      projectId: cfg.supabaseProjectId,
+      projectUrl: cfg.supabaseUrl,
+      restUrl: `${cfg.supabaseUrl}/rest/v1/`,
+      existingTablesCount,
+      missingTablesCount,
+      rlsBlockedCount,
+      hasDbUrl,
+      message,
+      status,
+    });
+  });
+
+  app.post('/api/database/supabase/sync', requireDatabaseAuth, async (req, res) => {
+    const body = (req.body || {}) as { direction?: 'push' | 'pull' };
+    const direction = body.direction === 'pull' ? 'pull' : 'push';
+    const result =
+      direction === 'pull'
+        ? await pullAllSupabaseToLocal()
+        : await pushAllLocalToSupabase();
+    const status = await inspectAllDatabaseTablesLive();
+    const ok = result.failedTables.length === 0;
+    const totalSyncedRows = result.syncedTables.reduce((s, t) => s + t.rowCount, 0);
+    const message = ok
+      ? direction === 'push'
+        ? `Sinkronisasi Push berhasil: ${result.syncedTables.length} tabel (${totalSyncedRows} baris) tersimpan ke Supabase.`
+        : `Sinkronisasi Pull berhasil: data terbaru dari ${result.syncedTables.length} tabel Supabase dimuat ke server.`
+      : `Sinkronisasi ${direction.toUpperCase()} sebagian gagal pada ${result.failedTables.length} tabel (${result.failedTables[0]?.tableName}: ${result.failedTables[0]?.error}).`;
+
+    res.status(ok ? 200 : 400).json({
+      ok,
+      direction,
+      syncedTables: result.syncedTables,
+      failedTables: result.failedTables,
+      message,
+      status,
+    });
+  });
+
+  app.put('/api/database/config', requireDatabaseAuth, async (req, res) => {
+    const body = (req.body || {}) as Partial<DatabaseConnectionConfigData> & {
+      supabaseSecretKey?: string;
+      supabaseDbUrl?: string;
+      clearSupabaseSecrets?: boolean;
+    };
+    const current = readDatabaseConfig();
+    const validEngines: ServerDbEngine[] = [
+      'supabase',
+      'local-json',
+      'firestore',
+      'postgresql',
+      'mysql',
+      'sqlite',
+    ];
+    const validSsl = ['disable', 'require', 'verify-full'] as const;
+    const nextSupabaseUrl =
+      body.supabaseUrl !== undefined
+        ? normalizeSupabaseUrl(String(body.supabaseUrl))
+        : current.supabaseUrl;
+    const nextProjectId =
+      body.supabaseProjectId !== undefined && String(body.supabaseProjectId).trim()
+        ? String(body.supabaseProjectId).trim().slice(0, 60)
+        : body.supabaseUrl !== undefined
+        ? extractSupabaseProjectId(nextSupabaseUrl)
+        : current.supabaseProjectId;
+
+    const nextCfg: DatabaseConnectionConfigData = {
+      ...current,
+      engine: validEngines.includes(body.engine as ServerDbEngine)
+        ? (body.engine as ServerDbEngine)
+        : current.engine,
+      host:
+        body.host !== undefined
+          ? String(body.host).trim().slice(0, 120) || current.host
+          : current.host,
+      port:
+        body.port !== undefined && Number.isFinite(Number(body.port)) && Number(body.port) > 0
+          ? Math.min(65535, Math.round(Number(body.port)))
+          : current.port,
+      databaseName:
+        body.databaseName !== undefined
+          ? String(body.databaseName).trim().slice(0, 80) || current.databaseName
+          : current.databaseName,
+      schemaName:
+        body.schemaName !== undefined
+          ? String(body.schemaName).trim().slice(0, 60) || current.schemaName
+          : current.schemaName,
+      tablePrefix:
+        body.tablePrefix !== undefined
+          ? String(body.tablePrefix).trim().replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20)
+          : current.tablePrefix,
+      username:
+        body.username !== undefined
+          ? String(body.username).trim().slice(0, 80)
+          : current.username,
+      sslMode: validSsl.includes(body.sslMode as (typeof validSsl)[number])
+        ? (body.sslMode as (typeof validSsl)[number])
+        : current.sslMode,
+      autoCreateMissingTables:
+        body.autoCreateMissingTables !== undefined
+          ? Boolean(body.autoCreateMissingTables)
+          : current.autoCreateMissingTables,
+      supabaseProjectName:
+        body.supabaseProjectName !== undefined
+          ? String(body.supabaseProjectName).trim().slice(0, 80) || current.supabaseProjectName
+          : current.supabaseProjectName,
+      supabaseProjectId: nextProjectId,
+      supabaseUrl: nextSupabaseUrl,
+      supabasePublishableKey:
+        body.supabasePublishableKey !== undefined
+          ? String(body.supabasePublishableKey).trim().slice(0, 300) || current.supabasePublishableKey
+          : current.supabasePublishableKey,
+      supabaseSecretKey: body.clearSupabaseSecrets
+        ? undefined
+        : body.supabaseSecretKey !== undefined && String(body.supabaseSecretKey).trim()
+        ? String(body.supabaseSecretKey).trim().slice(0, 300)
+        : current.supabaseSecretKey,
+      supabaseDbUrl: body.clearSupabaseSecrets
+        ? undefined
+        : body.supabaseDbUrl !== undefined && String(body.supabaseDbUrl).trim()
+        ? String(body.supabaseDbUrl).trim().slice(0, 400)
+        : current.supabaseDbUrl,
+      updatedAt: new Date().toISOString(),
+    };
+    writeDatabaseConfig(nextCfg);
+    if (nextCfg.autoCreateMissingTables) {
+      await autoInitializeMissingDatabaseTablesLive();
+    }
+    const liveStatus = await inspectAllDatabaseTablesLive();
+    res.json(liveStatus.config);
   });
 
   // Protected Superuser Payroll Routes
@@ -1987,6 +4100,7 @@ async function startServer() {
     const { id } = req.params;
     payrollDb.adjustments = payrollDb.adjustments.filter((a) => a.id !== id);
     writePayrollDb(payrollDb);
+    void deleteSupabaseRowById('payroll_adjustments', id);
     res.json({ ok: true });
   });
 
@@ -2084,6 +4198,7 @@ async function startServer() {
     const { id } = req.params;
     payrollDb.salaryRaises = payrollDb.salaryRaises.filter((r) => r.id !== id);
     writePayrollDb(payrollDb);
+    void deleteSupabaseRowById('payroll_raises', id);
     res.json({ ok: true });
   });
 
@@ -2256,6 +4371,7 @@ async function startServer() {
     }
     finDb.categories = finDb.categories.filter((c) => c.id !== id);
     writeFinanceDb(finDb);
+    void deleteSupabaseRowById('finance_categories', id);
     res.json({ ok: true });
   });
 
@@ -2395,6 +4511,7 @@ async function startServer() {
     }
     finDb.accounts = finDb.accounts.filter((a) => a.id !== id);
     writeFinanceDb(finDb);
+    void deleteSupabaseRowById('finance_accounts', id);
     res.json({ ok: true });
   });
 
@@ -2448,6 +4565,7 @@ async function startServer() {
     const { id } = req.params;
     finDb.transfers = finDb.transfers.filter((tr) => tr.id !== id);
     writeFinanceDb(finDb);
+    void deleteSupabaseRowById('finance_transfers', id);
     res.json({ ok: true });
   });
 
@@ -2473,10 +4591,18 @@ async function startServer() {
       res.status(404).json({ error: 'Kategori transaksi tidak ditemukan.' });
       return;
     }
+    if (cat.type !== body.type) {
+      res.status(400).json({
+        error: `Kategori "${cat.name}" adalah kategori ${cat.type}, tidak cocok dengan jenis transaksi ${body.type}.`,
+      });
+      return;
+    }
     const targetKind: 'cash' | 'rekening' = body.method === 'cash' ? 'cash' : 'rekening';
-    const matchedAccount = body.accountId
-      ? finDb.accounts.find((a) => a.id === body.accountId)
-      : finDb.accounts.find((a) => a.kind === targetKind);
+    const candidateAccount = body.accountId
+      ? finDb.accounts.find((a) => a.id === body.accountId && a.kind === targetKind)
+      : undefined;
+    const matchedAccount =
+      candidateAccount || finDb.accounts.find((a) => a.kind === targetKind);
     const amount = Math.round(Number(body.amount || 0));
     if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000000) {
       res.status(400).json({ error: 'Nominal transaksi harus lebih dari Rp 0.' });
@@ -2532,6 +4658,12 @@ async function startServer() {
       res.status(404).json({ error: 'Kategori transaksi tidak ditemukan.' });
       return;
     }
+    if (cat.type !== nextType) {
+      res.status(400).json({
+        error: `Kategori "${cat.name}" adalah kategori ${cat.type}, tidak sesuai dengan jenis ${nextType}.`,
+      });
+      return;
+    }
     const nextAmount =
       body.amount !== undefined ? Math.round(Number(body.amount || 0)) : existing.amount;
     if (!Number.isFinite(nextAmount) || nextAmount <= 0 || nextAmount > 100000000000) {
@@ -2539,11 +4671,16 @@ async function startServer() {
       return;
     }
 
+    const targetKind: 'cash' | 'rekening' = nextMethod === 'cash' ? 'cash' : 'rekening';
     const nextAccountId =
       body.accountId !== undefined ? body.accountId : existing.accountId;
-    const matchedAccount = nextAccountId
+    const candidateAccount = nextAccountId
       ? finDb.accounts.find((a) => a.id === nextAccountId)
       : undefined;
+    const matchedAccount =
+      candidateAccount && candidateAccount.kind === targetKind
+        ? candidateAccount
+        : finDb.accounts.find((a) => a.kind === targetKind);
     const nextBankAccount = matchedAccount
       ? formatFinanceAccountDisplay(matchedAccount)
       : body.bankAccount !== undefined
@@ -2557,7 +4694,7 @@ async function startServer() {
       method: nextMethod,
       categoryId: cat.id,
       categoryName: cat.name,
-      accountId: matchedAccount?.id ?? existing.accountId,
+      accountId: matchedAccount?.id,
       title: body.title !== undefined ? String(body.title).trim().slice(0, 100) : existing.title,
       counterparty:
         body.counterparty !== undefined
@@ -2582,6 +4719,7 @@ async function startServer() {
     const { id } = req.params;
     finDb.transactions = finDb.transactions.filter((t) => t.id !== id);
     writeFinanceDb(finDb);
+    void deleteSupabaseRowById('finance_transactions', id);
     res.json({ ok: true });
   });
 

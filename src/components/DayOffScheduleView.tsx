@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   CalendarDays,
   CalendarOff,
   CalendarPlus,
@@ -75,6 +76,9 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
   const [empActive, setEmpActive] = useState<boolean>(true);
   const [empSaving, setEmpSaving] = useState<boolean>(false);
   const [empError, setEmpError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [deleteConfirmEmp, setDeleteConfirmEmp] = useState<Employee | null>(null);
+  const [deletingEmp, setDeletingEmp] = useState<boolean>(false);
 
   const activeEmployees = useMemo(
     () => employees.filter((e) => e.active),
@@ -276,13 +280,42 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
     }
   };
 
-  const handleDeleteEmployee = async (empId: string) => {
-    await deleteEmployee(empId);
-    await onRefresh();
+  const handleConfirmDeleteEmployee = async () => {
+    if (!deleteConfirmEmp) return;
+    setDeletingEmp(true);
+    setPageError(null);
+    try {
+      await deleteEmployee(deleteConfirmEmp.id);
+      await onRefresh();
+      setDeleteConfirmEmp(null);
+    } catch (err) {
+      setPageError(
+        err instanceof Error ? err.message : 'Gagal menghapus data karyawan.'
+      );
+      setDeleteConfirmEmp(null);
+    } finally {
+      setDeletingEmp(false);
+    }
   };
 
   return (
     <div className="space-y-6">
+      {pageError && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{pageError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPageError(null)}
+            className="text-red-700 hover:text-red-900 cursor-pointer"
+            aria-label="Tutup pesan error"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {/* Daily Coverage Strip (Mon-Sun) */}
       <section className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-100">
@@ -574,7 +607,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteEmployee(emp.id)}
+                              onClick={() => setDeleteConfirmEmp(emp)}
                               aria-label={`Hapus karyawan ${emp.name}`}
                               className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                             >
@@ -1137,6 +1170,46 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Konfirmasi Hapus Karyawan */}
+      {deleteConfirmEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45">
+          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-lg bg-red-50 border border-red-200 text-red-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold text-slate-900">
+                  Hapus Karyawan Permanen?
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Anda akan menghapus <strong className="text-slate-900">{deleteConfirmEmp.name}</strong> ({deleteConfirmEmp.employeeCode}). Seluruh riwayat absensi dan data gaji terkait karyawan ini juga akan dibersihkan.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deletingEmp}
+                onClick={() => setDeleteConfirmEmp(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={deletingEmp}
+                onClick={handleConfirmDeleteEmployee}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-red-700 rounded-lg hover:bg-red-800 disabled:opacity-50 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{deletingEmp ? 'Menghapus...' : 'Ya, Hapus Karyawan'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

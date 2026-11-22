@@ -1,0 +1,18 @@
+{
+  "engine": "supabase",
+  "host": "db.jeewhluiufosnourqvje.supabase.co",
+  "port": 5432,
+  "databaseName": "postgres",
+  "schemaName": "public",
+  "tablePrefix": "",
+  "username": "postgres",
+  "sslMode": "require",
+  "autoCreateMissingTables": true,
+  "supabaseProjectName": "Absensi",
+  "supabaseProjectId": "jeewhluiufosnourqvje",
+  "supabaseUrl": "https://jeewhluiufosnourqvje.supabase.co",
+  "supabasePublishableKey": "sb_publishable_y7OmGDoZSCuffUn6uJIwZQ_xXszVLT7",
+  "lastCheckedAt": null,
+  "lastAutoInitAt": null,
+  "updatedAt": "2026-11-22T09:50:00.000Z"
+}

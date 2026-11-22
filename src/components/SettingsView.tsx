@@ -4,6 +4,7 @@ import {
   Building2,
   CheckCircle2,
   Clock,
+  Database,
   Download,
   Eye,
   EyeOff,
@@ -22,6 +23,7 @@ import {
   AttendanceRecord,
   calculateDurationHours,
   Employee,
+  LateSettlement,
   NavSection,
   ShiftConfig,
 } from '../types';
@@ -31,18 +33,22 @@ import {
   updateAppSettings,
 } from '../services/attendanceService';
 import { changeAdminModePin } from '../services/payrollService';
+import { lockDatabaseSession } from '../services/databaseService';
+import { DatabaseSettingsPanel } from './DatabaseSettingsPanel';
 
 interface SettingsViewProps {
   employees: Employee[];
   attendanceRecords: AttendanceRecord[];
+  lateSettlements?: LateSettlement[];
   settings: AppSettings;
   onRefresh: () => Promise<void>;
   onNavigate?: (nav: NavSection) => void;
   isAdminMode?: boolean;
+  adminToken?: string | null;
   onOpenAdminModeModal?: () => void;
 }
 
-type SettingsGroup = 'semua' | 'shift' | 'identitas' | 'backup' | 'keamanan';
+type SettingsGroup = 'semua' | 'shift' | 'identitas' | 'backup' | 'keamanan' | 'database';
 
 interface ParsedBackupPreview {
   fileName: string;
@@ -56,10 +62,12 @@ interface ParsedBackupPreview {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   employees,
   attendanceRecords,
+  lateSettlements = [],
   settings,
   onRefresh,
   onNavigate,
   isAdminMode = false,
+  adminToken = null,
   onOpenAdminModeModal,
 }) => {
   const [activeGroup, setActiveGroup] = useState<SettingsGroup>('semua');
@@ -107,6 +115,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  // Lifted Database PIN Session Token (persists across Settings sub-tabs, locks when exiting Settings)
+  const [databaseToken, setDatabaseToken] = useState<string | null>(null);
+  const databaseTokenRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    databaseTokenRef.current = databaseToken;
+  }, [databaseToken]);
+
+  useEffect(() => {
+    return () => {
+      if (databaseTokenRef.current) {
+        void lockDatabaseSession(databaseTokenRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setShifts(settings.shifts || []);
@@ -410,12 +434,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       desc: 'Atur PIN masuk Mode Admin',
       icon: KeyRound,
     },
+    {
+      id: 'database',
+      label: 'Database & Tabel',
+      desc: 'Cek tabel, auto-init & script SQL (PIN)',
+      icon: Database,
+    },
   ];
 
   const showShift = activeGroup === 'semua' || activeGroup === 'shift';
   const showIdentitas = activeGroup === 'semua' || activeGroup === 'identitas';
   const showBackup = activeGroup === 'semua' || activeGroup === 'backup';
   const showKeamanan = activeGroup === 'semua' || activeGroup === 'keamanan';
+  const showDatabase = activeGroup === 'semua' || activeGroup === 'database';
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -837,7 +868,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       Backup Data (.json)
                     </div>
                     <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                      Mengunduh salinan lengkap data karyawan, jadwal libur individu, riwayat absensi manual, dan pengaturan jam kerja tiap shift ke perangkat Anda.
+                      Mengunduh salinan lengkap data karyawan, jadwal libur individu, riwayat catatan absensi, dan pengaturan jam kerja tiap shift ke perangkat Anda.
                     </p>
                   </div>
 
@@ -1049,6 +1080,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </form>
           </section>
+        )}
+
+        {/* KELOMPOK 5: PENGATURAN DATABASE & TABEL (DILINDUNGI PIN) */}
+        {showDatabase && (
+          <DatabaseSettingsPanel
+            employees={employees}
+            attendanceRecords={attendanceRecords}
+            lateSettlements={lateSettlements}
+            settings={settings}
+            adminToken={adminToken}
+            databaseToken={databaseToken}
+            onDatabaseTokenChange={setDatabaseToken}
+            onRefresh={onRefresh}
+          />
         )}
       </div>
     </div>
