@@ -1,0 +1,122 @@
+{
+  "settings": {
+    "defaultOvertimeHourlyRate": 25000,
+    "defaultAlphaDeductionPerDay": 150000,
+    "defaultIzinDeductionPerDay": 0,
+    "autoDeductRemainingLate": true,
+    "bpjsKesehatanPct": 1,
+    "bpjsKetenagakerjaanPct": 2,
+    "paydayDayOfMonth": 25
+  },
+  "profiles": [
+    {
+      "employeeId": "emp_rina_putri",
+      "baseSalary": 5600000,
+      "positionAllowance": 950000,
+      "transportMealAllowance": 650000,
+      "otherAllowance": 0,
+      "overtimeHourlyRate": 25000,
+      "paydayDay": 25,
+      "paymentMethod": "transfer",
+      "bankName": "BCA",
+      "bankAccountNumber": "1080421000",
+      "bankAccountHolder": "Rina Putri Maharani",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-21T09:44:42.509Z"
+    },
+    {
+      "employeeId": "emp_dimas_pratama",
+      "baseSalary": 5600000,
+      "positionAllowance": 950000,
+      "transportMealAllowance": 650000,
+      "overtimeHourlyRate": 25000,
+      "paymentMethod": "transfer",
+      "bankName": "Mandiri",
+      "bankAccountNumber": "1080421137",
+      "bankAccountHolder": "Dimas Pratama",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-20T10:05:48.297Z"
+    },
+    {
+      "employeeId": "emp_sari_wijaya",
+      "baseSalary": 5600000,
+      "positionAllowance": 950000,
+      "transportMealAllowance": 650000,
+      "overtimeHourlyRate": 25000,
+      "paymentMethod": "transfer",
+      "bankName": "BNI",
+      "bankAccountNumber": "1080421274",
+      "bankAccountHolder": "Sari Wijaya Kusuma",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-20T10:05:48.297Z"
+    },
+    {
+      "employeeId": "emp_bagus_santoso",
+      "baseSalary": 4900000,
+      "positionAllowance": 650000,
+      "transportMealAllowance": 650000,
+      "overtimeHourlyRate": 25000,
+      "paymentMethod": "transfer",
+      "bankName": "BRI",
+      "bankAccountNumber": "1080421411",
+      "bankAccountHolder": "Bagus Santoso",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-20T10:05:48.297Z"
+    },
+    {
+      "employeeId": "emp_nadia_rahman",
+      "baseSalary": 4900000,
+      "positionAllowance": 650000,
+      "transportMealAllowance": 650000,
+      "overtimeHourlyRate": 25000,
+      "paymentMethod": "transfer",
+      "bankName": "BCA",
+      "bankAccountNumber": "1080421548",
+      "bankAccountHolder": "Nadia Rahman",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-20T10:05:48.297Z"
+    },
+    {
+      "employeeId": "emp_hendra_wijaya",
+      "baseSalary": 4400000,
+      "positionAllowance": 450000,
+      "transportMealAllowance": 650000,
+      "overtimeHourlyRate": 25000,
+      "paymentMethod": "transfer",
+      "bankName": "Mandiri",
+      "bankAccountNumber": "1080421685",
+      "bankAccountHolder": "Hendra Wijaya",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-20T10:05:48.297Z"
+    },
+    {
+      "employeeId": "emp_fajar_nugroho",
+      "baseSalary": 4900000,
+      "positionAllowance": 650000,
+      "transportMealAllowance": 650000,
+      "overtimeHourlyRate": 25000,
+      "paymentMethod": "transfer",
+      "bankName": "BNI",
+      "bankAccountNumber": "1080421822",
+      "bankAccountHolder": "Fajar Nugroho",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-20T10:05:48.297Z"
+    },
+    {
+      "employeeId": "emp_melati_kusuma",
+      "baseSalary": 4400000,
+      "positionAllowance": 450000,
+      "transportMealAllowance": 650000,
+      "overtimeHourlyRate": 25000,
+      "paymentMethod": "transfer",
+      "bankName": "BRI",
+      "bankAccountNumber": "1080421959",
+      "bankAccountHolder": "Melati Kusuma",
+      "notes": "Struktur gaji standar perusahaan",
+      "updatedAt": "2026-11-20T10:05:48.297Z"
+    }
+  ],
+  "adjustments": [],
+  "salaryRaises": [],
+  "statuses": []
+}

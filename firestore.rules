@@ -1,0 +1,367 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerified() && request.auth.token.email == 'assyfachanel99@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isValidDateStr(d) {
+      return d is string && d.size() == 10 && d.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function isValidTimeStr(t) {
+      return t is string && t.size() == 5 && t.matches('^([01]\\d|2[0-3]):[0-5]\\d$');
+    }
+
+    function isValidOptionalTimeStr(t) {
+      return t is string && ((t.size() == 0) || (t.size() == 5 && t.matches('^([01]\\d|2[0-3]):[0-5]\\d$')));
+    }
+
+    // 3. Validation Blueprints
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'employeeId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'employeeId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 150
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.role in ['admin', 'employee']
+        && isValidId(data.employeeId)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll([
+          'id', 'userId', 'employeeCode', 'name', 'department', 'position',
+          'shiftName', 'shiftStart', 'shiftEnd', 'offDays', 'customOffDates',
+          'active', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'employeeCode', 'name', 'department', 'position',
+          'shiftName', 'shiftStart', 'shiftEnd', 'offDays', 'customOffDates',
+          'active', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && data.employeeCode is string && data.employeeCode.size() >= 2 && data.employeeCode.size() <= 20 && data.employeeCode.matches('^[A-Z0-9\\-]+$')
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.department is string && data.department.size() >= 2 && data.department.size() <= 60
+        && data.position is string && data.position.size() >= 2 && data.position.size() <= 60
+        && data.shiftName is string && data.shiftName.size() >= 2 && data.shiftName.size() <= 40
+        && isValidTimeStr(data.shiftStart)
+        && isValidTimeStr(data.shiftEnd)
+        && data.offDays is list && data.offDays.size() <= 7
+        && (data.offDays.size() == 0 || (data.offDays[0] is int && data.offDays[0] >= 0 && data.offDays[0] <= 6))
+        && data.customOffDates is list && data.customOffDates.size() <= 31
+        && (data.customOffDates.size() == 0 || isValidDateStr(data.customOffDates[0]))
+        && data.active is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'userId', 'date', 'status',
+          'checkIn', 'checkOut', 'entryType', 'notes', 'recordedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'userId', 'date', 'status',
+          'checkIn', 'checkOut', 'entryType', 'notes', 'recordedBy', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
+        && isValidId(data.userId)
+        && isValidDateStr(data.date)
+        && data.status in ['hadir', 'terlambat', 'izin', 'sakit', 'alpha', 'libur']
+        && isValidOptionalTimeStr(data.checkIn)
+        && isValidOptionalTimeStr(data.checkOut)
+        && data.entryType in ['manual_karyawan', 'manual_admin']
+        && data.notes is string && data.notes.size() <= 300
+        && isValidId(data.recordedBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOvertimeRequest(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'userId', 'date', 'startTime', 'endTime',
+          'durationHours', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'userId', 'date', 'startTime', 'endTime',
+          'durationHours', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
+        && isValidId(data.userId)
+        && isValidDateStr(data.date)
+        && isValidTimeStr(data.startTime)
+        && isValidTimeStr(data.endTime)
+        && (data.durationHours is int || data.durationHours is float) && data.durationHours >= 0.5 && data.durationHours <= 16
+        && data.reason is string && data.reason.size() >= 5 && data.reason.size() <= 400
+        && data.status in ['pending', 'approved', 'rejected', 'cancelled']
+        && data.reviewedBy is string && data.reviewedBy.size() <= 128
+        && data.reviewNotes is string && data.reviewNotes.size() <= 300
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLeaveRequest(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'userId', 'leaveType', 'startDate', 'endDate',
+          'totalDays', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'userId', 'leaveType', 'startDate', 'endDate',
+          'totalDays', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
+        && isValidId(data.userId)
+        && data.leaveType in ['cuti_tahunan', 'izin_pribadi', 'sakit', 'izin_khusus']
+        && isValidDateStr(data.startDate)
+        && isValidDateStr(data.endDate)
+        && (data.totalDays is int || data.totalDays is float) && data.totalDays >= 1 && data.totalDays <= 60
+        && data.reason is string && data.reason.size() >= 5 && data.reason.size() <= 400
+        && data.status in ['pending', 'approved', 'rejected', 'cancelled']
+        && data.reviewedBy is string && data.reviewedBy.size() <= 128
+        && data.reviewNotes is string && data.reviewNotes.size() <= 300
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Rules
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.uid == request.auth.uid);
+
+      allow create: if isVerified()
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isBootstrappedAdmin() ||
+          (isOwner(userId) && incoming().role == 'employee')
+        );
+
+      allow update: if isVerified()
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    match /employees/{employeeId} {
+      allow get: if isValidId(employeeId) && isSignedIn() && (resource == null || existing().active == true || existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.active == true);
+
+      allow create: if isVerified()
+        && isValidId(employeeId)
+        && isValidEmployee(incoming())
+        && incoming().id == employeeId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (incoming().userId == request.auth.uid && incoming().active == true)
+        );
+
+      allow update: if isVerified()
+        && isValidId(employeeId)
+        && isValidEmployee(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid &&
+            incoming().userId == existing().userId &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['shiftName', 'shiftStart', 'shiftEnd', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(employeeId) && isAdmin();
+    }
+
+    match /attendance/{recordId} {
+      allow get: if isValidId(recordId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.userId == request.auth.uid);
+
+      allow create: if isVerified()
+        && isValidId(recordId)
+        && isValidAttendance(incoming())
+        && incoming().id == recordId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId))
+        && (
+          isAdmin() ||
+          (
+            incoming().userId == request.auth.uid &&
+            incoming().recordedBy == request.auth.uid &&
+            incoming().entryType == 'manual_karyawan'
+          )
+        );
+
+      allow update: if isVerified()
+        && isValidId(recordId)
+        && isValidAttendance(incoming())
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid &&
+            incoming().entryType == 'manual_karyawan' &&
+            incoming().recordedBy == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['checkIn', 'checkOut', 'status', 'notes', 'recordedBy', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(recordId) && isAdmin();
+    }
+
+    match /overtimeRequests/{requestId} {
+      allow get: if isValidId(requestId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.userId == request.auth.uid);
+
+      allow create: if isVerified()
+        && isValidId(requestId)
+        && isValidOvertimeRequest(incoming())
+        && incoming().id == requestId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId))
+        && (
+          isAdmin() ||
+          (
+            incoming().userId == request.auth.uid &&
+            incoming().status == 'pending' &&
+            incoming().reviewedBy == '' &&
+            incoming().reviewNotes == ''
+          )
+        );
+
+      allow update: if isVerified()
+        && isValidId(requestId)
+        && isValidOvertimeRequest(incoming())
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid &&
+            existing().status == 'pending' &&
+            incoming().status == 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(requestId) && isAdmin();
+    }
+
+    match /leaveRequests/{requestId} {
+      allow get: if isValidId(requestId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.userId == request.auth.uid);
+
+      allow create: if isVerified()
+        && isValidId(requestId)
+        && isValidLeaveRequest(incoming())
+        && incoming().id == requestId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId))
+        && (
+          isAdmin() ||
+          (
+            incoming().userId == request.auth.uid &&
+            incoming().status == 'pending' &&
+            incoming().reviewedBy == '' &&
+            incoming().reviewNotes == ''
+          )
+        );
+
+      allow update: if isVerified()
+        && isValidId(requestId)
+        && isValidLeaveRequest(incoming())
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().userId == request.auth.uid &&
+            existing().status == 'pending' &&
+            incoming().status == 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(requestId) && isAdmin();
+    }
+  }
+}

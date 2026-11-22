@@ -1,0 +1,8 @@
+{
+  "name": "KaryaPresensi",
+  "description": "Dasbor admin absensi manual karyawan, manajemen jadwal libur per individu, dan rekapitulasi bulanan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

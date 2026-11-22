@@ -1,0 +1,220 @@
+{
+  "accounts": [
+    {
+      "id": "acc_cash_main",
+      "name": "Kas Tunai Utama",
+      "kind": "cash",
+      "bankName": "Kas Tunai",
+      "accountNumber": "-",
+      "holderName": "Kasir Operasional",
+      "openingBalance": 0,
+      "createdAt": "2026-11-21T10:10:40.602Z"
+    },
+    {
+      "id": "acc_bank_bca",
+      "name": "BCA Corporate",
+      "kind": "rekening",
+      "bankName": "BCA",
+      "accountNumber": "001-889-2100",
+      "holderName": "PT KaryaPresensi",
+      "openingBalance": 0,
+      "createdAt": "2026-11-21T10:10:40.602Z"
+    },
+    {
+      "id": "acc_bank_bri",
+      "name": "BRI Bisnis",
+      "kind": "rekening",
+      "bankName": "BRI",
+      "accountNumber": "0234-01-009821-30-5",
+      "holderName": "PT KaryaPresensi",
+      "openingBalance": 0,
+      "createdAt": "2026-11-21T10:10:40.602Z"
+    },
+    {
+      "id": "acc_bank_mandiri",
+      "name": "Mandiri Bisnis",
+      "kind": "rekening",
+      "bankName": "Mandiri",
+      "accountNumber": "124-000-9912",
+      "holderName": "PT KaryaPresensi",
+      "openingBalance": 0,
+      "createdAt": "2026-11-21T10:10:40.602Z"
+    }
+  ],
+  "categories": [
+    {
+      "id": "fcat_inc_cash",
+      "name": "Penjualan Tunai & Kas Harian",
+      "type": "pendapatan",
+      "description": "Penerimaan penjualan tunai / kas harian operasional",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_inc_transfer",
+      "name": "Penjualan Transfer & Invoice",
+      "type": "pendapatan",
+      "description": "Pembayaran invoice klien dan transfer rekening bank perusahaan",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_inc_other",
+      "name": "Pendapatan Lain-lain",
+      "type": "pendapatan",
+      "description": "Pendapatan jasa tambahan, komisi, atau pengembalian dana",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_exp_operasional",
+      "name": "Operasional & ATK Kantor",
+      "type": "pengeluaran",
+      "description": "Kebutuhan alat tulis kantor, perlengkapan toko, dan operasional harian",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_exp_utilitas",
+      "name": "Listrik, Air & Internet",
+      "type": "pengeluaran",
+      "description": "Tagihan listrik PLN, PDAM, telepon, dan jaringan internet kantor",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_exp_logistik",
+      "name": "Logistik, BBM & Pengiriman",
+      "type": "pengeluaran",
+      "description": "Biaya pengiriman barang, ekspedisi, BBM kurir, dan tol",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_exp_stok",
+      "name": "Pembelian Stok & Supplier",
+      "type": "pengeluaran",
+      "description": "Pengadaan barang dagang, bahan baku, dan pelunasan supplier",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_exp_pemeliharaan",
+      "name": "Sewa & Pemeliharaan Aset",
+      "type": "pengeluaran",
+      "description": "Perawatan gedung, AC, kendaraan operasional, dan perangkat IT",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    },
+    {
+      "id": "fcat_exp_pajak",
+      "name": "Pajak, Iuran & Legalitas",
+      "type": "pengeluaran",
+      "description": "Pembayaran pajak perusahaan, retribusi, dan biaya perizinan",
+      "createdAt": "2026-11-21T09:59:33.056Z"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "ftx_seed_1",
+      "date": "2026-11-02",
+      "type": "pendapatan",
+      "method": "cash",
+      "categoryId": "fcat_inc_cash",
+      "categoryName": "Penjualan Tunai & Kas Harian",
+      "title": "Setoran Penjualan Tunai Awal Bulan",
+      "counterparty": "Kasir Operasional Toko",
+      "bankAccount": "Kas Tunai Perusahaan",
+      "referenceNo": "KAS-001",
+      "amount": 14500000,
+      "notes": "Rekap setoran penjualan tunai harian",
+      "recordedBy": "Admin Mode",
+      "createdAt": "2026-11-21T09:59:33.056Z",
+      "updatedAt": "2026-11-21T09:59:33.056Z",
+      "accountId": "acc_cash_main"
+    },
+    {
+      "id": "ftx_seed_2",
+      "date": "2026-11-05",
+      "type": "pendapatan",
+      "method": "transfer",
+      "categoryId": "fcat_inc_transfer",
+      "categoryName": "Penjualan Transfer & Invoice",
+      "title": "Pelunasan Invoice Mitra Distribusi #INV-204",
+      "counterparty": "CV Maju Bersama",
+      "bankAccount": "BCA Corporate 001-889-2100",
+      "referenceNo": "INV-204",
+      "amount": 38750000,
+      "notes": "Transfer masuk rekening utama perusahaan",
+      "recordedBy": "Admin Mode",
+      "createdAt": "2026-11-21T09:59:33.056Z",
+      "updatedAt": "2026-11-21T09:59:33.056Z",
+      "accountId": "acc_bank_bca"
+    },
+    {
+      "id": "ftx_seed_3",
+      "date": "2026-11-08",
+      "type": "pengeluaran",
+      "method": "transfer",
+      "categoryId": "fcat_exp_stok",
+      "categoryName": "Pembelian Stok & Supplier",
+      "title": "Pelunasan Pengadaan Barang Gudang",
+      "counterparty": "PT Sumber Makmur Logistik",
+      "bankAccount": "Mandiri Bisnis 124-000-9912",
+      "referenceNo": "PO-118",
+      "amount": 18200000,
+      "notes": "Pembelian stok batch bulanan",
+      "recordedBy": "Admin Mode",
+      "createdAt": "2026-11-21T09:59:33.056Z",
+      "updatedAt": "2026-11-21T09:59:33.056Z",
+      "accountId": "acc_bank_mandiri"
+    },
+    {
+      "id": "ftx_seed_4",
+      "date": "2026-11-12",
+      "type": "pengeluaran",
+      "method": "cash",
+      "categoryId": "fcat_exp_logistik",
+      "categoryName": "Logistik, BBM & Pengiriman",
+      "title": "Biaya BBM & Parkir Armada Pengiriman",
+      "counterparty": "Tim Kurir & Gudang",
+      "bankAccount": "Kas Kecil (Petty Cash)",
+      "referenceNo": "BKK-019",
+      "amount": 1450000,
+      "notes": "Struk BBM dan tol pengiriman area Jabodetabek",
+      "recordedBy": "Admin Mode",
+      "createdAt": "2026-11-21T09:59:33.056Z",
+      "updatedAt": "2026-11-21T09:59:33.056Z",
+      "accountId": "acc_cash_main"
+    },
+    {
+      "id": "ftx_seed_5",
+      "date": "2026-11-15",
+      "type": "pengeluaran",
+      "method": "transfer",
+      "categoryId": "fcat_exp_utilitas",
+      "categoryName": "Listrik, Air & Internet",
+      "title": "Tagihan Listrik PLN, PDAM & Fiber Internet",
+      "counterparty": "PLN & Telkom Indibiz",
+      "bankAccount": "BCA Corporate 001-889-2100",
+      "referenceNo": "UTL-1126",
+      "amount": 3650000,
+      "notes": "Pembayaran tagihan utilitas kantor pusat & gudang",
+      "recordedBy": "Admin Mode",
+      "createdAt": "2026-11-21T09:59:33.056Z",
+      "updatedAt": "2026-11-21T09:59:33.056Z",
+      "accountId": "acc_bank_bca"
+    },
+    {
+      "id": "ftx_seed_6",
+      "date": "2026-11-21",
+      "type": "pengeluaran",
+      "method": "cash",
+      "categoryId": "fcat_exp_operasional",
+      "categoryName": "Operasional & ATK Kantor",
+      "title": "Pembelian Kertas, Tinta Printer & Konsumsi Rapat",
+      "counterparty": "Toko ATK Nusantara",
+      "bankAccount": "Kas Kecil (Petty Cash)",
+      "referenceNo": "BKK-024",
+      "amount": 680000,
+      "notes": "Pengisian ulang perlengkapan administrasi",
+      "recordedBy": "Admin Mode",
+      "createdAt": "2026-11-21T09:59:33.056Z",
+      "updatedAt": "2026-11-21T09:59:33.056Z",
+      "accountId": "acc_cash_main"
+    }
+  ],
+  "transfers": []
+}
