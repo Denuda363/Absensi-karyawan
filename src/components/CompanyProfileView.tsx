@@ -659,10 +659,10 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => onNavigate('absensi')}
+                onClick={() => onNavigate('matriks')}
                 className="text-xs font-semibold text-blue-700 hover:text-blue-800 whitespace-nowrap shrink-0 cursor-pointer no-print"
               >
-                Kelola Karyawan
+                Lihat Daftar Hadir
               </button>
             </div>
 

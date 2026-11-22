@@ -360,6 +360,9 @@ export async function exportAttendanceMatrixToExcel(params: {
           if (rec?.status === 'terlambat') {
             cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD97706' } };
+          } else if (rec?.status === 'izin_terlambat') {
+            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
           } else {
             cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF548235' } };
@@ -662,7 +665,7 @@ export async function exportAttendanceMatrixToExcel(params: {
   applyBorderToRange(ws, 21, 2, 21, 4, THIN_BORDER);
 
   const legendItems = [
-    'h = hadir (termasuk telat)',
+    'h = hadir (termasuk telat & izin telat)',
     'i = ijin',
     's = sakit',
     'a = alpha',
@@ -734,7 +737,9 @@ export async function exportAttendanceMatrixToExcel(params: {
       (rec) => rec.employeeId === emp.id && rec.date.startsWith(yearMonth)
     );
     const effectiveWorkDays = getMonthEffectiveWorkDays(emp, yearMonth);
-    const hadirCount = monthAtt.filter((rec) => rec.status === 'hadir').length;
+    const hadirCount = monthAtt.filter(
+      (rec) => rec.status === 'hadir' || rec.status === 'izin_terlambat'
+    ).length;
     const terlambatCount = monthAtt.filter((rec) => rec.status === 'terlambat').length;
     const izinCount = monthAtt.filter((rec) => rec.status === 'izin').length;
     const sakitCount = monthAtt.filter((rec) => rec.status === 'sakit').length;

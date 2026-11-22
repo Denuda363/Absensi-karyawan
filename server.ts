@@ -42,11 +42,14 @@ interface AttendanceData {
   employeeId: string;
   employeeName: string;
   date: string;
-  status: 'hadir' | 'terlambat' | 'izin' | 'sakit' | 'alpha' | 'libur';
+  status: 'hadir' | 'terlambat' | 'izin_terlambat' | 'izin' | 'sakit' | 'alpha' | 'libur';
   checkIn: string;
   checkOut: string;
   overtimeHours: number;
   notes: string;
+  latePermitReason?: string;
+  latePermitEstimatedArrival?: string;
+  latePermitApprovedBy?: string;
   recordedBy: string;
   createdAt: string;
   updatedAt: string;
@@ -1476,8 +1479,21 @@ async function startServer() {
   app.post('/api/attendance', (req, res) => {
     const db = readDb();
     const body = req.body as Partial<AttendanceData>;
+    const validStatuses: AttendanceData['status'][] = [
+      'hadir',
+      'terlambat',
+      'izin_terlambat',
+      'izin',
+      'sakit',
+      'alpha',
+      'libur',
+    ];
     if (!body.employeeId || !body.date || !body.status) {
       res.status(400).json({ error: 'Karyawan, tanggal, dan status absensi wajib diisi.' });
+      return;
+    }
+    if (!validStatuses.includes(body.status)) {
+      res.status(400).json({ error: 'Status absensi tidak valid.' });
       return;
     }
     const emp = db.employees.find((e) => e.id === body.employeeId);
@@ -1486,7 +1502,8 @@ async function startServer() {
       return;
     }
     const nowIso = new Date().toISOString();
-    const needsTime = body.status === 'hadir' || body.status === 'terlambat';
+    const isLatePermit = body.status === 'izin_terlambat';
+    const needsTime = body.status === 'hadir' || body.status === 'terlambat' || isLatePermit;
     const record: AttendanceData = {
       id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       employeeId: emp.id,
@@ -1497,6 +1514,13 @@ async function startServer() {
       checkOut: needsTime ? String(body.checkOut || '') : '',
       overtimeHours: Math.max(0, Math.min(16, Number(body.overtimeHours || 0))),
       notes: String(body.notes || '').trim().slice(0, 300),
+      ...(isLatePermit
+        ? {
+            latePermitReason: String(body.latePermitReason || '').trim().slice(0, 200),
+            latePermitEstimatedArrival: String(body.latePermitEstimatedArrival || '').trim().slice(0, 5),
+            latePermitApprovedBy: String(body.latePermitApprovedBy || 'Admin HR').trim().slice(0, 80),
+          }
+        : {}),
       recordedBy: 'Admin HR',
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -1559,8 +1583,22 @@ async function startServer() {
     }
     const existing = db.attendanceRecords[idx];
     const body = req.body as Partial<AttendanceData>;
+    const validStatuses: AttendanceData['status'][] = [
+      'hadir',
+      'terlambat',
+      'izin_terlambat',
+      'izin',
+      'sakit',
+      'alpha',
+      'libur',
+    ];
+    if (body.status !== undefined && !validStatuses.includes(body.status)) {
+      res.status(400).json({ error: 'Status absensi tidak valid.' });
+      return;
+    }
     const nextStatus = body.status ?? existing.status;
-    const needsTime = nextStatus === 'hadir' || nextStatus === 'terlambat';
+    const isLatePermit = nextStatus === 'izin_terlambat';
+    const needsTime = nextStatus === 'hadir' || nextStatus === 'terlambat' || isLatePermit;
 
     const updated: AttendanceData = {
       ...existing,
@@ -1572,6 +1610,21 @@ async function startServer() {
           ? Math.max(0, Math.min(16, Number(body.overtimeHours)))
           : existing.overtimeHours,
       notes: body.notes !== undefined ? String(body.notes).trim().slice(0, 300) : existing.notes,
+      latePermitReason: isLatePermit
+        ? body.latePermitReason !== undefined
+          ? String(body.latePermitReason).trim().slice(0, 200)
+          : existing.latePermitReason || ''
+        : undefined,
+      latePermitEstimatedArrival: isLatePermit
+        ? body.latePermitEstimatedArrival !== undefined
+          ? String(body.latePermitEstimatedArrival).trim().slice(0, 5)
+          : existing.latePermitEstimatedArrival || ''
+        : undefined,
+      latePermitApprovedBy: isLatePermit
+        ? body.latePermitApprovedBy !== undefined
+          ? String(body.latePermitApprovedBy).trim().slice(0, 80)
+          : existing.latePermitApprovedBy || 'Admin HR'
+        : undefined,
       recordedBy: 'Admin HR',
       updatedAt: new Date().toISOString(),
     };

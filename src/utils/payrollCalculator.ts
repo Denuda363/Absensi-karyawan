@@ -22,6 +22,7 @@ export interface EmployeePayrollCalculation {
   presentDays: number;
   hadirCount: number;
   terlambatCount: number;
+  izinTerlambatCount: number;
   izinCount: number;
   sakitCount: number;
   alphaCount: number;
@@ -118,7 +119,10 @@ export function calculateEmployeePayroll(params: {
   const effectiveWorkDays = getMonthEffectiveWorkDays(employee, yearMonth);
   const hadirCount = monthRecords.filter((r) => r.status === 'hadir').length;
   const terlambatCount = monthRecords.filter((r) => r.status === 'terlambat').length;
-  const presentDays = hadirCount + terlambatCount;
+  const izinTerlambatCount = monthRecords.filter(
+    (r) => r.status === 'izin_terlambat'
+  ).length;
+  const presentDays = hadirCount + terlambatCount + izinTerlambatCount;
   const izinCount = monthRecords.filter((r) => r.status === 'izin').length;
   const sakitCount = monthRecords.filter((r) => r.status === 'sakit').length;
   const alphaCount = monthRecords.filter((r) => r.status === 'alpha').length;
@@ -237,6 +241,7 @@ export function calculateEmployeePayroll(params: {
     presentDays,
     hadirCount,
     terlambatCount,
+    izinTerlambatCount,
     izinCount,
     sakitCount,
     alphaCount,

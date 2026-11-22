@@ -56,6 +56,7 @@ interface EmployeeMonthlySummary {
   effectiveWorkDays: number;
   hadirCount: number;
   terlambatCount: number;
+  izinTerlambatCount: number;
   izinSakitCount: number;
   alphaCount: number;
   totalWorkHours: number;
@@ -180,6 +181,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         const effectiveWorkDays = getMonthEffectiveWorkDays(emp, selectedMonth);
         const hadirCount = monthAtt.filter((r) => r.status === 'hadir').length;
         const terlambatCount = monthAtt.filter((r) => r.status === 'terlambat').length;
+        const izinTerlambatCount = monthAtt.filter(
+          (r) => r.status === 'izin_terlambat'
+        ).length;
         const izinSakitCount = monthAtt.filter(
           (r) => r.status === 'izin' || r.status === 'sakit'
         ).length;
@@ -196,7 +200,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           0
         );
 
-        const attendedTotal = hadirCount + terlambatCount;
+        const attendedTotal = hadirCount + terlambatCount + izinTerlambatCount;
         const recordedWorkLogs = attendedTotal + izinSakitCount + alphaCount;
         const attendancePct =
           recordedWorkLogs > 0
@@ -208,6 +212,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           effectiveWorkDays,
           hadirCount,
           terlambatCount,
+          izinTerlambatCount,
           izinSakitCount,
           alphaCount,
           totalWorkHours: Math.round(totalWorkHours * 10) / 10,
@@ -220,10 +225,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   const aggregate = useMemo(() => {
     const totalPresent = summaries.reduce(
-      (acc, s) => acc + s.hadirCount + s.terlambatCount,
+      (acc, s) => acc + s.hadirCount + s.terlambatCount + s.izinTerlambatCount,
       0
     );
     const totalLate = summaries.reduce((acc, s) => acc + s.terlambatCount, 0);
+    const totalIzinTerlambat = summaries.reduce(
+      (acc, s) => acc + s.izinTerlambatCount,
+      0
+    );
     const totalWorkHours = summaries.reduce((acc, s) => acc + s.totalWorkHours, 0);
     const totalOtHours = summaries.reduce(
       (acc, s) => acc + s.manualOvertimeHours,
@@ -232,6 +241,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return {
       totalPresent,
       totalLate,
+      totalIzinTerlambat,
       totalWorkHours: Math.round(totalWorkHours * 10) / 10,
       totalOtHours: Math.round(totalOtHours * 10) / 10,
     };
@@ -248,6 +258,27 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       });
   }, [lateSettlements, selectedMonth, scopedEmployees]);
 
+  // Authorized late arrival permits (exempt from lateness deduction)
+  const latePermitLogs = useMemo(() => {
+    const empMap = new Map(scopedEmployees.map((e) => [e.id, e]));
+    return attendanceRecords
+      .filter(
+        (r) =>
+          r.status === 'izin_terlambat' &&
+          r.date.startsWith(selectedMonth) &&
+          empMap.has(r.employeeId)
+      )
+      .map((rec) => {
+        const employee = empMap.get(rec.employeeId)!;
+        const refTime = rec.checkIn || rec.latePermitEstimatedArrival || '';
+        const diffMins = refTime
+          ? calculateLatenessMinutes(refTime, employee.shiftStart)
+          : 0;
+        return { record: rec, employee, diffMins };
+      })
+      .sort((a, b) => b.record.date.localeCompare(a.record.date));
+  }, [scopedEmployees, attendanceRecords, selectedMonth]);
+
   // Lateness computation (Rekap Karyawan Terlambat + Penggantian/Cicilan)
   const { lateEmployeeSummaries, lateLogDetails, lateStats } = useMemo(() => {
     const details: LateLogDetail[] = [];
@@ -260,7 +291,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       );
 
       const attendedDays = monthAtt.filter(
-        (r) => r.status === 'hadir' || r.status === 'terlambat'
+        (r) =>
+          r.status === 'hadir' ||
+          r.status === 'terlambat' ||
+          r.status === 'izin_terlambat'
       ).length;
 
       const empLateLogs: LateLogDetail[] = [];
@@ -632,6 +666,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       'Jadwal Libur Mingguan',
       'Hari Kerja Efektif',
       'Hadir',
+      'Izin Terlambat',
       'Terlambat',
       'Izin/Sakit',
       'Alpha',
@@ -646,6 +681,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       `"${formatOffDaysSummary(s.employee.offDays)}"`,
       s.effectiveWorkDays,
       s.hadirCount,
+      s.izinTerlambatCount,
       s.terlambatCount,
       s.izinSakitCount,
       s.alphaCount,
@@ -1036,6 +1072,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 <div className="mt-2 font-mono text-2xl font-bold text-amber-700 tabular-nums">
                   {aggregate.totalLate} <span className="text-xs font-normal text-slate-500">kali</span>
                 </div>
+                {aggregate.totalIzinTerlambat > 0 && (
+                  <div className="mt-1 text-[11px] font-medium text-teal-700 font-mono tabular-nums">
+                    + {aggregate.totalIzinTerlambat} izin datang terlambat
+                  </div>
+                )}
               </div>
               <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
                 <div className="text-xs font-medium text-slate-500">Akumulasi Jam Kerja</div>
@@ -1075,6 +1116,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                       <th className="py-3 px-4">Hari Libur</th>
                       <th className="py-3 px-3 text-right">Wajib Kerja</th>
                       <th className="py-3 px-3 text-right">Hadir</th>
+                      <th className="py-3 px-3 text-right">Izin Telat</th>
                       <th className="py-3 px-3 text-right">Terlambat</th>
                       <th className="py-3 px-3 text-right">Izin/Sakit</th>
                       <th className="py-3 px-3 text-right">Alpha</th>
@@ -1101,6 +1143,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-emerald-700 tabular-nums">
                           {row.hadirCount}
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-teal-700 tabular-nums">
+                          {row.izinTerlambatCount}
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-xs text-amber-700 tabular-nums">
                           {row.terlambatCount}
@@ -1693,6 +1738,74 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Authorized Late Arrival Permit Audit Table */}
+          {latePermitLogs.length > 0 && (
+            <div className="bg-white border border-teal-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-teal-100 bg-teal-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h3 className="font-display text-sm font-semibold text-teal-950">
+                    Riwayat Izin Datang Terlambat Resmi ({latePermitLogs.length} Catatan)
+                  </h3>
+                  <p className="text-xs text-teal-800 mt-0.5">
+                    Izin resmi masuk terlambat yang disetujui — tetap dihitung hadir &amp; bebas denda keterlambatan
+                  </p>
+                </div>
+                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-white border border-teal-200 text-teal-800 whitespace-nowrap shrink-0">
+                  Bebas Potongan Gaji
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
+                      <th className="py-3 px-4">Tanggal</th>
+                      <th className="py-3 px-4">Karyawan</th>
+                      <th className="py-3 px-4">Est. Tiba / Aktual</th>
+                      <th className="py-3 px-4">Alasan Izin</th>
+                      <th className="py-3 px-4">Disetujui Oleh</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {latePermitLogs.map((item) => (
+                      <tr key={item.record.id} className="hover:bg-teal-50/30">
+                        <td className="py-3 px-4 font-mono text-xs text-slate-800 whitespace-nowrap">
+                          {item.record.date}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-900">
+                            {item.employee.name}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            <span className="font-mono">{item.employee.employeeCode}</span> ·{' '}
+                            {item.employee.department}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs text-teal-800 whitespace-nowrap tabular-nums">
+                          {item.record.checkIn
+                            ? `Aktual ${item.record.checkIn}`
+                            : item.record.latePermitEstimatedArrival
+                            ? `Est. ${item.record.latePermitEstimatedArrival}`
+                            : '—'}
+                          {item.diffMins > 0 && (
+                            <span className="ml-1.5 text-slate-500">
+                              (+{item.diffMins} mnt)
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-800 max-w-xs">
+                          {item.record.latePermitReason || item.record.notes || '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-medium text-slate-700 whitespace-nowrap">
+                          {item.record.latePermitApprovedBy || 'Admin HR'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

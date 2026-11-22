@@ -1,10 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarOff,
+  Clock,
+  ClipboardList,
+  Download,
   FileSpreadsheet,
+  LogIn,
+  LogOut,
+  Pencil,
   Plus,
   Printer,
   Search,
+  ShieldCheck,
+  Table2,
   Trash2,
   X,
 } from 'lucide-react';
@@ -14,9 +22,11 @@ import {
   AttendanceRecord,
   AttendanceStatus,
   calculateLatenessMinutes,
+  calculateWorkDurationLabel,
   Employee,
   evaluateLateness,
   formatOffDaysSummary,
+  getCurrentTimeStr,
   getCurrentYearMonth,
   getDayNameIndonesian,
   getDaysInMonth,
@@ -24,15 +34,18 @@ import {
   getMonthMetadata,
   getTodayDateStr,
   isEmployeeOffDay,
+  LATE_PERMIT_REASON_PRESETS,
   LateSettlement,
   statusToMatrixCode,
 } from '../types';
 import {
+  bulkMarkScheduledOffDays,
   createAttendanceRecord,
   deleteAttendanceRecord,
   updateAttendanceRecord,
 } from '../services/attendanceService';
 import { exportAttendanceMatrixToExcel } from '../utils/excelAttendanceExport';
+import { SearchableEmployeeSelect } from './SearchableEmployeeSelect';
 
 interface AttendanceMatrixViewProps {
   employees: Employee[];
@@ -41,16 +54,31 @@ interface AttendanceMatrixViewProps {
   settings?: AppSettings;
   loading: boolean;
   onRefresh: () => Promise<void>;
+  preselectedEmployeeId?: string | null;
+  preselectedStatus?: AttendanceStatus | null;
+  onClearPreselect?: () => void;
 }
+
+type MatrixSubTab = 'matriks' | 'log';
 
 const STATUS_OPTIONS: AttendanceStatus[] = [
   'hadir',
   'terlambat',
+  'izin_terlambat',
   'izin',
   'sakit',
   'alpha',
   'libur',
 ];
+
+function addMinutesToTime(timeStr: string, minutesToAdd: number): string {
+  const [sh, sm] = timeStr.split(':').map(Number);
+  if (isNaN(sh) || isNaN(sm)) return '09:00';
+  const total = (sh * 60 + sm + minutesToAdd) % (24 * 60);
+  const hh = String(Math.floor(total / 60)).padStart(2, '0');
+  const mm = String(total % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   employees,
@@ -59,11 +87,23 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   settings,
   loading,
   onRefresh,
+  preselectedEmployeeId,
+  preselectedStatus,
+  onClearPreselect,
 }) => {
+  const [activeSubTab, setActiveSubTab] = useState<MatrixSubTab>('matriks');
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentYearMonth());
   const [deptFilter, setDeptFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [exporting, setExporting] = useState<boolean>(false);
+
+  // Log Catatan Absensi filters & quick-action state
+  const [logSelectedDate, setLogSelectedDate] = useState<string>(getTodayDateStr());
+  const [logShowAllDates, setLogShowAllDates] = useState<boolean>(false);
+  const [logEmployeeFilter, setLogEmployeeFilter] = useState<string>('all');
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | AttendanceStatus>('all');
+  const [logBusyId, setLogBusyId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState<boolean>(false);
 
   // Quick cell edit modal
   const [cellModal, setCellModal] = useState<{
@@ -76,6 +116,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   const [formCheckOut, setFormCheckOut] = useState<string>('17:00');
   const [formOvertimeHours, setFormOvertimeHours] = useState<string>('0');
   const [formNotes, setFormNotes] = useState<string>('');
+  const [formLatePermitReason, setFormLatePermitReason] = useState<string>('');
+  const [formLatePermitEstArrival, setFormLatePermitEstArrival] = useState<string>('09:00');
+  const [formLatePermitApprovedBy, setFormLatePermitApprovedBy] = useState<string>('Admin HR');
   const [saving, setSaving] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -89,6 +132,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   const [inputCheckOut, setInputCheckOut] = useState<string>('17:00');
   const [inputOvertimeHours, setInputOvertimeHours] = useState<string>('0');
   const [inputNotes, setInputNotes] = useState<string>('');
+  const [inputLatePermitReason, setInputLatePermitReason] = useState<string>('');
+  const [inputLatePermitEstArrival, setInputLatePermitEstArrival] = useState<string>('09:00');
+  const [inputLatePermitApprovedBy, setInputLatePermitApprovedBy] = useState<string>('Admin HR');
   const [inputSaving, setInputSaving] = useState<boolean>(false);
   const [inputError, setInputError] = useState<string | null>(null);
 
@@ -142,6 +188,77 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     }
     return map;
   }, [attendanceRecords, selectedMonth]);
+
+  // If navigated from Dashboard "Izin Telat" or "Input Detail", open input modal directly
+  useEffect(() => {
+    if (preselectedEmployeeId || preselectedStatus) {
+      const emp =
+        (preselectedEmployeeId
+          ? activeEmployees.find((e) => e.id === preselectedEmployeeId)
+          : activeEmployees[0]) || null;
+      if (emp) {
+        const today = getTodayDateStr();
+        const off = isEmployeeOffDay(emp, today);
+        const targetStatus: AttendanceStatus =
+          preselectedStatus ?? (off.isOff ? 'libur' : 'hadir');
+        setInputEmpQuery('');
+        setInputEmpId(emp.id);
+        setInputDate(today);
+        setInputStatus(targetStatus);
+        setInputCheckIn(targetStatus === 'izin_terlambat' ? '' : emp.shiftStart);
+        setInputCheckOut(emp.shiftEnd);
+        setInputOvertimeHours('0');
+        setInputNotes('');
+        setInputLatePermitReason('');
+        setInputLatePermitEstArrival(addMinutesToTime(emp.shiftStart, 60));
+        setInputLatePermitApprovedBy('Admin HR');
+        setInputError(null);
+        setInputModalOpen(true);
+      }
+      onClearPreselect?.();
+    }
+  }, [preselectedEmployeeId, preselectedStatus, activeEmployees, onClearPreselect]);
+
+  const filteredLogRecords = useMemo(() => {
+    return attendanceRecords
+      .filter((rec) => {
+        const emp = employees.find((e) => e.id === rec.employeeId);
+        if (deptFilter !== 'all' && emp?.department !== deptFilter) return false;
+        if (logShowAllDates) {
+          if (!rec.date.startsWith(selectedMonth)) return false;
+        } else if (rec.date !== logSelectedDate) {
+          return false;
+        }
+        if (logEmployeeFilter !== 'all' && rec.employeeId !== logEmployeeFilter) return false;
+        if (logStatusFilter !== 'all' && rec.status !== logStatusFilter) return false;
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          const matchName = rec.employeeName.toLowerCase().includes(q);
+          const matchNotes = (rec.notes || '').toLowerCase().includes(q);
+          const matchPermit = (rec.latePermitReason || '').toLowerCase().includes(q);
+          const matchCode = emp ? emp.employeeCode.toLowerCase().includes(q) : false;
+          const matchDept = emp ? emp.department.toLowerCase().includes(q) : false;
+          if (!matchName && !matchNotes && !matchPermit && !matchCode && !matchDept) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return (b.checkIn || '').localeCompare(a.checkIn || '');
+      });
+  }, [
+    attendanceRecords,
+    employees,
+    deptFilter,
+    selectedMonth,
+    logShowAllDates,
+    logSelectedDate,
+    logEmployeeFilter,
+    logStatusFilter,
+    searchQuery,
+  ]);
 
   const matrixData = useMemo(() => {
     const daySums = days.map(() => ({ h: 0, i: 0, s: 0, a: 0, total: 0 }));
@@ -236,12 +353,15 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   };
 
   // Open full input modal from toolbar
-  const openToolbarInputModal = () => {
+  const openToolbarInputModal = (initialStatus?: AttendanceStatus) => {
     const defaultEmp = scopedEmployees[0] || activeEmployees[0] || null;
     const today = getTodayDateStr();
-    const defaultDate = today.startsWith(selectedMonth)
-      ? today
-      : days[0] || today;
+    const defaultDate =
+      activeSubTab === 'log' && !logShowAllDates
+        ? logSelectedDate
+        : today.startsWith(selectedMonth)
+        ? today
+        : days[0] || today;
 
     setInputEmpQuery('');
     setInputEmpId(defaultEmp?.id ?? '');
@@ -251,12 +371,32 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       const existing = attendanceRecords.find(
         (r) => r.employeeId === defaultEmp.id && r.date === defaultDate
       );
-      if (existing) {
+      if (initialStatus) {
+        setInputStatus(initialStatus);
+        setInputCheckIn(
+          initialStatus === 'izin_terlambat' ? '' : defaultEmp.shiftStart
+        );
+        setInputCheckOut(defaultEmp.shiftEnd);
+        setInputOvertimeHours('0');
+        setInputNotes('');
+        setInputLatePermitReason('');
+        setInputLatePermitEstArrival(addMinutesToTime(defaultEmp.shiftStart, 60));
+        setInputLatePermitApprovedBy('Admin HR');
+      } else if (existing) {
         setInputStatus(existing.status);
-        setInputCheckIn(existing.checkIn || defaultEmp.shiftStart);
+        setInputCheckIn(
+          existing.checkIn ||
+            (existing.status === 'izin_terlambat' ? '' : defaultEmp.shiftStart)
+        );
         setInputCheckOut(existing.checkOut || defaultEmp.shiftEnd);
         setInputOvertimeHours(String(existing.overtimeHours || 0));
         setInputNotes(existing.notes || '');
+        setInputLatePermitReason(existing.latePermitReason || '');
+        setInputLatePermitEstArrival(
+          existing.latePermitEstimatedArrival ||
+            addMinutesToTime(defaultEmp.shiftStart, 60)
+        );
+        setInputLatePermitApprovedBy(existing.latePermitApprovedBy || 'Admin HR');
       } else {
         const off = isEmployeeOffDay(defaultEmp, defaultDate);
         setInputStatus(off.isOff ? 'libur' : 'hadir');
@@ -264,10 +404,97 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
         setInputCheckOut(defaultEmp.shiftEnd);
         setInputOvertimeHours('0');
         setInputNotes('');
+        setInputLatePermitReason('');
+        setInputLatePermitEstArrival(addMinutesToTime(defaultEmp.shiftStart, 60));
+        setInputLatePermitApprovedBy('Admin HR');
       }
     }
     setInputError(null);
     setInputModalOpen(true);
+  };
+
+  const handleQuickArriveLog = async (rec: AttendanceRecord) => {
+    setLogBusyId(rec.id);
+    try {
+      await updateAttendanceRecord(rec.id, { checkIn: getCurrentTimeStr() });
+      await onRefresh();
+    } finally {
+      setLogBusyId(null);
+    }
+  };
+
+  const handleQuickCheckOutLog = async (rec: AttendanceRecord) => {
+    setLogBusyId(rec.id);
+    try {
+      await updateAttendanceRecord(rec.id, { checkOut: getCurrentTimeStr() });
+      await onRefresh();
+    } finally {
+      setLogBusyId(null);
+    }
+  };
+
+  const handleDeleteLog = async (recordId: string) => {
+    setLogBusyId(recordId);
+    try {
+      await deleteAttendanceRecord(recordId);
+      await onRefresh();
+    } finally {
+      setLogBusyId(null);
+    }
+  };
+
+  const handleBulkMarkOff = async () => {
+    setBulkBusy(true);
+    try {
+      const targetDate =
+        activeSubTab === 'log' && !logShowAllDates ? logSelectedDate : getTodayDateStr();
+      await bulkMarkScheduledOffDays(targetDate);
+      await onRefresh();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleExportLogCsv = () => {
+    const header = [
+      'Tanggal',
+      'Karyawan',
+      'Status',
+      'Jam Masuk',
+      'Perkiraan Tiba (Izin Telat)',
+      'Jam Keluar',
+      'Durasi Kerja',
+      'Lembur Manual (Jam)',
+      'Alasan / Catatan',
+    ];
+    const rows = filteredLogRecords.map((r) => {
+      const noteParts = [
+        r.latePermitReason ? `Alasan Izin Telat: ${r.latePermitReason}` : '',
+        r.latePermitApprovedBy ? `Disetujui: ${r.latePermitApprovedBy}` : '',
+        r.notes || '',
+      ]
+        .filter(Boolean)
+        .join(' | ');
+      return [
+        r.date,
+        `"${r.employeeName.replace(/"/g, '""')}"`,
+        ATTENDANCE_STATUS_META[r.status].label,
+        r.checkIn || '-',
+        r.status === 'izin_terlambat' ? r.latePermitEstimatedArrival || '-' : '-',
+        r.checkOut || '-',
+        calculateWorkDurationLabel(r.checkIn, r.checkOut),
+        (r.overtimeHours || 0).toFixed(1),
+        `"${noteParts.replace(/"/g, '""')}"`,
+      ];
+    });
+    const csv = [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `log-absensi-${logShowAllDates ? selectedMonth : logSelectedDate}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const syncInputFieldsForEmployeeAndDate = (emp: Employee, dateStr: string) => {
@@ -276,10 +503,18 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     );
     if (existing) {
       setInputStatus(existing.status);
-      setInputCheckIn(existing.checkIn || emp.shiftStart);
+      setInputCheckIn(
+        existing.checkIn ||
+          (existing.status === 'izin_terlambat' ? '' : emp.shiftStart)
+      );
       setInputCheckOut(existing.checkOut || emp.shiftEnd);
       setInputOvertimeHours(String(existing.overtimeHours || 0));
       setInputNotes(existing.notes || '');
+      setInputLatePermitReason(existing.latePermitReason || '');
+      setInputLatePermitEstArrival(
+        existing.latePermitEstimatedArrival || addMinutesToTime(emp.shiftStart, 60)
+      );
+      setInputLatePermitApprovedBy(existing.latePermitApprovedBy || 'Admin HR');
     } else {
       const off = isEmployeeOffDay(emp, dateStr);
       setInputStatus(off.isOff ? 'libur' : 'hadir');
@@ -287,6 +522,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       setInputCheckOut(emp.shiftEnd);
       setInputOvertimeHours('0');
       setInputNotes('');
+      setInputLatePermitReason('');
+      setInputLatePermitEstArrival(addMinutesToTime(emp.shiftStart, 60));
+      setInputLatePermitApprovedBy('Admin HR');
     }
   };
 
@@ -319,8 +557,19 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       setInputError('Jam masuk wajib diisi untuk status Hadir atau Terlambat.');
       return;
     }
+    if (inputStatus === 'izin_terlambat') {
+      if (!inputLatePermitReason.trim()) {
+        setInputError('Alasan izin datang terlambat wajib diisi.');
+        return;
+      }
+      if (!inputLatePermitEstArrival && !inputCheckIn) {
+        setInputError('Isi perkiraan jam tiba atau jam masuk aktual.');
+        return;
+      }
+    }
 
     const parsedOt = Math.max(0, Math.min(16, Number(inputOvertimeHours) || 0));
+    const isPermit = inputStatus === 'izin_terlambat';
     setInputSaving(true);
     try {
       if (existingRecordForInput) {
@@ -330,6 +579,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           checkOut: inputCheckOut,
           overtimeHours: parsedOt,
           notes: inputNotes,
+          latePermitReason: isPermit ? inputLatePermitReason.trim() : '',
+          latePermitEstimatedArrival: isPermit ? inputLatePermitEstArrival : '',
+          latePermitApprovedBy: isPermit ? inputLatePermitApprovedBy.trim() : '',
         });
       } else {
         await createAttendanceRecord({
@@ -340,6 +592,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           checkOut: inputCheckOut,
           overtimeHours: parsedOt,
           notes: inputNotes,
+          latePermitReason: isPermit ? inputLatePermitReason.trim() : '',
+          latePermitEstimatedArrival: isPermit ? inputLatePermitEstArrival : '',
+          latePermitApprovedBy: isPermit ? inputLatePermitApprovedBy.trim() : '',
         });
       }
       await onRefresh();
@@ -360,16 +615,28 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     setCellModal({ employee, date, record });
     if (record) {
       setFormStatus(record.status);
-      setFormCheckIn(record.checkIn || employee.shiftStart);
+      setFormCheckIn(
+        record.checkIn ||
+          (record.status === 'izin_terlambat' ? '' : employee.shiftStart)
+      );
       setFormCheckOut(record.checkOut || employee.shiftEnd);
       setFormOvertimeHours(String(record.overtimeHours || 0));
       setFormNotes(record.notes || '');
+      setFormLatePermitReason(record.latePermitReason || '');
+      setFormLatePermitEstArrival(
+        record.latePermitEstimatedArrival ||
+          addMinutesToTime(employee.shiftStart, 60)
+      );
+      setFormLatePermitApprovedBy(record.latePermitApprovedBy || 'Admin HR');
     } else {
       setFormStatus(offInfo.isOff ? 'libur' : 'hadir');
       setFormCheckIn(employee.shiftStart);
       setFormCheckOut(employee.shiftEnd);
       setFormOvertimeHours('0');
       setFormNotes('');
+      setFormLatePermitReason('');
+      setFormLatePermitEstArrival(addMinutesToTime(employee.shiftStart, 60));
+      setFormLatePermitApprovedBy('Admin HR');
     }
     setFormError(null);
   };
@@ -383,8 +650,19 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       setFormError('Jam masuk wajib diisi untuk status Hadir atau Terlambat.');
       return;
     }
+    if (formStatus === 'izin_terlambat') {
+      if (!formLatePermitReason.trim()) {
+        setFormError('Alasan izin datang terlambat wajib diisi.');
+        return;
+      }
+      if (!formLatePermitEstArrival && !formCheckIn) {
+        setFormError('Isi perkiraan jam tiba atau jam masuk aktual.');
+        return;
+      }
+    }
 
     const parsedOt = Math.max(0, Math.min(16, Number(formOvertimeHours) || 0));
+    const isPermit = formStatus === 'izin_terlambat';
     setSaving(true);
     try {
       if (cellModal.record) {
@@ -394,6 +672,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           checkOut: formCheckOut,
           overtimeHours: parsedOt,
           notes: formNotes,
+          latePermitReason: isPermit ? formLatePermitReason.trim() : '',
+          latePermitEstimatedArrival: isPermit ? formLatePermitEstArrival : '',
+          latePermitApprovedBy: isPermit ? formLatePermitApprovedBy.trim() : '',
         });
       } else {
         await createAttendanceRecord({
@@ -404,6 +685,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           checkOut: formCheckOut,
           overtimeHours: parsedOt,
           notes: formNotes,
+          latePermitReason: isPermit ? formLatePermitReason.trim() : '',
+          latePermitEstimatedArrival: isPermit ? formLatePermitEstArrival : '',
+          latePermitApprovedBy: isPermit ? formLatePermitApprovedBy.trim() : '',
         });
       }
       await onRefresh();
@@ -427,107 +711,276 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     }
   };
 
-  const needsTimeFields = formStatus === 'hadir' || formStatus === 'terlambat';
-  const inputNeedsTimeFields = inputStatus === 'hadir' || inputStatus === 'terlambat';
+  const needsTimeFields =
+    formStatus === 'hadir' ||
+    formStatus === 'terlambat' ||
+    formStatus === 'izin_terlambat';
+  const inputNeedsTimeFields =
+    inputStatus === 'hadir' ||
+    inputStatus === 'terlambat' ||
+    inputStatus === 'izin_terlambat';
   const companyName = settings?.companyName || 'KARYAPRESENSI';
   const companySubtitle = settings?.companySubtitle || 'HRIS PERUSAHAAN';
 
   return (
     <div className="space-y-5">
-      {/* Toolbar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 no-print">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama, ID, atau divisi..."
-              className="pl-8 pr-8 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 w-56"
-            />
-            {searchQuery && (
+      {/* Unified Toolbar */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3.5 no-print">
+        {/* Sub-tab Switcher & Primary Attendance Actions */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3.5 border-b border-slate-100">
+          <div className="inline-flex p-1 bg-slate-100 rounded-lg border border-slate-200/80 self-start">
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('matriks')}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                activeSubTab === 'matriks'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Table2 className="w-3.5 h-3.5" />
+              <span>Matriks Daftar Hadir</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('log')}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                activeSubTab === 'log'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ClipboardList className="w-3.5 h-3.5" />
+              <span>Log Catatan Absensi</span>
+              <span className="font-mono text-[11px] tabular-nums px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                {filteredLogRecords.length}
+              </span>
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleBulkMarkOff}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <CalendarOff className="w-3.5 h-3.5" />
+              <span>{bulkBusy ? 'Memproses...' : 'Isi Libur Terjadwal'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openToolbarInputModal('izin_terlambat')}
+              disabled={activeEmployees.length === 0}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-teal-700 rounded-lg hover:bg-teal-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Izin Datang Terlambat</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openToolbarInputModal()}
+              disabled={activeEmployees.length === 0}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Input Absensi</span>
+            </button>
+
+            {activeSubTab === 'matriks' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Cetak</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  disabled={exporting || scopedEmployees.length === 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>{exporting ? 'Menyiapkan Excel...' : 'Ekspor Excel (.xlsx)'}</span>
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                aria-label="Hapus pencarian"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                onClick={handleExportLogCsv}
+                disabled={filteredLogRecords.length === 0}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh CSV Log</span>
               </button>
             )}
           </div>
+        </div>
 
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            aria-label="Pilih Bulan"
-            className="px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-          />
+        {/* Shared Filters */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari nama, ID, divisi, catatan..."
+                className="pl-8 pr-8 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 w-56"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Hapus pencarian"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
-          <select
-            value={deptFilter}
-            onChange={(e) => setDeptFilter(e.target.value)}
-            aria-label="Filter Divisi"
-            className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-          >
-            <option value="all">Semua Divisi</option>
-            {departments
-              .filter((d) => d !== 'all')
-              .map((dept) => (
-                <option key={dept} value={dept}>
-                  {dept}
-                </option>
-              ))}
-          </select>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => {
+                setSelectedMonth(e.target.value);
+                if (!logSelectedDate.startsWith(e.target.value)) {
+                  setLogSelectedDate(`${e.target.value}-01`);
+                }
+              }}
+              aria-label="Pilih Bulan"
+              className="px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+            />
 
-          {(searchQuery !== '' || deptFilter !== 'all') && (
+            <select
+              value={deptFilter}
+              onChange={(e) => setDeptFilter(e.target.value)}
+              aria-label="Filter Divisi"
+              className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+            >
+              <option value="all">Semua Divisi</option>
+              {departments
+                .filter((d) => d !== 'all')
+                .map((dept) => (
+                  <option key={dept} value={dept}>
+                    {dept}
+                  </option>
+                ))}
+            </select>
+
+            {activeSubTab === 'log' && (
+              <>
+                <SearchableEmployeeSelect
+                  allowAll
+                  allLabel="Semua Karyawan"
+                  value={logEmployeeFilter}
+                  onChange={setLogEmployeeFilter}
+                  options={activeEmployees.map((emp) => ({
+                    id: emp.id,
+                    code: emp.employeeCode,
+                    name: emp.name,
+                    department: emp.department,
+                    subtitle: `${emp.department} · ${emp.shiftName}`,
+                  }))}
+                  className="w-56"
+                />
+
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={logSelectedDate}
+                    disabled={logShowAllDates}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLogSelectedDate(val);
+                      if (val && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+                        setSelectedMonth(val.slice(0, 7));
+                      }
+                    }}
+                    className="px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg disabled:bg-slate-100 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLogShowAllDates((v) => !v)}
+                    className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      logShowAllDates
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {logShowAllDates ? `Sebulan (${selectedMonth})` : 'Per Tanggal'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {(searchQuery !== '' ||
+              deptFilter !== 'all' ||
+              (activeSubTab === 'log' &&
+                (logEmployeeFilter !== 'all' ||
+                  logStatusFilter !== 'all' ||
+                  logShowAllDates))) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setDeptFilter('all');
+                  setLogEmployeeFilter('all');
+                  setLogStatusFilter('all');
+                  setLogShowAllDates(false);
+                }}
+                className="px-2.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Reset Filter
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Status Segmented Filter when viewing Log Catatan Absensi */}
+        {activeSubTab === 'log' && (
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg overflow-x-auto w-fit max-w-full">
             <button
               type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setDeptFilter('all');
-              }}
-              className="px-2.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              onClick={() => setLogStatusFilter('all')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                logStatusFilter === 'all'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              Reset Filter
+              Semua Status
             </button>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={openToolbarInputModal}
-            disabled={activeEmployees.length === 0}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Input Absensi</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Cetak</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            disabled={exporting || scopedEmployees.length === 0}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>{exporting ? 'Menyiapkan Excel...' : 'Ekspor Excel (.xlsx)'}</span>
-          </button>
-        </div>
+            {STATUS_OPTIONS.map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setLogStatusFilter(st)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  logStatusFilter === st
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {ATTENDANCE_STATUS_META[st].label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
+      {activeSubTab === 'matriks' ? (
+      <>
       {/* Excel-Style Sheet View */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 overflow-hidden">
         {loading ? (
@@ -652,6 +1105,12 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     <span>= Hadir / Terlambat</span>
                   </div>
                   <div className="px-2.5 py-1.5 flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-4 h-4 bg-[#0F766E] text-white font-mono font-bold text-[10px]">
+                      h
+                    </span>
+                    <span>= Izin Datang Terlambat</span>
+                  </div>
+                  <div className="px-2.5 py-1.5 flex items-center gap-2">
                     <span className="inline-flex items-center justify-center w-4 h-4 bg-[#FFF2CC] text-[#833C0C] border border-amber-300 font-mono font-bold text-[10px]">
                       i
                     </span>
@@ -774,10 +1233,16 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                           {row.cells.map((cell) => {
                             let cellClasses = 'bg-white text-slate-800 hover:bg-blue-50';
                             if (cell.code === 'h') {
-                              cellClasses =
-                                cell.rec?.status === 'terlambat'
-                                  ? 'bg-[#D97706] text-white font-bold hover:bg-amber-700'
-                                  : 'bg-[#548235] text-white font-bold hover:bg-[#436829]';
+                              if (cell.rec?.status === 'terlambat') {
+                                cellClasses =
+                                  'bg-[#D97706] text-white font-bold hover:bg-amber-700';
+                              } else if (cell.rec?.status === 'izin_terlambat') {
+                                cellClasses =
+                                  'bg-[#0F766E] text-white font-bold hover:bg-teal-800';
+                              } else {
+                                cellClasses =
+                                  'bg-[#548235] text-white font-bold hover:bg-[#436829]';
+                              }
                             } else if (cell.code === 'i') {
                               cellClasses =
                                 'bg-[#FFF2CC] text-[#833C0C] font-bold hover:bg-amber-200';
@@ -810,10 +1275,18 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                                     ? ` · ${cell.rec.checkIn}${
                                         cell.rec.checkOut ? `–${cell.rec.checkOut}` : ''
                                       }`
+                                    : cell.rec.status === 'izin_terlambat' &&
+                                      cell.rec.latePermitEstimatedArrival
+                                    ? ` · Est. ${cell.rec.latePermitEstimatedArrival}`
                                     : ''
                                 }${
                                   cell.rec.status === 'terlambat' && lateMinutes > 0
                                     ? ` (+${lateMinutes} mnt)`
+                                    : ''
+                                }${
+                                  cell.rec.status === 'izin_terlambat' &&
+                                  cell.rec.latePermitReason
+                                    ? ` · ${cell.rec.latePermitReason}`
                                     : ''
                                 }${
                                   cell.rec.overtimeHours > 0
@@ -916,13 +1389,237 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </table>
 
                 <p className="mt-2.5 text-[11px] text-slate-500 no-print">
-                  Tip: Klik tombol <strong>Input Absensi</strong> di atas atau klik sel tanggal mana saja pada tabel untuk mencatat atau memperbarui kehadiran secara langsung.
+                  Tip: Klik tombol <strong>Input Absensi</strong>, <strong>Izin Datang Terlambat</strong>, atau klik sel tanggal mana saja pada tabel untuk mencatat/mengubah kehadiran. Gunakan tab <strong>Log Catatan Absensi</strong> di atas untuk melihat rincian log jam masuk/pulang, alasan izin, dan lembur.
                 </p>
               </div>
             </div>
           </div>
         )}
       </div>
+      </>
+      ) : (
+        /* Log Catatan Absensi View */
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h3 className="font-display text-sm font-semibold text-slate-900">
+                Log Catatan Absensi Karyawan
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5 font-mono tabular-nums">
+                {filteredLogRecords.length} catatan ditampilkan ·{' '}
+                {logShowAllDates
+                  ? `Bulan ${selectedMonth}`
+                  : `Tanggal ${logSelectedDate}`}
+              </p>
+            </div>
+            <span className="text-[11px] text-slate-500">
+              Kelola jam masuk, pulang, izin datang terlambat, dan lembur dari satu halaman
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="p-6 space-y-3">
+              {[1, 2, 3, 4].map((row) => (
+                <div key={row} className="h-10 bg-slate-100 rounded animate-pulse" />
+              ))}
+            </div>
+          ) : filteredLogRecords.length === 0 ? (
+            <div className="py-14 px-6 text-center">
+              <p className="text-sm font-medium text-slate-900 mb-1">
+                Belum ada log catatan absensi pada filter ini
+              </p>
+              <p className="text-xs text-slate-500 mb-5">
+                Catat jam masuk/pulang, izin datang terlambat, izin, sakit, atau lembur melalui tombol Input Absensi di atas.
+              </p>
+              <button
+                type="button"
+                onClick={() => openToolbarInputModal()}
+                disabled={activeEmployees.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Input Absensi</span>
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
+                    <th className="py-3 px-4">Tanggal</th>
+                    <th className="py-3 px-4">Karyawan</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Masuk</th>
+                    <th className="py-3 px-4 text-right">Keluar</th>
+                    <th className="py-3 px-4 text-right">Ketepatan</th>
+                    <th className="py-3 px-4 text-right">Durasi</th>
+                    <th className="py-3 px-4 text-right">Lembur</th>
+                    <th className="py-3 px-4">Catatan &amp; Izin</th>
+                    <th className="py-3 px-4 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {filteredLogRecords.map((rec) => {
+                    const meta = ATTENDANCE_STATUS_META[rec.status];
+                    const emp = employees.find((e) => e.id === rec.employeeId);
+                    const offOnDate = emp ? isEmployeeOffDay(emp, rec.date).isOff : false;
+                    const lateMins =
+                      emp && rec.checkIn && (rec.status === 'hadir' || rec.status === 'terlambat')
+                        ? calculateLatenessMinutes(rec.checkIn, emp.shiftStart)
+                        : 0;
+                    const permitTimeRef = rec.checkIn || rec.latePermitEstimatedArrival || '';
+                    const permitMins =
+                      emp && permitTimeRef && rec.status === 'izin_terlambat'
+                        ? calculateLatenessMinutes(permitTimeRef, emp.shiftStart)
+                        : 0;
+                    const canQuickArrive = rec.status === 'izin_terlambat' && !rec.checkIn;
+                    const canQuickOut =
+                      !rec.checkOut &&
+                      Boolean(rec.checkIn) &&
+                      (rec.status === 'hadir' ||
+                        rec.status === 'terlambat' ||
+                        rec.status === 'izin_terlambat');
+
+                    const combinedNote = [
+                      rec.latePermitReason ? `Izin: ${rec.latePermitReason}` : '',
+                      rec.latePermitApprovedBy ? `ACC: ${rec.latePermitApprovedBy}` : '',
+                      rec.notes || '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ');
+
+                    return (
+                      <tr key={rec.id} className="hover:bg-slate-50/70">
+                        <td className="py-3 px-4 font-mono text-xs text-slate-700 tabular-nums whitespace-nowrap">
+                          {rec.date}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-900">{rec.employeeName}</div>
+                          {emp && (
+                            <div className="text-xs text-slate-500">
+                              {emp.employeeCode} · {emp.department}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span
+                            className={`inline-block px-2 py-0.5 text-xs font-medium border rounded-md ${meta.bgClass} ${meta.colorClass} ${meta.borderClass}`}
+                          >
+                            {meta.label}
+                          </span>
+                          {offOnDate && rec.status !== 'libur' && (
+                            <span className="ml-2 text-xs text-amber-700">(Hari libur)</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-xs text-slate-800 tabular-nums whitespace-nowrap">
+                          {rec.checkIn ? (
+                            rec.checkIn
+                          ) : rec.status === 'izin_terlambat' && rec.latePermitEstimatedArrival ? (
+                            <span
+                              className="text-teal-700 font-medium"
+                              title="Perkiraan jam tiba (belum check-in aktual)"
+                            >
+                              Est. {rec.latePermitEstimatedArrival}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-xs text-slate-800 tabular-nums whitespace-nowrap">
+                          {rec.checkOut || '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-xs tabular-nums whitespace-nowrap">
+                          {rec.status === 'izin_terlambat' ? (
+                            <span className="text-teal-700 font-medium">
+                              {permitMins > 0 ? `Izin (+${permitMins} mnt)` : 'Izin Resmi'}
+                            </span>
+                          ) : rec.status === 'hadir' || rec.status === 'terlambat' ? (
+                            lateMins > 0 ? (
+                              <span className="text-amber-700 font-medium">+{lateMins} mnt</span>
+                            ) : (
+                              <span className="text-emerald-700">Tepat</span>
+                            )
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">
+                          {calculateWorkDurationLabel(rec.checkIn, rec.checkOut)}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-xs tabular-nums whitespace-nowrap">
+                          {rec.overtimeHours > 0 ? (
+                            <span className="font-semibold text-blue-700">
+                              {rec.overtimeHours.toFixed(1)} j
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 max-w-xs">
+                          {combinedNote ? (
+                            <div className="text-xs text-slate-700 truncate" title={combinedNote}>
+                              {combinedNote}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1">
+                            {canQuickArrive && (
+                              <button
+                                type="button"
+                                disabled={logBusyId === rec.id}
+                                onClick={() => handleQuickArriveLog(rec)}
+                                title="Catat jam tiba aktual sekarang"
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100 transition-colors cursor-pointer mr-1"
+                              >
+                                <LogIn className="w-3 h-3" />
+                                <span>Catat Tiba</span>
+                              </button>
+                            )}
+                            {canQuickOut && (
+                              <button
+                                type="button"
+                                disabled={logBusyId === rec.id}
+                                onClick={() => handleQuickCheckOutLog(rec)}
+                                title="Catat jam pulang sekarang"
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-800 bg-slate-100 rounded-md hover:bg-slate-200 transition-colors cursor-pointer mr-1"
+                              >
+                                <LogOut className="w-3 h-3" />
+                                <span>Pulang</span>
+                              </button>
+                            )}
+                            {emp && (
+                              <button
+                                type="button"
+                                onClick={() => openCellEditor(emp, rec.date, rec)}
+                                aria-label={`Ubah absensi ${rec.employeeName}`}
+                                className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={logBusyId === rec.id}
+                              onClick={() => handleDeleteLog(rec.id)}
+                              aria-label={`Hapus absensi ${rec.employeeName}`}
+                              className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Modal Input Absensi Lengkap dari Halaman Matriks (dengan Pencarian Karyawan) */}
       {inputModalOpen && (
@@ -1047,7 +1744,25 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   </label>
                   <select
                     value={inputStatus}
-                    onChange={(e) => setInputStatus(e.target.value as AttendanceStatus)}
+                    onChange={(e) => {
+                      const nextSt = e.target.value as AttendanceStatus;
+                      setInputStatus(nextSt);
+                      if (nextSt === 'izin_terlambat') {
+                        if (!existingRecordForInput) setInputCheckIn('');
+                        if (selectedInputEmployee) {
+                          setInputLatePermitEstArrival(
+                            addMinutesToTime(selectedInputEmployee.shiftStart, 60)
+                          );
+                          if (!inputCheckOut) setInputCheckOut(selectedInputEmployee.shiftEnd);
+                        }
+                      } else if (
+                        (nextSt === 'hadir' || nextSt === 'terlambat') &&
+                        !inputCheckIn &&
+                        selectedInputEmployee
+                      ) {
+                        setInputCheckIn(selectedInputEmployee.shiftStart);
+                      }
+                    }}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   >
                     {STATUS_OPTIONS.map((st) => (
@@ -1076,12 +1791,76 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </div>
               )}
 
+              {inputStatus === 'izin_terlambat' && (
+                <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 text-xs font-bold text-teal-900">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-teal-700" />
+                      <span>Detail Izin Datang Terlambat</span>
+                    </span>
+                    <span className="text-[11px] font-semibold bg-white border border-teal-200 px-2 py-0.5 rounded">
+                      Bebas Denda
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={180}
+                    value={inputLatePermitReason}
+                    onChange={(e) => setInputLatePermitReason(e.target.value)}
+                    placeholder="Alasan izin datang terlambat (wajib)..."
+                    className="w-full px-3 py-2 text-xs bg-white border border-teal-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {LATE_PERMIT_REASON_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setInputLatePermitReason(preset)}
+                        className={`px-2 py-0.5 text-[11px] rounded border cursor-pointer ${
+                          inputLatePermitReason === preset
+                            ? 'bg-teal-700 text-white border-teal-700'
+                            : 'bg-white text-teal-800 border-teal-200 hover:bg-teal-100'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-teal-950 mb-1">
+                        Perkiraan Tiba
+                      </label>
+                      <input
+                        type="time"
+                        value={inputLatePermitEstArrival}
+                        onChange={(e) => setInputLatePermitEstArrival(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-teal-200 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-teal-950 mb-1">
+                        Disetujui Oleh
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={80}
+                        value={inputLatePermitApprovedBy}
+                        onChange={(e) => setInputLatePermitApprovedBy(e.target.value)}
+                        placeholder="Admin HR"
+                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-teal-200 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {inputNeedsTimeFields && (
                 <div className="space-y-2.5">
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                        Jam Masuk
+                        {inputStatus === 'izin_terlambat' ? 'Masuk Aktual' : 'Jam Masuk'}
                       </label>
                       <input
                         type="time"
@@ -1135,7 +1914,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     </div>
                   </div>
 
-                  {selectedInputEmployee && inputCheckIn && (() => {
+                  {inputStatus !== 'izin_terlambat' && selectedInputEmployee && inputCheckIn && (() => {
                     const tol = getEmployeeShiftTolerance(
                       selectedInputEmployee,
                       settings?.shifts
@@ -1259,7 +2038,22 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </label>
                 <select
                   value={formStatus}
-                  onChange={(e) => setFormStatus(e.target.value as AttendanceStatus)}
+                  onChange={(e) => {
+                    const nextSt = e.target.value as AttendanceStatus;
+                    setFormStatus(nextSt);
+                    if (nextSt === 'izin_terlambat') {
+                      if (!cellModal.record) setFormCheckIn('');
+                      setFormLatePermitEstArrival(
+                        addMinutesToTime(cellModal.employee.shiftStart, 60)
+                      );
+                      if (!formCheckOut) setFormCheckOut(cellModal.employee.shiftEnd);
+                    } else if (
+                      (nextSt === 'hadir' || nextSt === 'terlambat') &&
+                      !formCheckIn
+                    ) {
+                      setFormCheckIn(cellModal.employee.shiftStart);
+                    }
+                  }}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                 >
                   {STATUS_OPTIONS.map((st) => (
@@ -1271,12 +2065,76 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </select>
               </div>
 
+              {formStatus === 'izin_terlambat' && (
+                <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 text-xs font-bold text-teal-900">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-teal-700" />
+                      <span>Izin Datang Terlambat</span>
+                    </span>
+                    <span className="text-[11px] font-semibold bg-white border border-teal-200 px-2 py-0.5 rounded">
+                      Bebas Denda
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={180}
+                    value={formLatePermitReason}
+                    onChange={(e) => setFormLatePermitReason(e.target.value)}
+                    placeholder="Alasan izin datang terlambat (wajib)..."
+                    className="w-full px-3 py-2 text-xs bg-white border border-teal-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-teal-600"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {LATE_PERMIT_REASON_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setFormLatePermitReason(preset)}
+                        className={`px-2 py-0.5 text-[11px] rounded border cursor-pointer ${
+                          formLatePermitReason === preset
+                            ? 'bg-teal-700 text-white border-teal-700'
+                            : 'bg-white text-teal-800 border-teal-200 hover:bg-teal-100'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-teal-950 mb-1">
+                        Perkiraan Tiba
+                      </label>
+                      <input
+                        type="time"
+                        value={formLatePermitEstArrival}
+                        onChange={(e) => setFormLatePermitEstArrival(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-teal-200 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-teal-950 mb-1">
+                        Disetujui Oleh
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={80}
+                        value={formLatePermitApprovedBy}
+                        onChange={(e) => setFormLatePermitApprovedBy(e.target.value)}
+                        placeholder="Admin HR"
+                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-teal-200 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {needsTimeFields && (
                 <div className="space-y-2.5">
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                        Jam Masuk
+                        {formStatus === 'izin_terlambat' ? 'Masuk Aktual' : 'Jam Masuk'}
                       </label>
                       <input
                         type="time"
@@ -1327,7 +2185,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     </div>
                   </div>
 
-                  {formCheckIn && (() => {
+                  {formStatus !== 'izin_terlambat' && formCheckIn && (() => {
                     const tol = getEmployeeShiftTolerance(
                       cellModal.employee,
                       settings?.shifts

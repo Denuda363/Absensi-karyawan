@@ -73,6 +73,9 @@ export async function createAttendanceRecord(payload: {
   checkOut: string;
   overtimeHours: number;
   notes: string;
+  latePermitReason?: string;
+  latePermitEstimatedArrival?: string;
+  latePermitApprovedBy?: string;
 }): Promise<AttendanceRecord> {
   const res = await fetch('/api/attendance', {
     method: 'POST',
@@ -90,6 +93,9 @@ export async function updateAttendanceRecord(
     checkOut?: string;
     overtimeHours?: number;
     notes?: string;
+    latePermitReason?: string;
+    latePermitEstimatedArrival?: string;
+    latePermitApprovedBy?: string;
   }
 ): Promise<AttendanceRecord> {
   const res = await fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {

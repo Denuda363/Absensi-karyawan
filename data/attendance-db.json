@@ -930,6 +930,44 @@
         "endTime": "06:00",
         "lateToleranceMinutes": 10
       }
-    ]
+    ],
+    "companyProfile": {
+      "legalName": "PT KaryaPresensi Nusantara",
+      "industry": "Distribusi, Ritel & Logistik Terpadu",
+      "taxId": "01.234.567.8-012.000",
+      "nib": "9120304050607",
+      "establishedYear": "2018",
+      "phone": "(021) 555-0192",
+      "email": "hrd@karyapresensi.co.id",
+      "website": "https://karyapresensi.co.id",
+      "address": "Jl. Jenderal Sudirman Kav. 52–53, SCBD, Kebayoran Baru",
+      "city": "Jakarta Selatan, DKI Jakarta",
+      "postalCode": "12190",
+      "directorName": "Hendra Kusuma, S.E., M.M.",
+      "hrManagerName": "Ratna Dewi Anggraini, S.Psi.",
+      "hrManagerTitle": "Manajer Sumber Daya Manusia",
+      "workDaysSummary": "Senin – Minggu (Sistem Shift & Libur Bergilir)",
+      "vision": "Menjadi perusahaan distribusi dan layanan operasional terdepan yang mengutamakan kedisiplinan kerja, keandalan rantai pasok, dan kesejahteraan sumber daya manusia.",
+      "mission": "Membangun budaya kerja yang akurat dan transparan, memberdayakan tim lintas divisi dengan standar operasional modern, serta menjaga kualitas pelayanan terbaik bagi seluruh mitra.",
+      "logoDataUrl": "",
+      "branches": [
+        {
+          "id": "branch_pusat",
+          "name": "Kantor Pusat & Manajemen HRD",
+          "city": "Jakarta Selatan",
+          "address": "Jl. Jenderal Sudirman Kav. 52–53, SCBD, Kebayoran Baru",
+          "phone": "(021) 555-0192",
+          "isHeadquarters": true
+        },
+        {
+          "id": "branch_gudang_bekasi",
+          "name": "Pusat Gudang & Logistik Timur",
+          "city": "Bekasi",
+          "address": "Kawasan Industri Jababeka Tahap II Blok C-14",
+          "phone": "(021) 8983-4410",
+          "isHeadquarters": false
+        }
+      ]
+    }
   }
 }

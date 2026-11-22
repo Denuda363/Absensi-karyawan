@@ -3,6 +3,7 @@ import { AlertCircle, Eye, EyeOff, KeyRound, LogOut, Menu, ShieldCheck, X } from
 import {
   AppSettings,
   AttendanceRecord,
+  AttendanceStatus,
   Employee,
   getTodayDateStr,
   isEmployeeOffDay,
@@ -17,7 +18,6 @@ import {
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { OverviewView } from './components/OverviewView';
-import { ManualAttendanceView } from './components/ManualAttendanceView';
 import { DayOffScheduleView } from './components/DayOffScheduleView';
 import { ReportsView } from './components/ReportsView';
 import { AttendanceMatrixView } from './components/AttendanceMatrixView';
@@ -32,13 +32,9 @@ const PAGE_TITLES: Record<NavSection, { title: string; subtitle: string }> = {
     title: 'Dashboard',
     subtitle: 'Analitik kehadiran 7 hari, performa per divisi, dan kontrol absensi harian',
   },
-  absensi: {
-    title: 'Absensi Manual Admin',
-    subtitle: 'Input jam masuk, pulang, izin, sakit, libur, dan jam lembur manual',
-  },
   matriks: {
-    title: 'Matriks Daftar Hadir Bulanan',
-    subtitle: 'Tampilan tabel daftar hadir bulanan format Excel dengan ringkasan h/i/s/a & ekspor .xlsx',
+    title: 'Matriks Daftar Hadir',
+    subtitle: 'Pusat pencatatan absensi, log catatan kehadiran, izin datang terlambat, dan ekspor .xlsx',
   },
   'jadwal-libur': {
     title: 'Jadwal Libur Karyawan',
@@ -84,6 +80,7 @@ function AppWorkspace() {
   const [activeNav, setActiveNav] = useState<NavSection>('ringkasan');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [preselectedEmpId, setPreselectedEmpId] = useState<string | null>(null);
+  const [preselectedStatus, setPreselectedStatus] = useState<AttendanceStatus | null>(null);
 
   // Mode Biasa (default) vs Mode Admin
   const [adminToken, setAdminToken] = useState<string | null>(null);
@@ -126,10 +123,14 @@ function AppWorkspace() {
     ).length;
   }, [employees, attendanceRecords]);
 
-  const handleOpenManualEntry = useCallback((employeeId?: string) => {
-    setPreselectedEmpId(employeeId ?? null);
-    setActiveNav('absensi');
-  }, []);
+  const handleOpenManualEntry = useCallback(
+    (employeeId?: string, status?: AttendanceStatus) => {
+      setPreselectedEmpId(employeeId ?? null);
+      setPreselectedStatus(status ?? null);
+      setActiveNav('matriks');
+    },
+    []
+  );
 
   const handleOpenAdminModeModal = useCallback(() => {
     setAdminPinInput('');
@@ -261,10 +262,10 @@ function AppWorkspace() {
               </button>
             )}
 
-            {effectiveNav !== 'absensi' ? (
+            {effectiveNav !== 'matriks' ? (
               <button
                 type="button"
-                onClick={() => setActiveNav('absensi')}
+                onClick={() => setActiveNav('matriks')}
                 className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Input Absensi
@@ -309,18 +310,6 @@ function AppWorkspace() {
             />
           )}
 
-          {effectiveNav === 'absensi' && (
-            <ManualAttendanceView
-              employees={employees}
-              attendanceRecords={attendanceRecords}
-              shifts={settings.shifts}
-              loading={loading}
-              onRefresh={loadData}
-              preselectedEmployeeId={preselectedEmpId}
-              onClearPreselect={() => setPreselectedEmpId(null)}
-            />
-          )}
-
           {effectiveNav === 'matriks' && (
             <AttendanceMatrixView
               employees={employees}
@@ -329,6 +318,12 @@ function AppWorkspace() {
               settings={settings}
               loading={loading}
               onRefresh={loadData}
+              preselectedEmployeeId={preselectedEmpId}
+              preselectedStatus={preselectedStatus}
+              onClearPreselect={() => {
+                setPreselectedEmpId(null);
+                setPreselectedStatus(null);
+              }}
             />
           )}
 
@@ -357,6 +352,7 @@ function AppWorkspace() {
             <FinanceView
               adminToken={adminToken}
               settings={settings}
+              employees={employees}
               onExitAdminMode={handleExitAdminMode}
             />
           )}

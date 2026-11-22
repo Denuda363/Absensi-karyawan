@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   LayoutDashboard,
-  ClipboardCheck,
   CalendarRange,
   FileSpreadsheet,
   Table2,
@@ -43,13 +42,12 @@ const NAV_GROUPS: {
     groupLabel: 'Pusat Kendali',
     items: [
       { id: 'ringkasan', label: 'Dashboard', icon: LayoutDashboard },
-      { id: 'absensi', label: 'Absensi Manual', icon: ClipboardCheck },
+      { id: 'matriks', label: 'Matriks Daftar Hadir', icon: Table2 },
     ],
   },
   {
     groupLabel: 'Jadwal & Pelaporan',
     items: [
-      { id: 'matriks', label: 'Matriks Daftar Hadir', icon: Table2 },
       { id: 'jadwal-libur', label: 'Jadwal Libur', icon: CalendarRange },
       { id: 'rekap', label: 'Rekap Bulanan', icon: FileSpreadsheet },
       { id: 'keuangan', label: 'Keuangan Perusahaan', icon: CircleDollarSign },
@@ -159,7 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         />
                         <span className="truncate">{item.label}</span>
                       </span>
-                      {item.id === 'absensi' && unloggedTodayCount > 0 && (
+                      {item.id === 'matriks' && unloggedTodayCount > 0 && (
                         <span
                           title="Karyawan wajib masuk belum diabsen hari ini"
                           className={`font-mono text-[11px] tabular-nums font-semibold px-1.5 py-0.5 rounded ${

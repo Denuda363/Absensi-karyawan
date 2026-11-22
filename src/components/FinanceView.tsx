@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import {
   AppSettings,
+  Employee,
   FinanceAccount,
   FinanceAccountKind,
   FinanceCategory,
@@ -66,6 +67,7 @@ import { exportFinanceToExcel } from '../utils/excelFinanceExport';
 interface FinanceViewProps {
   adminToken: string;
   settings: AppSettings;
+  employees?: Employee[];
   onExitAdminMode: () => void;
 }
 
@@ -119,6 +121,7 @@ function formatShortMonthLabel(yearMonth: string): string {
 export const FinanceView: React.FC<FinanceViewProps> = ({
   adminToken,
   settings,
+  employees = [],
   onExitAdminMode,
 }) => {
   const [financeData, setFinanceData] = useState<FinanceDatabaseState | null>(null);
@@ -1349,6 +1352,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         categories,
         accounts,
         transfers: allTransfers,
+        employees,
+        selectedMonth,
+        periodMode,
         periodLabel,
         fileSlug: periodMode === 'all' ? 'Semua-Periode' : selectedMonth,
         companyName: settings.companyName,

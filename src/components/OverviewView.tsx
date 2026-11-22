@@ -44,7 +44,7 @@ interface OverviewViewProps {
   loading: boolean;
   onRefresh: () => Promise<void>;
   onNavigate: (nav: NavSection) => void;
-  onOpenManualEntry: (employeeId?: string) => void;
+  onOpenManualEntry: (employeeId?: string, status?: AttendanceStatus) => void;
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({
@@ -110,15 +110,18 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const todayMetrics = useMemo(() => {
     const hadirCount = todayRecords.filter((r) => r.status === 'hadir').length;
     const terlambatCount = todayRecords.filter((r) => r.status === 'terlambat').length;
+    const izinTerlambatCount = todayRecords.filter(
+      (r) => r.status === 'izin_terlambat'
+    ).length;
     const izinSakitAlpha = todayRecords.filter(
       (r) => r.status === 'izin' || r.status === 'sakit' || r.status === 'alpha'
     ).length;
-    const presentTotal = hadirCount + terlambatCount;
+    const presentTotal = hadirCount + terlambatCount + izinTerlambatCount;
     const target = employeesWorkingToday.length;
     const ratePct = target > 0 ? Math.round((presentTotal / target) * 100) : 0;
 
     const totalLateMinutesToday = todayRecords.reduce((acc, rec) => {
-      if (!rec.checkIn) return acc;
+      if (rec.status !== 'terlambat' || !rec.checkIn) return acc;
       const emp = employees.find((e) => e.id === rec.employeeId);
       if (!emp) return acc;
       return acc + calculateLatenessMinutes(rec.checkIn, emp.shiftStart);
@@ -127,6 +130,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     return {
       hadirCount,
       terlambatCount,
+      izinTerlambatCount,
       izinSakitAlpha,
       presentTotal,
       target,
@@ -146,7 +150,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     const dates = getLastNDates(7);
     return dates.map((dateStr) => {
       const dayRecs = attendanceRecords.filter((r) => r.date === dateStr);
-      const hadir = dayRecs.filter((r) => r.status === 'hadir').length;
+      const hadir = dayRecs.filter(
+        (r) => r.status === 'hadir' || r.status === 'izin_terlambat'
+      ).length;
       const terlambat = dayRecs.filter((r) => r.status === 'terlambat').length;
       const absen = dayRecs.filter(
         (r) => r.status === 'izin' || r.status === 'sakit' || r.status === 'alpha'
@@ -210,7 +216,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       }
 
       const recToday = todayRecords.find((r) => r.employeeId === emp.id);
-      if (recToday && (recToday.status === 'hadir' || recToday.status === 'terlambat')) {
+      if (
+        recToday &&
+        (recToday.status === 'hadir' ||
+          recToday.status === 'terlambat' ||
+          recToday.status === 'izin_terlambat')
+      ) {
         entry.presentToday += 1;
       }
 
@@ -220,7 +231,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       for (const r of monthRecs) {
         if (r.status !== 'libur') {
           entry.monthLogs += 1;
-          if (r.status === 'hadir' || r.status === 'terlambat') {
+          if (
+            r.status === 'hadir' ||
+            r.status === 'terlambat' ||
+            r.status === 'izin_terlambat'
+          ) {
             entry.monthPresent += 1;
           }
         }
@@ -416,8 +431,14 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </div>
           <div className="mt-2.5 text-xs text-slate-500 font-mono tabular-nums">
             {todayMetrics.totalLateMinutesToday > 0
-              ? `Akumulasi telat: +${todayMetrics.totalLateMinutesToday} menit`
-              : 'Belum ada keterlambatan hari ini'}
+              ? `Akumulasi telat: +${todayMetrics.totalLateMinutesToday} mnt`
+              : 'Belum ada telat tanpa izin'}
+            {todayMetrics.izinTerlambatCount > 0 && (
+              <span className="text-teal-700 font-semibold">
+                {' '}
+                · {todayMetrics.izinTerlambatCount} izin telat
+              </span>
+            )}
           </div>
         </div>
 
@@ -702,7 +723,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <span>Seluruh karyawan wajib masuk hari ini sudah diabsen</span>
               </div>
               <p className="text-xs text-slate-500">
-                Anda dapat mengoreksi atau menambah jam lembur melalui menu Absensi Manual.
+                Anda dapat mengoreksi atau menambah jam lembur melalui menu Matriks Daftar Hadir.
               </p>
             </div>
           ) : filteredUnloggedToday.length === 0 ? (
@@ -729,12 +750,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                     <button
                       type="button"
                       disabled={busyEmpId === emp.id}
                       onClick={() => handleQuickLogEmployee(emp, 'hadir')}
-                      className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 disabled:opacity-50 cursor-pointer"
+                      className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       Hadir
                     </button>
@@ -742,14 +763,21 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                       type="button"
                       disabled={busyEmpId === emp.id}
                       onClick={() => handleQuickLogEmployee(emp, 'terlambat')}
-                      className="px-2.5 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 disabled:opacity-50 cursor-pointer"
+                      className="px-2.5 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       Terlambat
                     </button>
                     <button
                       type="button"
+                      onClick={() => onOpenManualEntry(emp.id, 'izin_terlambat')}
+                      className="px-2.5 py-1.5 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100 whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      Izin Telat
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => onOpenManualEntry(emp.id)}
-                      className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200 cursor-pointer"
+                      className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200 whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       Input Detail
                     </button>
@@ -814,7 +842,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               </h3>
               <button
                 type="button"
-                onClick={() => onNavigate('absensi')}
+                onClick={() => onNavigate('matriks')}
                 className="text-xs font-medium text-blue-700 hover:text-blue-800 cursor-pointer"
               >
                 Semua Data
@@ -841,6 +869,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                         <div className="font-mono text-slate-500 tabular-nums">
                           {rec.checkIn
                             ? `Masuk ${rec.checkIn}${rec.checkOut ? ` · Pulang ${rec.checkOut}` : ''}`
+                            : rec.status === 'izin_terlambat'
+                            ? `${
+                                rec.latePermitEstimatedArrival
+                                  ? `Est. ${rec.latePermitEstimatedArrival}`
+                                  : 'Izin telat'
+                              }${rec.latePermitReason ? ` · ${rec.latePermitReason}` : ''}`
                             : rec.notes || 'Tanpa jam kerja'}
                         </div>
                       </div>

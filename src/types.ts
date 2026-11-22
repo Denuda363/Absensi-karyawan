@@ -1,8 +1,14 @@
-export type AttendanceStatus = 'hadir' | 'terlambat' | 'izin' | 'sakit' | 'alpha' | 'libur';
+export type AttendanceStatus =
+  | 'hadir'
+  | 'terlambat'
+  | 'izin_terlambat'
+  | 'izin'
+  | 'sakit'
+  | 'alpha'
+  | 'libur';
 
 export type NavSection =
   | 'ringkasan'
-  | 'absensi'
   | 'matriks'
   | 'jadwal-libur'
   | 'rekap'
@@ -102,6 +108,9 @@ export interface AttendanceRecord {
   checkOut: string; // HH:mm or ''
   overtimeHours: number;
   notes: string;
+  latePermitReason?: string;
+  latePermitEstimatedArrival?: string; // HH:mm
+  latePermitApprovedBy?: string;
   recordedBy: string;
   createdAt?: string;
   updatedAt?: string;
@@ -289,6 +298,12 @@ export const ATTENDANCE_STATUS_META: Record<
     bgClass: 'bg-amber-50',
     borderClass: 'border-amber-200',
   },
+  izin_terlambat: {
+    label: 'Izin Terlambat',
+    colorClass: 'text-teal-700',
+    bgClass: 'bg-teal-50',
+    borderClass: 'border-teal-200',
+  },
   izin: {
     label: 'Izin',
     colorClass: 'text-sky-700',
@@ -314,6 +329,14 @@ export const ATTENDANCE_STATUS_META: Record<
     borderClass: 'border-slate-200',
   },
 };
+
+export const LATE_PERMIT_REASON_PRESETS: string[] = [
+  'Urusan Keluarga',
+  'Kendala Transportasi / Macet',
+  'Kontrol Kesehatan Pagi',
+  'Tugas Luar / Kunjungan Klien',
+  'Administrasi / Bank / Pemerintahan',
+];
 
 export function getTodayDateStr(): string {
   const now = new Date();
@@ -495,6 +518,7 @@ export function statusToMatrixCode(status: AttendanceStatus): MatrixCellCode {
   switch (status) {
     case 'hadir':
     case 'terlambat':
+    case 'izin_terlambat':
       return 'h';
     case 'izin':
       return 'i';
