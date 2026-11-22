@@ -9,6 +9,24 @@ import {
   SalaryRaiseMethod,
   SalaryRaiseRecord,
 } from '../types';
+import { executeApiWithFallback, HttpApiError } from './apiClient';
+import {
+  clientChangeAdminModePin,
+  clientCreatePayrollAdjustment,
+  clientCreateSalaryRaise,
+  clientDeletePayrollAdjustment,
+  clientDeleteSalaryRaise,
+  clientFetchPayrollState,
+  clientGetPayrollBackupPayload,
+  clientLockAdminModeSession,
+  clientLockPayrollSession,
+  clientRestorePayrollBackup,
+  clientSaveEmployeeSalaryProfile,
+  clientUnlockAdminModeWithPin,
+  clientUnlockPayrollWithPin,
+  clientUpdatePayrollMonthlyStatus,
+  clientUpdatePayrollSettings,
+} from './clientFallbackStore';
 
 export class PayrollUnauthorizedError extends Error {
   constructor(message: string) {
@@ -17,43 +35,50 @@ export class PayrollUnauthorizedError extends Error {
   }
 }
 
-async function handlePayrollResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let errMsg = `HTTP ${res.status}`;
-    try {
-      const json = (await res.json()) as { error?: string };
-      if (json.error) errMsg = json.error;
-    } catch {
-      // ignore json parse failure
+async function runPayrollApi<T>(
+  requestFn: () => Promise<Response>,
+  fallbackFn: () => Promise<T>
+): Promise<T> {
+  try {
+    return await executeApiWithFallback(requestFn, fallbackFn);
+  } catch (err) {
+    if (err instanceof HttpApiError && err.status === 401) {
+      throw new PayrollUnauthorizedError(err.message);
     }
-    if (res.status === 401) {
-      throw new PayrollUnauthorizedError(errMsg);
-    }
-    throw new Error(errMsg);
+    throw err;
   }
-  return (await res.json()) as T;
 }
 
 export async function unlockAdminModeWithPin(
   pin: string
 ): Promise<{ token: string; expiresAt: number }> {
-  const res = await fetch('/api/admin-mode/unlock', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin }),
-  });
-  return handlePayrollResponse<{ token: string; expiresAt: number }>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/admin-mode/unlock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      }),
+    () => clientUnlockAdminModeWithPin(pin)
+  );
 }
 
 export async function lockAdminModeSession(adminToken: string): Promise<void> {
   if (!adminToken) return;
   try {
-    await fetch('/api/admin-mode/lock', {
-      method: 'POST',
-      headers: { 'X-Admin-Token': adminToken },
-    });
+    await executeApiWithFallback<{ ok: boolean }>(
+      () =>
+        fetch('/api/admin-mode/lock', {
+          method: 'POST',
+          headers: { 'X-Admin-Token': adminToken },
+        }),
+      async () => {
+        await clientLockAdminModeSession(adminToken);
+        return { ok: true };
+      }
+    );
   } catch {
-    // ignore lock cleanup error
+    await clientLockAdminModeSession(adminToken);
   }
 }
 
@@ -61,57 +86,79 @@ export async function changeAdminModePin(payload: {
   currentPin: string;
   newPin: string;
 }): Promise<void> {
-  const res = await fetch('/api/admin-mode/pin', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  await handlePayrollResponse<{ ok: boolean }>(res);
+  await runPayrollApi<{ ok: boolean }>(
+    () =>
+      fetch('/api/admin-mode/pin', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    async () => {
+      await clientChangeAdminModePin(payload);
+      return { ok: true };
+    }
+  );
 }
 
 export async function unlockPayrollWithPin(
   pin: string
 ): Promise<{ token: string; expiresAt: number }> {
-  const res = await fetch('/api/payroll/unlock', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin }),
-  });
-  return handlePayrollResponse<{ token: string; expiresAt: number }>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/payroll/unlock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      }),
+    () => clientUnlockPayrollWithPin(pin)
+  );
 }
 
 export async function lockPayrollSession(token: string): Promise<void> {
   if (!token) return;
   try {
-    await fetch('/api/payroll/lock', {
-      method: 'POST',
-      headers: { 'X-Payroll-Token': token },
-    });
+    await executeApiWithFallback<{ ok: boolean }>(
+      () =>
+        fetch('/api/payroll/lock', {
+          method: 'POST',
+          headers: { 'X-Payroll-Token': token },
+        }),
+      async () => {
+        await clientLockPayrollSession(token);
+        return { ok: true };
+      }
+    );
   } catch {
-    // ignore lock cleanup error
+    await clientLockPayrollSession(token);
   }
 }
 
 export async function fetchPayrollState(token: string): Promise<PayrollDatabaseState> {
-  const res = await fetch('/api/payroll/state', {
-    headers: { 'X-Payroll-Token': token },
-  });
-  return handlePayrollResponse<PayrollDatabaseState>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/payroll/state', {
+        headers: { 'X-Payroll-Token': token },
+      }),
+    () => clientFetchPayrollState(token)
+  );
 }
 
 export async function updatePayrollSettings(
   token: string,
   payload: Partial<PayrollSettings>
 ): Promise<PayrollSettings> {
-  const res = await fetch('/api/payroll/settings', {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Payroll-Token': token,
-    },
-    body: JSON.stringify(payload),
-  });
-  return handlePayrollResponse<PayrollSettings>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/payroll/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Payroll-Token': token,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientUpdatePayrollSettings(token, payload)
+  );
 }
 
 export async function saveEmployeeSalaryProfile(
@@ -119,15 +166,18 @@ export async function saveEmployeeSalaryProfile(
   employeeId: string,
   payload: Partial<Omit<EmployeeSalaryProfile, 'employeeId' | 'updatedAt'>>
 ): Promise<EmployeeSalaryProfile> {
-  const res = await fetch(`/api/payroll/profiles/${encodeURIComponent(employeeId)}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Payroll-Token': token,
-    },
-    body: JSON.stringify(payload),
-  });
-  return handlePayrollResponse<EmployeeSalaryProfile>(res);
+  return runPayrollApi(
+    () =>
+      fetch(`/api/payroll/profiles/${encodeURIComponent(employeeId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Payroll-Token': token,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientSaveEmployeeSalaryProfile(token, employeeId, payload)
+  );
 }
 
 export async function createPayrollAdjustment(
@@ -142,26 +192,35 @@ export async function createPayrollAdjustment(
     notes: string;
   }
 ): Promise<PayrollAdjustment> {
-  const res = await fetch('/api/payroll/adjustments', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Payroll-Token': token,
-    },
-    body: JSON.stringify(payload),
-  });
-  return handlePayrollResponse<PayrollAdjustment>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/payroll/adjustments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Payroll-Token': token,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientCreatePayrollAdjustment(token, payload)
+  );
 }
 
 export async function deletePayrollAdjustment(
   token: string,
   adjustmentId: string
 ): Promise<void> {
-  const res = await fetch(`/api/payroll/adjustments/${encodeURIComponent(adjustmentId)}`, {
-    method: 'DELETE',
-    headers: { 'X-Payroll-Token': token },
-  });
-  await handlePayrollResponse<{ ok: boolean }>(res);
+  await runPayrollApi<{ ok: boolean }>(
+    () =>
+      fetch(`/api/payroll/adjustments/${encodeURIComponent(adjustmentId)}`, {
+        method: 'DELETE',
+        headers: { 'X-Payroll-Token': token },
+      }),
+    async () => {
+      await clientDeletePayrollAdjustment(token, adjustmentId);
+      return { ok: true };
+    }
+  );
 }
 
 export async function createSalaryRaise(
@@ -181,26 +240,35 @@ export async function createSalaryRaise(
     applyToProfile?: boolean;
   }
 ): Promise<SalaryRaiseRecord> {
-  const res = await fetch('/api/payroll/raises', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Payroll-Token': token,
-    },
-    body: JSON.stringify(payload),
-  });
-  return handlePayrollResponse<SalaryRaiseRecord>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/payroll/raises', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Payroll-Token': token,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientCreateSalaryRaise(token, payload)
+  );
 }
 
 export async function deleteSalaryRaise(
   token: string,
   raiseId: string
 ): Promise<void> {
-  const res = await fetch(`/api/payroll/raises/${encodeURIComponent(raiseId)}`, {
-    method: 'DELETE',
-    headers: { 'X-Payroll-Token': token },
-  });
-  await handlePayrollResponse<{ ok: boolean }>(res);
+  await runPayrollApi<{ ok: boolean }>(
+    () =>
+      fetch(`/api/payroll/raises/${encodeURIComponent(raiseId)}`, {
+        method: 'DELETE',
+        headers: { 'X-Payroll-Token': token },
+      }),
+    async () => {
+      await clientDeleteSalaryRaise(token, raiseId);
+      return { ok: true };
+    }
+  );
 }
 
 export async function updatePayrollMonthlyStatus(
@@ -211,22 +279,28 @@ export async function updatePayrollMonthlyStatus(
     status: PayrollRecordStatus;
   }
 ): Promise<PayrollMonthlyStatus> {
-  const res = await fetch('/api/payroll/status', {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Payroll-Token': token,
-    },
-    body: JSON.stringify(payload),
-  });
-  return handlePayrollResponse<PayrollMonthlyStatus>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/payroll/status', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Payroll-Token': token,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientUpdatePayrollMonthlyStatus(token, payload)
+  );
 }
 
 export async function downloadPayrollBackupJson(token: string): Promise<void> {
-  const res = await fetch('/api/payroll/backup', {
-    headers: { 'X-Payroll-Token': token },
-  });
-  const data = await handlePayrollResponse<Record<string, unknown>>(res);
+  const data = await runPayrollApi<Record<string, unknown>>(
+    () =>
+      fetch('/api/payroll/backup', {
+        headers: { 'X-Payroll-Token': token },
+      }),
+    () => clientGetPayrollBackupPayload(token)
+  );
   const now = new Date();
   const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
     2,
@@ -252,13 +326,16 @@ export async function restorePayrollBackup(
   token: string,
   backupPayload: unknown
 ): Promise<PayrollDatabaseState> {
-  const res = await fetch('/api/payroll/restore', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Payroll-Token': token,
-    },
-    body: JSON.stringify(backupPayload),
-  });
-  return handlePayrollResponse<PayrollDatabaseState>(res);
+  return runPayrollApi(
+    () =>
+      fetch('/api/payroll/restore', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Payroll-Token': token,
+        },
+        body: JSON.stringify(backupPayload),
+      }),
+    () => clientRestorePayrollBackup(token, backupPayload)
+  );
 }

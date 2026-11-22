@@ -8,6 +8,22 @@ import {
   LateSettlementMethod,
   ShiftConfig,
 } from '../types';
+import { executeApiWithFallback } from './apiClient';
+import {
+  clientBulkMarkScheduledOffDays,
+  clientCreateAttendanceRecord,
+  clientCreateEmployee,
+  clientCreateLateSettlement,
+  clientDeleteAttendanceRecord,
+  clientDeleteEmployee,
+  clientDeleteLateSettlement,
+  clientFetchDatabaseState,
+  clientGetBackupPayload,
+  clientRestoreDatabaseBackup,
+  clientUpdateAppSettings,
+  clientUpdateAttendanceRecord,
+  clientUpdateEmployee,
+} from './clientFallbackStore';
 
 export interface AppDatabaseState {
   employees: Employee[];
@@ -16,53 +32,53 @@ export interface AppDatabaseState {
   settings: AppSettings;
 }
 
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let errMsg = `HTTP ${res.status}`;
-    try {
-      const json = (await res.json()) as { error?: string };
-      if (json.error) errMsg = json.error;
-    } catch {
-      // ignore json parse failure
-    }
-    throw new Error(errMsg);
-  }
-  return (await res.json()) as T;
-}
-
 export async function fetchDatabaseState(): Promise<AppDatabaseState> {
-  const res = await fetch('/api/state');
-  return handleResponse<AppDatabaseState>(res);
+  return executeApiWithFallback(
+    () => fetch('/api/state'),
+    () => clientFetchDatabaseState()
+  );
 }
 
 export async function createEmployee(
   payload: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<Employee> {
-  const res = await fetch('/api/employees', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return handleResponse<Employee>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch('/api/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    () => clientCreateEmployee(payload)
+  );
 }
 
 export async function updateEmployee(
   employeeId: string,
   payload: Partial<Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>>
 ): Promise<Employee> {
-  const res = await fetch(`/api/employees/${encodeURIComponent(employeeId)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return handleResponse<Employee>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch(`/api/employees/${encodeURIComponent(employeeId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    () => clientUpdateEmployee(employeeId, payload)
+  );
 }
 
 export async function deleteEmployee(employeeId: string): Promise<void> {
-  const res = await fetch(`/api/employees/${encodeURIComponent(employeeId)}`, {
-    method: 'DELETE',
-  });
-  await handleResponse<{ ok: boolean }>(res);
+  await executeApiWithFallback<{ ok: boolean }>(
+    () =>
+      fetch(`/api/employees/${encodeURIComponent(employeeId)}`, {
+        method: 'DELETE',
+      }),
+    async () => {
+      await clientDeleteEmployee(employeeId);
+      return { ok: true };
+    }
+  );
 }
 
 export async function createAttendanceRecord(payload: {
@@ -77,12 +93,15 @@ export async function createAttendanceRecord(payload: {
   latePermitEstimatedArrival?: string;
   latePermitApprovedBy?: string;
 }): Promise<AttendanceRecord> {
-  const res = await fetch('/api/attendance', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return handleResponse<AttendanceRecord>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    () => clientCreateAttendanceRecord(payload)
+  );
 }
 
 export async function updateAttendanceRecord(
@@ -98,30 +117,42 @@ export async function updateAttendanceRecord(
     latePermitApprovedBy?: string;
   }
 ): Promise<AttendanceRecord> {
-  const res = await fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return handleResponse<AttendanceRecord>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    () => clientUpdateAttendanceRecord(recordId, payload)
+  );
 }
 
 export async function deleteAttendanceRecord(recordId: string): Promise<void> {
-  const res = await fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {
-    method: 'DELETE',
-  });
-  await handleResponse<{ ok: boolean }>(res);
+  await executeApiWithFallback<{ ok: boolean }>(
+    () =>
+      fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {
+        method: 'DELETE',
+      }),
+    async () => {
+      await clientDeleteAttendanceRecord(recordId);
+      return { ok: true };
+    }
+  );
 }
 
 export async function bulkMarkScheduledOffDays(
   date: string
 ): Promise<{ createdCount: number }> {
-  const res = await fetch('/api/attendance/bulk-off-days', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date }),
-  });
-  return handleResponse<{ createdCount: number }>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch('/api/attendance/bulk-off-days', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date }),
+      }),
+    () => clientBulkMarkScheduledOffDays(date)
+  );
 }
 
 export async function createLateSettlement(payload: {
@@ -135,19 +166,28 @@ export async function createLateSettlement(payload: {
   deductionAmount?: number;
   notes: string;
 }): Promise<LateSettlement> {
-  const res = await fetch('/api/late-settlements', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return handleResponse<LateSettlement>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch('/api/late-settlements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    () => clientCreateLateSettlement(payload)
+  );
 }
 
 export async function deleteLateSettlement(settlementId: string): Promise<void> {
-  const res = await fetch(`/api/late-settlements/${encodeURIComponent(settlementId)}`, {
-    method: 'DELETE',
-  });
-  await handleResponse<{ ok: boolean }>(res);
+  await executeApiWithFallback<{ ok: boolean }>(
+    () =>
+      fetch(`/api/late-settlements/${encodeURIComponent(settlementId)}`, {
+        method: 'DELETE',
+      }),
+    async () => {
+      await clientDeleteLateSettlement(settlementId);
+      return { ok: true };
+    }
+  );
 }
 
 export async function updateAppSettings(payload: {
@@ -158,17 +198,22 @@ export async function updateAppSettings(payload: {
   companyProfile?: Partial<CompanyProfile>;
   syncEmployees?: boolean;
 }): Promise<AppSettings> {
-  const res = await fetch('/api/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return handleResponse<AppSettings>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    () => clientUpdateAppSettings(payload)
+  );
 }
 
 export async function downloadBackupJson(): Promise<void> {
-  const res = await fetch('/api/backup');
-  const data = await handleResponse<Record<string, unknown>>(res);
+  const data = await executeApiWithFallback<Record<string, unknown>>(
+    () => fetch('/api/backup'),
+    () => clientGetBackupPayload()
+  );
   const now = new Date();
   const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
     2,
@@ -193,11 +238,13 @@ export async function downloadBackupJson(): Promise<void> {
 export async function restoreDatabaseBackup(
   backupPayload: unknown
 ): Promise<AppDatabaseState> {
-  const res = await fetch('/api/restore', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(backupPayload),
-  });
-  return handleResponse<AppDatabaseState>(res);
+  return executeApiWithFallback(
+    () =>
+      fetch('/api/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backupPayload),
+      }),
+    () => clientRestoreDatabaseBackup(backupPayload)
+  );
 }
-

@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
@@ -9,8 +10,48 @@ import { Client as PgClient } from 'pg';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
-const DATA_DIR = path.join(__dirname, 'data');
+const PORT = Number(process.env.PORT) || 3000;
+const BUNDLED_DATA_DIR = path.join(__dirname, 'data');
+
+function resolveWritableDataDir(): string {
+  const candidates = [
+    process.env.KARYAPRESENSI_DATA_DIR,
+    BUNDLED_DATA_DIR,
+    path.join(os.tmpdir(), 'karyapresensi-data'),
+  ].filter(Boolean) as string[];
+
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const probeFile = path.join(dir, `.write-test-${process.pid}`);
+      fs.writeFileSync(probeFile, 'ok', 'utf-8');
+      fs.unlinkSync(probeFile);
+      if (dir !== BUNDLED_DATA_DIR && fs.existsSync(BUNDLED_DATA_DIR)) {
+        for (const fname of [
+          'attendance-db.json',
+          'payroll-db.json',
+          'finance-db.json',
+          'security-config.json',
+          'database-config.json',
+        ]) {
+          const src = path.join(BUNDLED_DATA_DIR, fname);
+          const dst = path.join(dir, fname);
+          if (fs.existsSync(src) && !fs.existsSync(dst)) {
+            fs.copyFileSync(src, dst);
+          }
+        }
+      }
+      return dir;
+    } catch {
+      // try next writable directory
+    }
+  }
+  return BUNDLED_DATA_DIR;
+}
+
+const DATA_DIR = resolveWritableDataDir();
 const DB_FILE = path.join(DATA_DIR, 'attendance-db.json');
 const PAYROLL_DB_FILE = path.join(DATA_DIR, 'payroll-db.json');
 const FINANCE_DB_FILE = path.join(DATA_DIR, 'finance-db.json');
@@ -2992,8 +3033,34 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
 
+  app.use(
+    (
+      err: unknown,
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
+      if (req.path.startsWith('/api')) {
+        const status =
+          typeof (err as { status?: unknown })?.status === 'number'
+            ? (err as { status: number }).status
+            : 400;
+        const message =
+          err instanceof Error
+            ? err.message
+            : 'Permintaan API tidak valid atau gagal diproses.';
+        res.status(status).json({ error: message });
+        return;
+      }
+      next(err);
+    }
+  );
+
   ensureLocalFallbackFiles();
-  await bootHydrateFromSupabase();
+  await Promise.race([
+    bootHydrateFromSupabase(),
+    new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+  ]);
 
   const requireAdminModeAuth: express.RequestHandler = (req, res, next) => {
     cleanupExpiredAdminSessions();
@@ -4744,6 +4811,31 @@ async function startServer() {
     res.json(restored);
   });
 
+  app.get('/api/health', (_req, res) => {
+    res.json({ ok: true, mode: 'express' });
+  });
+
+  // Ensure unmatched /api/* routes ALWAYS return JSON (never index.html)
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'Endpoint API tidak ditemukan.' });
+  });
+
+  app.use(
+    '/api',
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Terjadi kesalahan internal pada server API.';
+      res.status(500).json({ error: message });
+    }
+  );
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -4753,10 +4845,21 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) {
+          next();
+          return;
+        }
+        const indexHtml = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexHtml)) {
+          res.sendFile(indexHtml);
+        } else {
+          res.status(404).json({ error: 'Build frontend tidak ditemukan.' });
+        }
+      });
+    }
   }
 
   app.listen(PORT, '0.0.0.0', () => {

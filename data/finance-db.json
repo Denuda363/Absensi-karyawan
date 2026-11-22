@@ -8,7 +8,7 @@
       "accountNumber": "-",
       "holderName": "Kasir Operasional",
       "openingBalance": 0,
-      "createdAt": "2026-11-21T10:10:40.602Z"
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     },
     {
       "id": "acc_bank_bca",
@@ -18,7 +18,7 @@
       "accountNumber": "001-889-2100",
       "holderName": "PT KaryaPresensi",
       "openingBalance": 0,
-      "createdAt": "2026-11-21T10:10:40.602Z"
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     },
     {
       "id": "acc_bank_bri",
@@ -28,7 +28,7 @@
       "accountNumber": "0234-01-009821-30-5",
       "holderName": "PT KaryaPresensi",
       "openingBalance": 0,
-      "createdAt": "2026-11-21T10:10:40.602Z"
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     },
     {
       "id": "acc_bank_mandiri",
@@ -38,7 +38,7 @@
       "accountNumber": "124-000-9912",
       "holderName": "PT KaryaPresensi",
       "openingBalance": 0,
-      "createdAt": "2026-11-21T10:10:40.602Z"
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     }
   ],
   "categories": [
@@ -46,64 +46,29 @@
       "id": "fcat_inc_cash",
       "name": "Penjualan Tunai & Kas Harian",
       "type": "pendapatan",
-      "description": "Penerimaan penjualan tunai / kas harian operasional",
-      "createdAt": "2026-11-21T09:59:33.056Z"
+      "description": "Penerimaan penjualan tunai harian",
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     },
     {
       "id": "fcat_inc_transfer",
       "name": "Penjualan Transfer & Invoice",
       "type": "pendapatan",
-      "description": "Pembayaran invoice klien dan transfer rekening bank perusahaan",
-      "createdAt": "2026-11-21T09:59:33.056Z"
-    },
-    {
-      "id": "fcat_inc_other",
-      "name": "Pendapatan Lain-lain",
-      "type": "pendapatan",
-      "description": "Pendapatan jasa tambahan, komisi, atau pengembalian dana",
-      "createdAt": "2026-11-21T09:59:33.056Z"
+      "description": "Transfer rekening & pelunasan invoice",
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     },
     {
       "id": "fcat_exp_operasional",
       "name": "Operasional & ATK Kantor",
       "type": "pengeluaran",
-      "description": "Kebutuhan alat tulis kantor, perlengkapan toko, dan operasional harian",
-      "createdAt": "2026-11-21T09:59:33.056Z"
-    },
-    {
-      "id": "fcat_exp_utilitas",
-      "name": "Listrik, Air & Internet",
-      "type": "pengeluaran",
-      "description": "Tagihan listrik PLN, PDAM, telepon, dan jaringan internet kantor",
-      "createdAt": "2026-11-21T09:59:33.056Z"
-    },
-    {
-      "id": "fcat_exp_logistik",
-      "name": "Logistik, BBM & Pengiriman",
-      "type": "pengeluaran",
-      "description": "Biaya pengiriman barang, ekspedisi, BBM kurir, dan tol",
-      "createdAt": "2026-11-21T09:59:33.056Z"
+      "description": "Perlengkapan & operasional kantor",
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     },
     {
       "id": "fcat_exp_stok",
       "name": "Pembelian Stok & Supplier",
       "type": "pengeluaran",
-      "description": "Pengadaan barang dagang, bahan baku, dan pelunasan supplier",
-      "createdAt": "2026-11-21T09:59:33.056Z"
-    },
-    {
-      "id": "fcat_exp_pemeliharaan",
-      "name": "Sewa & Pemeliharaan Aset",
-      "type": "pengeluaran",
-      "description": "Perawatan gedung, AC, kendaraan operasional, dan perangkat IT",
-      "createdAt": "2026-11-21T09:59:33.056Z"
-    },
-    {
-      "id": "fcat_exp_pajak",
-      "name": "Pajak, Iuran & Legalitas",
-      "type": "pengeluaran",
-      "description": "Pembayaran pajak perusahaan, retribusi, dan biaya perizinan",
-      "createdAt": "2026-11-21T09:59:33.056Z"
+      "description": "Tagihan distributor & pengadaan stok",
+      "createdAt": "2026-11-22T10:35:04.223263+00:00"
     }
   ],
   "transactions": [
