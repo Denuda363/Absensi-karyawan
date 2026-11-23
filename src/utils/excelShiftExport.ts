@@ -12,8 +12,11 @@ export async function exportShiftScheduleToExcel(params: {
   companyName: string;
   shifts: ShiftConfig[];
   employees: Employee[];
+  days?: ReadonlyArray<{ index: number; label: string }>;
 }): Promise<void> {
-  const { companyName, shifts, employees } = params;
+  const { companyName, shifts, employees, days } = params;
+  const targetDays = days && days.length > 0 ? days : HARI_WEEKDAYS;
+  const isSingleDayExport = targetDays.length === 1;
   const activeEmployees = employees
     .filter((e) => e.active)
     .sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
@@ -42,7 +45,10 @@ export async function exportShiftScheduleToExcel(params: {
   // =========================================================================
   // Sheet 1: Jadwal Harian (Format blok harian per shift & jabatan)
   // =========================================================================
-  const dailySheet = workbook.addWorksheet('Jadwal Harian', {
+  const dailySheetName = isSingleDayExport
+    ? `Jadwal ${targetDays[0].label}`
+    : 'Jadwal Harian';
+  const dailySheet = workbook.addWorksheet(dailySheetName, {
     views: [{ showGridLines: true }],
   });
 
@@ -100,7 +106,7 @@ export async function exportShiftScheduleToExcel(params: {
   const dailyBlocks = buildDailyScheduleBlocks({
     shifts,
     employees: activeEmployees,
-    days: HARI_WEEKDAYS,
+    days: targetDays,
   });
 
   let dRowIdx = 1;
@@ -230,6 +236,7 @@ export async function exportShiftScheduleToExcel(params: {
     dRowIdx += 1;
   }
 
+  if (!isSingleDayExport) {
   // =========================================================================
   // Sheet 2: Master Roster per Shift
   // =========================================================================
@@ -428,6 +435,7 @@ export async function exportShiftScheduleToExcel(params: {
     cell.border = thinBorder;
   });
   offRow.height = Math.max(32, maxOffLen * 14 + 10);
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
@@ -437,10 +445,13 @@ export async function exportShiftScheduleToExcel(params: {
   const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
     now.getDate()
   ).padStart(2, '0')}`;
+  const fileDaySlug = isSingleDayExport
+    ? targetDays[0].label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    : 'karyawan';
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `jadwal-shift-karyawan-${stamp}.xlsx`;
+  link.download = `jadwal-shift-${fileDaySlug}-${stamp}.xlsx`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
