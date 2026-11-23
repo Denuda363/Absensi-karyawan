@@ -28,6 +28,8 @@ import {
   PayrollMonthlyStatus,
   PayrollRecordStatus,
   PayrollSettings,
+  ResetDataMode,
+  ResetDataResult,
   SalaryRaiseMethod,
   SalaryRaiseRecord,
   ShiftConfig,
@@ -2601,6 +2603,186 @@ export async function clientChangeAdminModePin(payload: {
     adminPinSha256: await sha256Hex(cleanNew),
     updatedAt: new Date().toISOString(),
   });
+}
+
+async function clearBrowserSupabaseTables(
+  targets: { table: string; pkColumn: string }[]
+): Promise<void> {
+  try {
+    const sb = getBrowserSupabaseClient();
+    if (!sb) return;
+    for (const target of targets) {
+      try {
+        await sb.from(target.table).delete().not(target.pkColumn, 'is', null);
+      } catch {
+        // ignore missing or RLS-restricted remote table
+      }
+    }
+  } catch {
+    // non-blocking
+  }
+}
+
+export async function clientResetApplicationData(
+  adminToken: string,
+  payload: { mode: ResetDataMode; pin: string }
+): Promise<ResetDataResult> {
+  await ensureClientHydratedOnce();
+  requireClientSession(
+    'admin',
+    adminToken,
+    'Akses reset data hanya tersedia pada Mode Admin.',
+    'Sesi Mode Admin telah berakhir. Silakan masuk kembali.'
+  );
+  if (
+    payload.mode !== 'attendance' &&
+    payload.mode !== 'except_employees' &&
+    payload.mode !== 'all'
+  ) {
+    throw new HttpApiError(400, 'Mode reset data tidak valid.');
+  }
+  if (!(await verifyAdminPinHash(payload.pin))) {
+    throw new HttpApiError(401, 'PIN Mode Admin tidak valid. Reset data dibatalkan.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const curDb = readAttendanceDbSync();
+  const curPay = readPayrollDbSync();
+  const curFin = readFinanceDbSync();
+
+  let nextDb: ClientAppDatabaseState;
+  let nextPay: PayrollDatabaseState = curPay;
+  let nextFin: FinanceDatabaseState = curFin;
+  let message = '';
+
+  if (payload.mode === 'attendance') {
+    nextDb = {
+      ...curDb,
+      attendanceRecords: [],
+      lateSettlements: [],
+    };
+    message =
+      'Seluruh data absensi dan catatan penyelesaian keterlambatan berhasil direset. Data karyawan, jadwal, gaji, dan keuangan tetap dipertahankan.';
+    writeStorageItem(LS_ATTENDANCE_KEY, JSON.stringify(nextDb));
+    await clearBrowserSupabaseTables([
+      { table: 'attendance_records', pkColumn: 'id' },
+      { table: 'late_settlements', pkColumn: 'id' },
+    ]);
+  } else if (payload.mode === 'except_employees') {
+    const preservedEmployees: Employee[] = curDb.employees.map((emp) => ({
+      ...emp,
+      offDays: [],
+      customOffDates: [],
+      updatedAt: nowIso,
+    }));
+    const cleanShifts: ShiftConfig[] = curDb.settings.shifts.map((s) => ({
+      id: s.id,
+      name: s.name,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      lateToleranceMinutes: s.lateToleranceMinutes,
+    }));
+    nextDb = {
+      employees: preservedEmployees,
+      attendanceRecords: [],
+      lateSettlements: [],
+      settings: {
+        ...curDb.settings,
+        shifts: cleanShifts.length > 0 ? cleanShifts : buildDefaultSettings().shifts,
+      },
+    };
+    nextPay = {
+      settings: buildDefaultPayrollSettings(),
+      profiles: [],
+      adjustments: [],
+      salaryRaises: [],
+      statuses: [],
+    };
+    const baseFin = buildDefaultFinanceDb();
+    nextFin = {
+      accounts: buildDefaultFinanceAccounts(nowIso),
+      categories: baseFin.categories,
+      transactions: [],
+      transfers: [],
+    };
+    message = `Semua data absensi, jadwal shift/libur, gaji, dan transaksi keuangan berhasil direset. ${preservedEmployees.length} data nama karyawan tetap dipertahankan.`;
+    writeStorageItem(LS_ATTENDANCE_KEY, JSON.stringify(nextDb));
+    writeStorageItem(LS_PAYROLL_KEY, JSON.stringify(nextPay));
+    writeStorageItem(LS_FINANCE_KEY, JSON.stringify(nextFin));
+    await clearBrowserSupabaseTables([
+      { table: 'attendance_records', pkColumn: 'id' },
+      { table: 'late_settlements', pkColumn: 'id' },
+      { table: 'payroll_statuses', pkColumn: 'id' },
+      { table: 'payroll_raises', pkColumn: 'id' },
+      { table: 'payroll_adjustments', pkColumn: 'id' },
+      { table: 'payroll_profiles', pkColumn: 'employee_id' },
+      { table: 'finance_transfers', pkColumn: 'id' },
+      { table: 'finance_transactions', pkColumn: 'id' },
+      { table: 'finance_categories', pkColumn: 'id' },
+      { table: 'finance_accounts', pkColumn: 'id' },
+    ]);
+    await syncAttendanceToSupabaseBrowser(nextDb);
+    await syncPayrollToSupabaseBrowser(nextPay);
+    await syncFinanceToSupabaseBrowser(nextFin);
+  } else {
+    nextDb = {
+      employees: [],
+      attendanceRecords: [],
+      lateSettlements: [],
+      settings: buildDefaultSettings(),
+    };
+    nextPay = {
+      settings: buildDefaultPayrollSettings(),
+      profiles: [],
+      adjustments: [],
+      salaryRaises: [],
+      statuses: [],
+    };
+    const baseFin = buildDefaultFinanceDb();
+    nextFin = {
+      accounts: buildDefaultFinanceAccounts(nowIso),
+      categories: baseFin.categories,
+      transactions: [],
+      transfers: [],
+    };
+    message =
+      'Seluruh data aplikasi (karyawan, absensi, jadwal, gaji, keuangan, dan pengaturan) berhasil direset ke kondisi awal kosong.';
+    writeStorageItem(LS_ATTENDANCE_KEY, JSON.stringify(nextDb));
+    writeStorageItem(LS_PAYROLL_KEY, JSON.stringify(nextPay));
+    writeStorageItem(LS_FINANCE_KEY, JSON.stringify(nextFin));
+    await clearBrowserSupabaseTables([
+      { table: 'attendance_records', pkColumn: 'id' },
+      { table: 'late_settlements', pkColumn: 'id' },
+      { table: 'payroll_statuses', pkColumn: 'id' },
+      { table: 'payroll_raises', pkColumn: 'id' },
+      { table: 'payroll_adjustments', pkColumn: 'id' },
+      { table: 'payroll_profiles', pkColumn: 'employee_id' },
+      { table: 'employees', pkColumn: 'id' },
+      { table: 'finance_transfers', pkColumn: 'id' },
+      { table: 'finance_transactions', pkColumn: 'id' },
+      { table: 'finance_categories', pkColumn: 'id' },
+      { table: 'finance_accounts', pkColumn: 'id' },
+    ]);
+    await syncAttendanceToSupabaseBrowser(nextDb);
+    await syncPayrollToSupabaseBrowser(nextPay);
+    await syncFinanceToSupabaseBrowser(nextFin);
+  }
+
+  return {
+    ok: true,
+    mode: payload.mode,
+    message,
+    summary: {
+      employeesRemaining: nextDb.employees.length,
+      attendanceRemaining: nextDb.attendanceRecords.length,
+      lateSettlementsRemaining: nextDb.lateSettlements.length,
+      payrollProfilesRemaining: nextPay.profiles.length,
+      financeTransactionsRemaining: nextFin.transactions.length,
+    },
+    state: nextDb,
+    financeAccounts: nextFin.accounts,
+    financeCategories: nextFin.categories,
+  };
 }
 
 export async function clientUnlockPayrollWithPin(

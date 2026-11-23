@@ -627,7 +627,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
             </div>
             <div>
               <h2 className="font-display text-base font-semibold text-slate-900">
-                5. Pengaturan Database &amp; Struktur Tabel
+                6. Pengaturan Database &amp; Struktur Tabel
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 Periksa ketersediaan tabel, buat tabel yang belum ada secara otomatis, atau salin script DDL database.
@@ -716,7 +716,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
           </div>
           <div>
             <h2 className="font-display text-base font-semibold text-slate-900">
-              5. Pengaturan Database &amp; Struktur Tabel
+              6. Pengaturan Database &amp; Struktur Tabel
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Deteksi tabel otomatis, inisialisasi tabel yang belum tersedia, sinkronisasi Firestore, serta copy script SQL/DDL.

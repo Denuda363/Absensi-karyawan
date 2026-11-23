@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -1951,6 +1952,27 @@ async function deleteSupabaseRowById(table: string, id: string): Promise<void> {
   }
 }
 
+async function clearSupabaseTablesForReset(
+  cfg: DatabaseConnectionConfigData,
+  targets: { table: string; pkColumn: string }[]
+): Promise<void> {
+  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !cfg.supabasePublishableKey) {
+    return;
+  }
+  try {
+    const sb = getSupabaseClientForConfig(cfg);
+    for (const target of targets) {
+      try {
+        await sb.from(target.table).delete().not(target.pkColumn, 'is', null);
+      } catch {
+        // Continue clearing remaining tables even if a single table is empty or missing
+      }
+    }
+  } catch {
+    // Non-blocking remote cleanup
+  }
+}
+
 async function pushAllLocalToSupabase(): Promise<{
   syncedTables: { tableName: string; rowCount: number }[];
   failedTables: { tableName: string; error: string }[];
@@ -3824,6 +3846,204 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  app.post('/api/admin/reset-data', requireAdminModeAuth, async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const tracker = adminPinAttemptTracker.get(clientIp);
+    if (tracker && tracker.lockedUntil > now) {
+      const waitSeconds = Math.ceil((tracker.lockedUntil - now) / 1000);
+      res.status(429).json({
+        error: `Terlalu banyak percobaan PIN Mode Admin salah. Coba lagi dalam ${waitSeconds} detik.`,
+      });
+      return;
+    }
+
+    const { mode, pin } = (req.body || {}) as {
+      mode?: string;
+      pin?: string;
+    };
+
+    if (mode !== 'attendance' && mode !== 'except_employees' && mode !== 'all') {
+      res.status(400).json({
+        error: 'Mode reset data tidak valid. Pilih attendance, except_employees, atau all.',
+      });
+      return;
+    }
+
+    if (!verifyAdminModePin(pin || '')) {
+      const prevCount = tracker && tracker.lockedUntil <= now ? tracker.count : 0;
+      const nextCount = prevCount + 1;
+      if (nextCount >= MAX_PIN_ATTEMPTS) {
+        adminPinAttemptTracker.set(clientIp, {
+          count: 0,
+          lockedUntil: now + PIN_LOCKOUT_MS,
+        });
+        res.status(429).json({
+          error: 'PIN Mode Admin salah 5 kali. Coba lagi dalam 30 detik.',
+        });
+        return;
+      }
+      adminPinAttemptTracker.set(clientIp, { count: nextCount, lockedUntil: 0 });
+      res.status(401).json({
+        error: 'PIN Mode Admin tidak valid. Reset data dibatalkan.',
+      });
+      return;
+    }
+
+    adminPinAttemptTracker.delete(clientIp);
+
+    const nowIso = new Date().toISOString();
+    const curDb = readDb();
+    const curPay = readPayrollDb();
+    const curFin = readFinanceDb();
+    const cfg = readDatabaseConfig();
+
+    let nextDb: DatabaseSchema;
+    let nextPay: PayrollDatabaseSchema = curPay;
+    let nextFin: FinanceDatabaseSchema = curFin;
+    let message = '';
+
+    if (mode === 'attendance') {
+      nextDb = {
+        ...curDb,
+        attendanceRecords: [],
+        lateSettlements: [],
+      };
+      message =
+        'Seluruh data absensi dan catatan penyelesaian keterlambatan berhasil direset. Data karyawan, jadwal, gaji, dan keuangan tetap dipertahankan.';
+    } else if (mode === 'except_employees') {
+      const preservedEmployees: EmployeeData[] = curDb.employees.map((emp) => ({
+        ...emp,
+        offDays: [],
+        customOffDates: [],
+        updatedAt: nowIso,
+      }));
+      const cleanShifts: ShiftConfigData[] = curDb.settings.shifts.map((s) => ({
+        id: s.id,
+        name: s.name,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        lateToleranceMinutes: s.lateToleranceMinutes,
+      }));
+      nextDb = {
+        employees: preservedEmployees,
+        attendanceRecords: [],
+        lateSettlements: [],
+        settings: {
+          ...curDb.settings,
+          shifts: cleanShifts.length > 0 ? cleanShifts : buildDefaultSettings().shifts,
+        },
+      };
+      nextPay = {
+        settings: buildDefaultPayrollSettings(),
+        profiles: [],
+        adjustments: [],
+        salaryRaises: [],
+        statuses: [],
+      };
+      const baseFin = buildDefaultFinanceDb();
+      nextFin = {
+        accounts: buildDefaultFinanceAccounts(nowIso),
+        categories: baseFin.categories,
+        transactions: [],
+        transfers: [],
+      };
+      message = `Semua data absensi, jadwal shift/libur, gaji, dan transaksi keuangan berhasil direset. ${preservedEmployees.length} data nama karyawan tetap dipertahankan.`;
+    } else {
+      nextDb = {
+        employees: [],
+        attendanceRecords: [],
+        lateSettlements: [],
+        settings: buildDefaultSettings(),
+      };
+      nextPay = {
+        settings: buildDefaultPayrollSettings(),
+        profiles: [],
+        adjustments: [],
+        salaryRaises: [],
+        statuses: [],
+      };
+      const baseFin = buildDefaultFinanceDb();
+      nextFin = {
+        accounts: buildDefaultFinanceAccounts(nowIso),
+        categories: baseFin.categories,
+        transactions: [],
+        transfers: [],
+      };
+      message =
+        'Seluruh data aplikasi (karyawan, absensi, jadwal, gaji, keuangan, dan pengaturan) berhasil direset ke kondisi awal kosong.';
+    }
+
+    isBootHydratingSupabase = true;
+    try {
+      writeDb(nextDb);
+      if (mode !== 'attendance') {
+        writePayrollDb(nextPay);
+        writeFinanceDb(nextFin);
+      }
+    } finally {
+      isBootHydratingSupabase = false;
+    }
+
+    if (cfg.engine === 'supabase') {
+      if (mode === 'attendance') {
+        await clearSupabaseTablesForReset(cfg, [
+          { table: 'attendance_records', pkColumn: 'id' },
+          { table: 'late_settlements', pkColumn: 'id' },
+        ]);
+      } else if (mode === 'except_employees') {
+        await clearSupabaseTablesForReset(cfg, [
+          { table: 'attendance_records', pkColumn: 'id' },
+          { table: 'late_settlements', pkColumn: 'id' },
+          { table: 'payroll_statuses', pkColumn: 'id' },
+          { table: 'payroll_raises', pkColumn: 'id' },
+          { table: 'payroll_adjustments', pkColumn: 'id' },
+          { table: 'payroll_profiles', pkColumn: 'employee_id' },
+          { table: 'finance_transfers', pkColumn: 'id' },
+          { table: 'finance_transactions', pkColumn: 'id' },
+          { table: 'finance_categories', pkColumn: 'id' },
+          { table: 'finance_accounts', pkColumn: 'id' },
+        ]);
+        await syncAttendanceModuleToSupabase(cfg).catch(() => undefined);
+        await syncPayrollModuleToSupabase(cfg).catch(() => undefined);
+        await syncFinanceModuleToSupabase(cfg).catch(() => undefined);
+      } else {
+        await clearSupabaseTablesForReset(cfg, [
+          { table: 'attendance_records', pkColumn: 'id' },
+          { table: 'late_settlements', pkColumn: 'id' },
+          { table: 'payroll_statuses', pkColumn: 'id' },
+          { table: 'payroll_raises', pkColumn: 'id' },
+          { table: 'payroll_adjustments', pkColumn: 'id' },
+          { table: 'payroll_profiles', pkColumn: 'employee_id' },
+          { table: 'employees', pkColumn: 'id' },
+          { table: 'finance_transfers', pkColumn: 'id' },
+          { table: 'finance_transactions', pkColumn: 'id' },
+          { table: 'finance_categories', pkColumn: 'id' },
+          { table: 'finance_accounts', pkColumn: 'id' },
+        ]);
+        await syncAttendanceModuleToSupabase(cfg).catch(() => undefined);
+        await syncPayrollModuleToSupabase(cfg).catch(() => undefined);
+        await syncFinanceModuleToSupabase(cfg).catch(() => undefined);
+      }
+    }
+
+    res.json({
+      ok: true,
+      mode,
+      message,
+      summary: {
+        employeesRemaining: nextDb.employees.length,
+        attendanceRemaining: nextDb.attendanceRecords.length,
+        lateSettlementsRemaining: nextDb.lateSettlements.length,
+        payrollProfilesRemaining: nextPay.profiles.length,
+        financeTransactionsRemaining: nextFin.transactions.length,
+      },
+      state: nextDb,
+      financeAccounts: nextFin.accounts,
+      financeCategories: nextFin.categories,
+    });
+  });
+
   // Protected Database Settings Routes (PIN-gated)
   app.post('/api/database/unlock', (req, res) => {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
@@ -4935,10 +5155,16 @@ async function startServer() {
     }
   );
 
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -4972,7 +5198,7 @@ async function startServer() {
     }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`KaryaPresensi server running at http://localhost:${PORT}`);
   });
 }

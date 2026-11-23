@@ -797,3 +797,26 @@ export interface SupabaseSyncResult {
   message: string;
   status: DatabaseSchemaStatusResponse;
 }
+
+export type ResetDataMode = 'attendance' | 'except_employees' | 'all';
+
+export interface ResetDataResult {
+  ok: boolean;
+  mode: ResetDataMode;
+  message: string;
+  summary: {
+    employeesRemaining: number;
+    attendanceRemaining: number;
+    lateSettlementsRemaining: number;
+    payrollProfilesRemaining: number;
+    financeTransactionsRemaining: number;
+  };
+  state: {
+    employees: Employee[];
+    attendanceRecords: AttendanceRecord[];
+    lateSettlements: LateSettlement[];
+    settings: AppSettings;
+  };
+  financeAccounts?: FinanceAccount[];
+  financeCategories?: FinanceCategory[];
+}

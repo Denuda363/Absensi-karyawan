@@ -39,6 +39,7 @@ import {
   PayrollAdjustment,
   PayrollMonthlyStatus,
   PayrollSettings,
+  ResetDataMode,
   SalaryRaiseRecord,
   ShiftConfig,
   unpackShiftFromNotes,
@@ -1567,4 +1568,110 @@ export async function syncSecurityConfigToFirestore(sec: {
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+async function deleteAllDocsInFirestoreCollection(colName: string): Promise<number> {
+  try {
+    const snap = await getDocs(collection(db, colName));
+    if (snap.empty) return 0;
+    let deleted = 0;
+    for (let i = 0; i < snap.docs.length; i += 350) {
+      const chunk = snap.docs.slice(i, i + 350);
+      const batch = writeBatch(db);
+      for (const d of chunk) {
+        batch.delete(d.ref);
+        deleted += 1;
+      }
+      await batch.commit();
+    }
+    return deleted;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, colName);
+  }
+}
+
+export async function resetFirestoreData(
+  mode: ResetDataMode,
+  nextState?: {
+    settings: AppSettings;
+    employees?: Employee[];
+    financeAccounts?: FinanceAccount[];
+    financeCategories?: FinanceCategory[];
+  }
+): Promise<{ synced: boolean; deletedDocs: number }> {
+  const user = getVerifiedCurrentUser();
+  if (!user) {
+    return { synced: false, deletedDocs: 0 };
+  }
+
+  let deletedDocs = 0;
+  deletedDocs += await deleteAllDocsInFirestoreCollection('attendance');
+  deletedDocs += await deleteAllDocsInFirestoreCollection('lateSettlements');
+
+  if (mode === 'except_employees' || mode === 'all') {
+    deletedDocs += await deleteAllDocsInFirestoreCollection('payrollStatuses');
+    deletedDocs += await deleteAllDocsInFirestoreCollection('payrollRaises');
+    deletedDocs += await deleteAllDocsInFirestoreCollection('payrollAdjustments');
+    deletedDocs += await deleteAllDocsInFirestoreCollection('payrollProfiles');
+    deletedDocs += await deleteAllDocsInFirestoreCollection('financeTransfers');
+    deletedDocs += await deleteAllDocsInFirestoreCollection('financeTransactions');
+    deletedDocs += await deleteAllDocsInFirestoreCollection('financeCategories');
+    deletedDocs += await deleteAllDocsInFirestoreCollection('financeAccounts');
+
+    if (mode === 'all') {
+      deletedDocs += await deleteAllDocsInFirestoreCollection('employees');
+    } else if (nextState?.employees && nextState.employees.length > 0) {
+      const empSnap = await getDocs(collection(db, 'employees'));
+      const existingMap = new Map<string, DocumentData>();
+      for (const d of empSnap.docs) {
+        existingMap.set(d.id, d.data());
+      }
+      await commitBatchedWrites(
+        nextState.employees.map((emp) => {
+          const docId = sanitizeFirestoreId(emp.id, 'emp');
+          return {
+            collectionName: 'employees',
+            docId,
+            data: buildEmployeeDocData(emp, user.uid, existingMap.get(docId)?.createdAt),
+          };
+        })
+      );
+    }
+
+    if (nextState?.settings) {
+      await syncAppSettingsToFirestore(nextState.settings);
+    }
+
+    await syncPayrollSettingsToFirestore({
+      defaultOvertimeHourlyRate: 25000,
+      defaultAlphaDeductionPerDay: 150000,
+      defaultIzinDeductionPerDay: 0,
+      autoDeductRemainingLate: true,
+      bpjsKesehatanPct: 1,
+      bpjsKetenagakerjaanPct: 2,
+      paydayDayOfMonth: 25,
+    });
+
+    if (nextState?.financeAccounts && nextState.financeAccounts.length > 0) {
+      await commitBatchedWrites(
+        nextState.financeAccounts.map((acc) => ({
+          collectionName: 'financeAccounts',
+          docId: sanitizeFirestoreId(acc.id, 'facc'),
+          data: buildFinanceAccountDocData(acc),
+        }))
+      );
+    }
+
+    if (nextState?.financeCategories && nextState.financeCategories.length > 0) {
+      await commitBatchedWrites(
+        nextState.financeCategories.map((cat) => ({
+          collectionName: 'financeCategories',
+          docId: sanitizeFirestoreId(cat.id, 'fcat'),
+          data: buildFinanceCategoryDocData(cat),
+        }))
+      );
+    }
+  }
+
+  return { synced: true, deletedDocs };
 }

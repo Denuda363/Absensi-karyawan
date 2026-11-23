@@ -14,9 +14,12 @@ import {
   Plus,
   RotateCcw,
   Save,
+  ShieldAlert,
   ShieldCheck,
   Trash2,
   Upload,
+  Users,
+  X,
 } from 'lucide-react';
 import {
   AppSettings,
@@ -25,10 +28,12 @@ import {
   Employee,
   LateSettlement,
   NavSection,
+  ResetDataMode,
   ShiftConfig,
 } from '../types';
 import {
   downloadBackupJson,
+  resetApplicationData,
   restoreDatabaseBackup,
   updateAppSettings,
 } from '../services/attendanceService';
@@ -48,7 +53,14 @@ interface SettingsViewProps {
   onOpenAdminModeModal?: () => void;
 }
 
-type SettingsGroup = 'semua' | 'shift' | 'identitas' | 'backup' | 'keamanan' | 'database';
+type SettingsGroup =
+  | 'semua'
+  | 'shift'
+  | 'identitas'
+  | 'backup'
+  | 'reset'
+  | 'keamanan'
+  | 'database';
 
 interface ParsedBackupPreview {
   fileName: string;
@@ -112,6 +124,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showPinFields, setShowPinFields] = useState<boolean>(false);
   const [savingAdminPin, setSavingAdminPin] = useState<boolean>(false);
   const [adminPinNotice, setAdminPinNotice] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  // Reset Data Sistem state
+  const [resetModalMode, setResetModalMode] = useState<ResetDataMode | null>(null);
+  const [resetConfirmText, setResetConfirmText] = useState<string>('');
+  const [resetPinInput, setResetPinInput] = useState<string>('');
+  const [showResetPin, setShowResetPin] = useState<boolean>(false);
+  const [resettingData, setResettingData] = useState<boolean>(false);
+  const [resetModalError, setResetModalError] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
@@ -398,6 +422,136 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const resetOptionMeta: Record<
+    ResetDataMode,
+    {
+      title: string;
+      shortDesc: string;
+      confirmPhrase: string;
+      buttonLabel: string;
+      deletedItems: string[];
+      preservedItems: string[];
+      accent: 'amber' | 'orange' | 'red';
+    }
+  > = {
+    attendance: {
+      title: 'Reset Data Absensi',
+      shortDesc:
+        'Hapus seluruh catatan kehadiran & log penyelesaian keterlambatan saja.',
+      confirmPhrase: 'RESET ABSENSI',
+      buttonLabel: 'Reset Data Absensi',
+      deletedItems: [
+        `Seluruh catatan absensi matriks & log kehadiran (${attendanceRecords.length} catatan)`,
+        `Seluruh riwayat penyelesaian keterlambatan (${lateSettlements.length} catatan)`,
+      ],
+      preservedItems: [
+        `Daftar karyawan (${employees.length} karyawan), jadwal shift & jadwal libur`,
+        'Identitas perusahaan, pengaturan shift, data rekap gaji, dan keuangan',
+      ],
+      accent: 'amber',
+    },
+    except_employees: {
+      title: 'Reset Semua Data Kecuali Nama Karyawan',
+      shortDesc:
+        'Kosongkan absensi, jadwal shift harian/libur, gaji, dan keuangan — daftar karyawan tetap aman.',
+      confirmPhrase: 'RESET KECUALI KARYAWAN',
+      buttonLabel: 'Reset Kecuali Karyawan',
+      deletedItems: [
+        `Seluruh catatan absensi (${attendanceRecords.length}) & penyelesaian keterlambatan (${lateSettlements.length})`,
+        'Seluruh jadwal shift harian & jadwal libur individu karyawan',
+        'Seluruh profil nominal gaji, bonus/potongan, riwayat kenaikan gaji & status pembayaran gaji',
+        'Seluruh transaksi pendapatan/pengeluaran, mutasi transfer & saldo kas/rekening (kembali Rp 0)',
+      ],
+      preservedItems: [
+        `Daftar nama & identitas dasar karyawan (${employees.length} karyawan)`,
+        'PIN Mode Admin, PIN Database & konfigurasi koneksi database',
+      ],
+      accent: 'orange',
+    },
+    all: {
+      title: 'Reset All Data',
+      shortDesc:
+        'Hapus total seluruh data karyawan, absensi, jadwal, gaji, keuangan, dan kembalikan ke awal kosong.',
+      confirmPhrase: 'RESET SEMUA DATA',
+      buttonLabel: 'Reset All Data',
+      deletedItems: [
+        `Seluruh data karyawan (${employees.length} karyawan)`,
+        `Seluruh catatan absensi (${attendanceRecords.length}) & penyelesaian keterlambatan (${lateSettlements.length})`,
+        'Seluruh jadwal shift harian, jadwal libur, dan pengaturan shift/profil ke default',
+        'Seluruh data gaji (profil, penyesuaian, kenaikan gaji & status bulanan)',
+        'Seluruh transaksi & transfer keuangan serta reset saldo kas/rekening menjadi Rp 0',
+      ],
+      preservedItems: [
+        'PIN Mode Admin, PIN Database & konfigurasi koneksi database tetap aman agar admin tidak terkunci',
+      ],
+      accent: 'red',
+    },
+  };
+
+  const openResetModal = (mode: ResetDataMode) => {
+    setResetModalMode(mode);
+    setResetConfirmText('');
+    setResetPinInput('');
+    setShowResetPin(false);
+    setResetModalError(null);
+  };
+
+  const closeResetModal = () => {
+    if (resettingData) return;
+    setResetModalMode(null);
+    setResetConfirmText('');
+    setResetPinInput('');
+    setResetModalError(null);
+  };
+
+  const handleConfirmResetData = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetModalMode) return;
+    setResetModalError(null);
+
+    if (!adminToken) {
+      setResetModalError(
+        'Sesi Mode Admin belum aktif. Silakan masuk Mode Admin terlebih dahulu.'
+      );
+      return;
+    }
+
+    const meta = resetOptionMeta[resetModalMode];
+    if (resetConfirmText.trim().toUpperCase() !== meta.confirmPhrase) {
+      setResetModalError(
+        `Ketik "${meta.confirmPhrase}" secara persis pada kolom konfirmasi.`
+      );
+      return;
+    }
+
+    if (!resetPinInput.trim()) {
+      setResetModalError('Masukkan PIN Mode Admin untuk memverifikasi reset data.');
+      return;
+    }
+
+    setResettingData(true);
+    try {
+      const result = await resetApplicationData(adminToken, {
+        mode: resetModalMode,
+        pin: resetPinInput.trim(),
+      });
+      await onRefresh();
+      setResetModalMode(null);
+      setResetConfirmText('');
+      setResetPinInput('');
+      setResetNotice({
+        type: 'success',
+        text: result.message,
+      });
+    } catch (err) {
+      setResetModalError(
+        err instanceof Error ? err.message : 'Gagal menjalankan reset data aplikasi.'
+      );
+    } finally {
+      setResettingData(false);
+    }
+  };
+
   const navGroups: {
     id: SettingsGroup;
     label: string;
@@ -429,6 +583,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       icon: HardDrive,
     },
     {
+      id: 'reset',
+      label: 'Reset Data Sistem',
+      desc: 'Reset absensi, kecuali karyawan & all data',
+      icon: RotateCcw,
+    },
+    {
       id: 'keamanan',
       label: 'Keamanan & PIN Admin',
       desc: 'Atur PIN masuk Mode Admin',
@@ -445,6 +605,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const showShift = activeGroup === 'semua' || activeGroup === 'shift';
   const showIdentitas = activeGroup === 'semua' || activeGroup === 'identitas';
   const showBackup = activeGroup === 'semua' || activeGroup === 'backup';
+  const showReset = activeGroup === 'semua' || activeGroup === 'reset';
   const showKeamanan = activeGroup === 'semua' || activeGroup === 'keamanan';
   const showDatabase = activeGroup === 'semua' || activeGroup === 'database';
 
@@ -949,6 +1110,121 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </section>
         )}
 
+        {/* KELOMPOK 3B / RESET DATA SISTEM */}
+        {showReset && (
+          <section className="bg-white border border-red-200/80 rounded-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 bg-red-50/60 border-b border-red-200/80 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-red-100 border border-red-200 flex items-center justify-center text-red-700 shrink-0">
+                <ShieldAlert className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="font-display text-base font-semibold text-slate-900">
+                  4. Reset Data Aplikasi
+                </h2>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Pilih tingkat pembersihan data sesuai kebutuhan. Setiap proses reset membutuhkan konfirmasi teks dan verifikasi PIN Mode Admin.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-6 space-y-4">
+              {resetNotice && (
+                <div
+                  className={`p-3.5 rounded-lg border text-xs flex items-center gap-2 ${
+                    resetNotice.type === 'success'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}
+                >
+                  {resetNotice.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                  )}
+                  <span>{resetNotice.text}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1. Reset Data Absensi */}
+                <div className="p-4 border border-amber-200 bg-amber-50/30 rounded-xl flex flex-col justify-between gap-4">
+                  <div className="space-y-2">
+                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800 bg-amber-100 border border-amber-200 rounded">
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Khusus Absensi</span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Reset Data Absensi
+                    </h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Menghapus seluruh log kehadiran harian ({attendanceRecords.length} record) dan catatan penyelesaian terlambat ({lateSettlements.length}). Daftar karyawan, jadwal shift/libur, gaji, dan keuangan tetap aman.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openResetModal('attendance')}
+                    className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-semibold text-amber-950 bg-amber-400 hover:bg-amber-500 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Data Absensi</span>
+                  </button>
+                </div>
+
+                {/* 2. Reset Semua Data Kecuali Nama Karyawan */}
+                <div className="p-4 border border-orange-200 bg-orange-50/30 rounded-xl flex flex-col justify-between gap-4">
+                  <div className="space-y-2">
+                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-800 bg-orange-100 border border-orange-200 rounded">
+                      <Users className="w-3 h-3" />
+                      <span>Simpan Nama Staf</span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Reset Semua Data Kecuali Nama Karyawan
+                    </h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Menghapus seluruh absensi, jadwal libur &amp; jadwal shift harian, seluruh data rekap gaji, serta seluruh transaksi keuangan — <strong className="text-slate-900">{employees.length} nama karyawan tetap dipertahankan</strong>.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openResetModal('except_employees')}
+                    className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Reset Kecuali Nama Karyawan</span>
+                  </button>
+                </div>
+
+                {/* 3. Reset All Data */}
+                <div className="p-4 border border-red-200 bg-red-50/40 rounded-xl flex flex-col justify-between gap-4">
+                  <div className="space-y-2">
+                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-800 bg-red-100 border border-red-200 rounded">
+                      <Trash2 className="w-3 h-3" />
+                      <span>Reset Total</span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Reset All Data
+                    </h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Menghapus seluruh data karyawan, absensi, jadwal, gaji, transaksi keuangan, dan mengembalikan pengaturan ke kondisi awal kosong (0 karyawan, 0 absensi, saldo Rp 0).
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openResetModal('all')}
+                    className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Reset All Data</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* KELOMPOK 4: KEAMANAN & PIN MODE ADMIN */}
         {showKeamanan && (
           <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -959,7 +1235,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 <div>
                   <h2 className="font-display text-base font-semibold text-slate-900">
-                    4. Keamanan &amp; PIN Mode Admin
+                    5. Keamanan &amp; PIN Mode Admin
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
                     PIN Mode Admin digunakan untuk membuka Mode Admin agar menu Keuangan Perusahaan, Rekap Gaji, dan Pengaturan dapat diakses. Pada Mode Biasa, menu tersebut disembunyikan.
@@ -1096,6 +1372,178 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           />
         )}
       </div>
+
+      {/* Modal Konfirmasi Reset Data */}
+      {resetModalMode && (() => {
+        const meta = resetOptionMeta[resetModalMode];
+        const headerBg =
+          meta.accent === 'red'
+            ? 'bg-red-950'
+            : meta.accent === 'orange'
+            ? 'bg-orange-950'
+            : 'bg-slate-950';
+        const submitBg =
+          meta.accent === 'red'
+            ? 'bg-red-600 hover:bg-red-700'
+            : meta.accent === 'orange'
+            ? 'bg-orange-600 hover:bg-orange-700'
+            : 'bg-amber-600 hover:bg-amber-700';
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+            <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-2xl overflow-hidden max-h-[92dvh] flex flex-col pb-safe">
+              <div className={`sm:hidden pt-2.5 pb-1 flex justify-center ${headerBg}`}>
+                <div className="w-10 h-1 bg-white/30 rounded-full" />
+              </div>
+              <div className={`${headerBg} px-5 py-4 text-white flex items-center justify-between gap-3 shrink-0`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
+                    <ShieldAlert className="w-4 h-4 text-amber-300" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-display text-sm font-bold text-white truncate">
+                      Konfirmasi {meta.title}
+                    </h3>
+                    <p className="text-[11px] text-white/75 truncate">
+                      Tindakan ini tidak dapat dibatalkan setelah dijalankan
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeResetModal}
+                  disabled={resettingData}
+                  aria-label="Tutup konfirmasi reset"
+                  className="min-h-[40px] min-w-[40px] flex items-center justify-center text-white/75 hover:text-white rounded-lg cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form
+                onSubmit={handleConfirmResetData}
+                className="p-5 space-y-4 overflow-y-auto"
+              >
+                <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 space-y-1.5">
+                  <div className="text-xs font-bold text-red-900">
+                    Data yang akan dihapus / direset:
+                  </div>
+                  <ul className="text-xs text-red-800 space-y-1 list-disc pl-4">
+                    {meta.deletedItems.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1.5">
+                  <div className="text-xs font-bold text-emerald-900">
+                    Data yang tetap dipertahankan:
+                  </div>
+                  <ul className="text-xs text-emerald-800 space-y-1 list-disc pl-4">
+                    {meta.preservedItems.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] text-slate-600">
+                    Disarankan unduh cadangan terlebih dahulu sebelum mereset data.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDownloadBackup}
+                    disabled={backingUp}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-md whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{backingUp ? 'Mengunduh...' : 'Backup JSON'}</span>
+                  </button>
+                </div>
+
+                {resetModalError && (
+                  <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-medium text-red-800 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{resetModalError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="reset-confirm-phrase"
+                    className="block text-xs font-semibold text-slate-700 mb-1.5"
+                  >
+                    Ketik <code className="px-1.5 py-0.5 rounded bg-slate-100 font-mono text-red-700">{meta.confirmPhrase}</code> untuk konfirmasi
+                  </label>
+                  <input
+                    id="reset-confirm-phrase"
+                    type="text"
+                    autoComplete="off"
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    placeholder={meta.confirmPhrase}
+                    className="w-full min-h-[44px] px-3.5 py-2 text-sm font-mono uppercase border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-600/20 focus:border-red-600"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="reset-admin-pin"
+                    className="block text-xs font-semibold text-slate-700 mb-1.5"
+                  >
+                    Verifikasi PIN Mode Admin
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="reset-admin-pin"
+                      type={showResetPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={resetPinInput}
+                      onChange={(e) => setResetPinInput(e.target.value)}
+                      placeholder="Masukkan PIN Mode Admin"
+                      className="w-full min-h-[44px] pl-3.5 pr-11 py-2 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResetPin((prev) => !prev)}
+                      aria-label={showResetPin ? 'Sembunyikan PIN' : 'Tampilkan PIN'}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 min-h-[38px] min-w-[38px] flex items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer"
+                    >
+                      {showResetPin ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={closeResetModal}
+                    disabled={resettingData}
+                    className="w-full sm:w-auto min-h-[44px] sm:min-h-[40px] px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl sm:rounded-lg cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={resettingData}
+                    className={`w-full sm:w-auto min-h-[44px] sm:min-h-[40px] px-4 py-2 text-xs font-semibold text-white rounded-xl sm:rounded-lg disabled:opacity-50 inline-flex items-center justify-center gap-1.5 cursor-pointer ${submitBg}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>
+                      {resettingData ? 'Mereset Data...' : `Jalankan ${meta.buttonLabel}`}
+                    </span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

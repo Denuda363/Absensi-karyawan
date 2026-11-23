@@ -6,9 +6,12 @@ import {
   Employee,
   LateSettlement,
   LateSettlementMethod,
+  ResetDataMode,
+  ResetDataResult,
   ShiftConfig,
 } from '../types';
 import { executeApiWithFallback } from './apiClient';
+import { resetFirestoreData } from './firebaseClient';
 import {
   clientBulkMarkScheduledOffDays,
   clientCreateAttendanceRecord,
@@ -19,6 +22,7 @@ import {
   clientDeleteLateSettlement,
   clientFetchDatabaseState,
   clientGetBackupPayload,
+  clientResetApplicationData,
   clientRestoreDatabaseBackup,
   clientUpdateAppSettings,
   clientUpdateAttendanceRecord,
@@ -249,4 +253,35 @@ export async function restoreDatabaseBackup(
       }),
     () => clientRestoreDatabaseBackup(backupPayload)
   );
+}
+
+export async function resetApplicationData(
+  adminToken: string,
+  payload: { mode: ResetDataMode; pin: string }
+): Promise<ResetDataResult> {
+  const result = await executeApiWithFallback<ResetDataResult>(
+    () =>
+      fetch('/api/admin/reset-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientResetApplicationData(adminToken, payload)
+  );
+
+  try {
+    await resetFirestoreData(payload.mode, {
+      settings: result.state.settings,
+      employees: result.state.employees,
+      financeAccounts: result.financeAccounts,
+      financeCategories: result.financeCategories,
+    });
+  } catch {
+    // Non-blocking Firestore sync if not signed in or rules restrict optional cleanup
+  }
+
+  return result;
 }
