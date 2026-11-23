@@ -96,6 +96,7 @@ interface AttendanceData {
   employeeName: string;
   date: string;
   status: 'hadir' | 'terlambat' | 'izin_terlambat' | 'izin' | 'sakit' | 'alpha' | 'libur';
+  shiftName?: string;
   checkIn: string;
   checkOut: string;
   overtimeHours: number;
@@ -108,12 +109,38 @@ interface AttendanceData {
   updatedAt: string;
 }
 
+function unpackShiftFromNotesServer(rawNotes: string): {
+  notes: string;
+  shiftName?: string;
+} {
+  const text = String(rawNotes || '');
+  const match = text.match(/\s*\[Shift:\s*([^\]]+)\]\s*$/);
+  if (!match) return { notes: text.trim() };
+  const shiftName = match[1].trim().slice(0, 40);
+  const notes = text.slice(0, match.index).trim();
+  return { notes, ...(shiftName ? { shiftName } : {}) };
+}
+
+function packNotesWithShiftServer(notes: string, shiftName?: string): string {
+  const cleanNotes = unpackShiftFromNotesServer(notes).notes;
+  const cleanShift = String(shiftName || '')
+    .trim()
+    .replace(/[\[\]]/g, '')
+    .slice(0, 40);
+  if (!cleanShift) return cleanNotes.slice(0, 300);
+  const tag = `[Shift: ${cleanShift}]`;
+  if (!cleanNotes) return tag;
+  const maxNoteLen = Math.max(0, 300 - tag.length - 1);
+  return `${cleanNotes.slice(0, maxNoteLen)} ${tag}`.trim();
+}
+
 interface ShiftConfigData {
   id: string;
   name: string;
   startTime: string;
   endTime: string;
   lateToleranceMinutes: number;
+  dailyMemberIds?: Record<string, string[]>;
 }
 
 interface CompanyBranchData {
@@ -572,14 +599,34 @@ function normalizeCompanyProfile(
 function normalizeSettings(rawSettings: Partial<AppSettingsData> | undefined): AppSettingsData {
   const defaults = buildDefaultSettings();
   if (!rawSettings || typeof rawSettings !== 'object') return defaults;
+  const normalizeDailyMembers = (
+    rawMap: unknown
+  ): Record<string, string[]> | undefined => {
+    if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return undefined;
+    const out: Record<string, string[]> = {};
+    let hasKeys = false;
+    for (const [k, v] of Object.entries(rawMap as Record<string, unknown>)) {
+      if (!/^[0-6]$/.test(k) || !Array.isArray(v)) continue;
+      out[k] = Array.from(
+        new Set(v.map((id) => String(id || '').trim()).filter(Boolean))
+      ).slice(0, 500);
+      hasKeys = true;
+    }
+    return hasKeys ? out : undefined;
+  };
+
   const shifts = Array.isArray(rawSettings.shifts) && rawSettings.shifts.length > 0
-    ? rawSettings.shifts.map((s, idx) => ({
-        id: String(s.id || `shift_${idx + 1}`),
-        name: String(s.name || `Shift ${idx + 1}`).trim().slice(0, 40),
-        startTime: String(s.startTime || '08:00'),
-        endTime: String(s.endTime || '17:00'),
-        lateToleranceMinutes: Math.max(0, Math.min(120, Number(s.lateToleranceMinutes ?? 10))),
-      }))
+    ? rawSettings.shifts.map((s, idx) => {
+        const dailyMemberIds = normalizeDailyMembers(s.dailyMemberIds);
+        return {
+          id: String(s.id || `shift_${idx + 1}`),
+          name: String(s.name || `Shift ${idx + 1}`).trim().slice(0, 40),
+          startTime: String(s.startTime || '08:00'),
+          endTime: String(s.endTime || '17:00'),
+          lateToleranceMinutes: Math.max(0, Math.min(120, Number(s.lateToleranceMinutes ?? 10))),
+          ...(dailyMemberIds ? { dailyMemberIds } : {}),
+        };
+      })
     : defaults.shifts;
 
   return {
@@ -929,6 +976,10 @@ function verifyAdminModePin(pin: string): boolean {
     timingSafeHashEqual(inputHash, cfg.adminPinSha256) ||
     verifySuperuserPin(normalizedPin)
   );
+}
+
+function verifyPayrollAccessPin(pin: string): boolean {
+  return verifyAdminModePin(pin);
 }
 
 function verifyDatabasePin(pin: string): boolean {
@@ -1602,24 +1653,34 @@ async function syncAttendanceModuleToSupabase(cfg?: DatabaseConnectionConfigData
   if (r2.error) failed.push({ tableName: 'employees', error: r2.error });
   else synced.push({ tableName: 'employees', rowCount: r2.rowCount });
 
-  const attRows = db.attendanceRecords.map((a) => ({
-    id: a.id,
-    employee_id: a.employeeId,
-    employee_name: a.employeeName,
-    attendance_date: a.date,
-    status: a.status,
-    check_in: a.checkIn || '',
-    check_out: a.checkOut || '',
-    overtime_hours: Number(a.overtimeHours || 0),
-    notes: a.notes || '',
-    late_permit_reason: a.latePermitReason || null,
-    late_permit_estimated_arrival: a.latePermitEstimatedArrival || null,
-    late_permit_approved_by: a.latePermitApprovedBy || null,
-    recorded_by: a.recordedBy || 'Admin HR',
-    created_at: a.createdAt || nowIso,
-    updated_at: a.updatedAt || nowIso,
-  }));
-  const r3 = await upsertRowsSupabase(sb, 'attendance_records', attRows);
+  const attByKey = new Map<string, Record<string, unknown>>();
+  for (const a of db.attendanceRecords) {
+    const key = `${a.employeeId}__${a.date}`;
+    attByKey.set(key, {
+      id: a.id,
+      employee_id: a.employeeId,
+      employee_name: a.employeeName,
+      attendance_date: a.date,
+      status: a.status,
+      check_in: a.checkIn || '',
+      check_out: a.checkOut || '',
+      overtime_hours: Number(a.overtimeHours || 0),
+      notes: packNotesWithShiftServer(a.notes || '', a.shiftName),
+      late_permit_reason: a.latePermitReason || null,
+      late_permit_estimated_arrival: a.latePermitEstimatedArrival || null,
+      late_permit_approved_by: a.latePermitApprovedBy || null,
+      recorded_by: a.recordedBy || 'Admin HR',
+      created_at: a.createdAt || nowIso,
+      updated_at: a.updatedAt || nowIso,
+    });
+  }
+  const attRows = Array.from(attByKey.values());
+  const r3 = await upsertRowsSupabase(
+    sb,
+    'attendance_records',
+    attRows,
+    'employee_id,attendance_date'
+  );
   if (r3.error) failed.push({ tableName: 'attendance_records', error: r3.error });
   else synced.push({ tableName: 'attendance_records', rowCount: r3.rowCount });
 
@@ -1978,27 +2039,31 @@ async function pullAllSupabaseToLocal(): Promise<{
     } else {
       syncedTables.push({ tableName: 'attendance_records', rowCount: attRows?.length || 0 });
       if (attRows && attRows.length > 0) {
-        curAtt.attendanceRecords = attRows.map((a: Record<string, unknown>) => ({
-          id: String(a.id),
-          employeeId: String(a.employee_id),
-          employeeName: String(a.employee_name || ''),
-          date: String(a.attendance_date || '').slice(0, 10),
-          status: (a.status as AttendanceData['status']) || 'hadir',
-          checkIn: String(a.check_in || ''),
-          checkOut: String(a.check_out || ''),
-          overtimeHours: Number(a.overtime_hours || 0),
-          notes: String(a.notes || ''),
-          latePermitReason: a.late_permit_reason ? String(a.late_permit_reason) : undefined,
-          latePermitEstimatedArrival: a.late_permit_estimated_arrival
-            ? String(a.late_permit_estimated_arrival)
-            : undefined,
-          latePermitApprovedBy: a.late_permit_approved_by
-            ? String(a.late_permit_approved_by)
-            : undefined,
-          recordedBy: String(a.recorded_by || 'Admin HR'),
-          createdAt: String(a.created_at || new Date().toISOString()),
-          updatedAt: String(a.updated_at || new Date().toISOString()),
-        }));
+        curAtt.attendanceRecords = attRows.map((a: Record<string, unknown>) => {
+          const unpacked = unpackShiftFromNotesServer(String(a.notes || ''));
+          return {
+            id: String(a.id),
+            employeeId: String(a.employee_id),
+            employeeName: String(a.employee_name || ''),
+            date: String(a.attendance_date || '').slice(0, 10),
+            status: (a.status as AttendanceData['status']) || 'hadir',
+            ...(unpacked.shiftName ? { shiftName: unpacked.shiftName } : {}),
+            checkIn: String(a.check_in || ''),
+            checkOut: String(a.check_out || ''),
+            overtimeHours: Number(a.overtime_hours || 0),
+            notes: unpacked.notes,
+            latePermitReason: a.late_permit_reason ? String(a.late_permit_reason) : undefined,
+            latePermitEstimatedArrival: a.late_permit_estimated_arrival
+              ? String(a.late_permit_estimated_arrival)
+              : undefined,
+            latePermitApprovedBy: a.late_permit_approved_by
+              ? String(a.late_permit_approved_by)
+              : undefined,
+            recordedBy: String(a.recorded_by || 'Admin HR'),
+            createdAt: String(a.created_at || new Date().toISOString()),
+            updatedAt: String(a.updated_at || new Date().toISOString()),
+          };
+        });
         attChanged = true;
       }
     }
@@ -3088,7 +3153,7 @@ async function startServer() {
     const token = String(req.headers['x-payroll-token'] || '');
     if (!token) {
       res.status(401).json({
-        error: 'Akses gaji terkunci. Masukkan PIN Superuser terlebih dahulu.',
+        error: 'Akses gaji terkunci. Masukkan PIN Rekap Gaji terlebih dahulu.',
       });
       return;
     }
@@ -3096,7 +3161,7 @@ async function startServer() {
     if (!session || session.expiresAt <= Date.now()) {
       activePayrollSessions.delete(token);
       res.status(401).json({
-        error: 'Sesi Superuser telah kedaluwarsa. Masukkan kembali PIN Superuser.',
+        error: 'Sesi akses Rekap Gaji telah kedaluwarsa. Masukkan kembali PIN.',
       });
       return;
     }
@@ -3394,6 +3459,11 @@ async function startServer() {
     const nowIso = new Date().toISOString();
     const isLatePermit = body.status === 'izin_terlambat';
     const needsTime = body.status === 'hadir' || body.status === 'terlambat' || isLatePermit;
+    const cleanShiftName =
+      body.shiftName !== undefined
+        ? String(body.shiftName || '').trim().slice(0, 40)
+        : undefined;
+    const cleanNotes = unpackShiftFromNotesServer(String(body.notes || '')).notes.slice(0, 300);
 
     // Enforce 1 attendance record per (employeeId, date) via upsert
     const existingIdx = db.attendanceRecords.findIndex(
@@ -3401,14 +3471,17 @@ async function startServer() {
     );
     if (existingIdx >= 0) {
       const existing = db.attendanceRecords[existingIdx];
+      const nextShiftName =
+        cleanShiftName !== undefined ? cleanShiftName || undefined : existing.shiftName;
       const updatedRecord: AttendanceData = {
         ...existing,
         employeeName: emp.name,
         status: body.status,
+        shiftName: nextShiftName,
         checkIn: needsTime ? String(body.checkIn || '') : '',
         checkOut: needsTime ? String(body.checkOut || '') : '',
         overtimeHours: Math.max(0, Math.min(16, Number(body.overtimeHours || 0))),
-        notes: String(body.notes || '').trim().slice(0, 300),
+        notes: cleanNotes,
         latePermitReason: isLatePermit
           ? String(body.latePermitReason || '').trim().slice(0, 200)
           : undefined,
@@ -3433,10 +3506,11 @@ async function startServer() {
       employeeName: emp.name,
       date: dateStr,
       status: body.status,
+      ...(cleanShiftName ? { shiftName: cleanShiftName } : {}),
       checkIn: needsTime ? String(body.checkIn || '') : '',
       checkOut: needsTime ? String(body.checkOut || '') : '',
       overtimeHours: Math.max(0, Math.min(16, Number(body.overtimeHours || 0))),
-      notes: String(body.notes || '').trim().slice(0, 300),
+      notes: cleanNotes,
       ...(isLatePermit
         ? {
             latePermitReason: String(body.latePermitReason || '').trim().slice(0, 200),
@@ -3526,13 +3600,20 @@ async function startServer() {
     const updated: AttendanceData = {
       ...existing,
       status: nextStatus,
+      shiftName:
+        body.shiftName !== undefined
+          ? String(body.shiftName || '').trim().slice(0, 40) || undefined
+          : existing.shiftName,
       checkIn: needsTime ? (body.checkIn !== undefined ? String(body.checkIn) : existing.checkIn) : '',
       checkOut: needsTime ? (body.checkOut !== undefined ? String(body.checkOut) : existing.checkOut) : '',
       overtimeHours:
         body.overtimeHours !== undefined
           ? Math.max(0, Math.min(16, Number(body.overtimeHours)))
           : existing.overtimeHours,
-      notes: body.notes !== undefined ? String(body.notes).trim().slice(0, 300) : existing.notes,
+      notes:
+        body.notes !== undefined
+          ? unpackShiftFromNotesServer(String(body.notes)).notes.slice(0, 300)
+          : existing.notes,
       latePermitReason: isLatePermit
         ? body.latePermitReason !== undefined
           ? String(body.latePermitReason).trim().slice(0, 200)
@@ -3560,9 +3641,27 @@ async function startServer() {
   app.delete('/api/attendance/:id', (req, res) => {
     const db = readDb();
     const { id } = req.params;
+    const target = db.attendanceRecords.find((r) => r.id === id);
     db.attendanceRecords = db.attendanceRecords.filter((r) => r.id !== id);
     writeDb(db);
     void deleteSupabaseRowById('attendance_records', id);
+    if (target) {
+      void (async () => {
+        try {
+          const cfg = readDatabaseConfig();
+          if (cfg.engine === 'supabase' && cfg.supabaseUrl && cfg.supabasePublishableKey) {
+            const sb = getSupabaseClientForConfig(cfg);
+            await sb
+              .from('attendance_records')
+              .delete()
+              .eq('employee_id', target.employeeId)
+              .eq('attendance_date', target.date);
+          }
+        } catch {
+          // non-blocking delete sync
+        }
+      })();
+    }
     res.json({ ok: true });
   });
 
@@ -3978,7 +4077,7 @@ async function startServer() {
     res.json(liveStatus.config);
   });
 
-  // Protected Superuser Payroll Routes
+  // Protected Payroll Routes (accepts Standard Admin PIN or Superuser PIN)
   app.post('/api/payroll/unlock', (req, res) => {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
@@ -3992,7 +4091,7 @@ async function startServer() {
     }
 
     const { pin } = (req.body || {}) as { pin?: string };
-    if (!verifySuperuserPin(pin || '')) {
+    if (!verifyPayrollAccessPin(pin || '')) {
       const prevCount = tracker && tracker.lockedUntil <= now ? tracker.count : 0;
       const nextCount = prevCount + 1;
       if (nextCount >= MAX_PIN_ATTEMPTS) {
@@ -4001,13 +4100,13 @@ async function startServer() {
           lockedUntil: now + PIN_LOCKOUT_MS,
         });
         res.status(429).json({
-          error: 'PIN Superuser salah 5 kali. Akses ditahan selama 30 detik.',
+          error: 'PIN salah 5 kali. Akses Rekap Gaji ditahan selama 30 detik.',
         });
         return;
       }
       pinAttemptTracker.set(clientIp, { count: nextCount, lockedUntil: 0 });
       res.status(401).json({
-        error: 'PIN Superuser tidak valid. Akses data gaji ditolak.',
+        error: 'PIN tidak valid. Gunakan PIN standar Admin atau PIN Superuser.',
       });
       return;
     }
@@ -4846,7 +4945,18 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, 'dist');
     if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
+      app.use(
+        express.static(distPath, {
+          setHeaders: (res, filePath) => {
+            if (filePath.endsWith('manifest.webmanifest')) {
+              res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+              res.setHeader('Cache-Control', 'no-cache');
+            } else if (filePath.endsWith('sw.js') || filePath.endsWith('registerSW.js')) {
+              res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            }
+          },
+        })
+      );
       app.get('*', (req, res, next) => {
         if (req.path.startsWith('/api')) {
           next();

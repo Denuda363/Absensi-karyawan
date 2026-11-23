@@ -8,11 +8,11 @@ import {
   formatOffDaysSummary,
   getDayNameIndonesian,
   getDaysInMonth,
-  getEmployeeShiftTolerance,
   getMonthEffectiveWorkDays,
   getMonthMetadata,
   isEmployeeOffDay,
   LateSettlement,
+  resolveAttendanceShift,
   ShiftConfig,
   statusToMatrixCode,
 } from '../types';
@@ -1060,7 +1060,6 @@ export async function exportAttendanceMatrixToExcel(params: {
   const lateDetailRows: ExportLateDetailRow[] = [];
 
   for (const emp of sortedEmployees) {
-    const tol = getEmployeeShiftTolerance(emp, shifts);
     const monthAtt = attendanceRecords.filter(
       (r) => r.employeeId === emp.id && r.date.startsWith(yearMonth)
     );
@@ -1071,8 +1070,10 @@ export async function exportAttendanceMatrixToExcel(params: {
     const empLateEntries: { date: string; minutes: number }[] = [];
 
     for (const rec of monthAtt) {
+      const recShift = resolveAttendanceShift(emp, shifts, rec.shiftName);
+      const tol = recShift.lateToleranceMinutes;
       const rawLate = rec.checkIn
-        ? calculateLatenessMinutes(rec.checkIn, emp.shiftStart)
+        ? calculateLatenessMinutes(rec.checkIn, recShift.shiftStart)
         : 0;
       const isLate =
         rec.status === 'terlambat' ||
@@ -1118,7 +1119,7 @@ export async function exportAttendanceMatrixToExcel(params: {
       lateSummaryRows.push({
         emp,
         shiftDisplay: `${emp.shiftName} (${emp.shiftStart}-${emp.shiftEnd})`,
-        tolerance: tol,
+        tolerance: resolveAttendanceShift(emp, shifts).lateToleranceMinutes,
         lateCount: empLateCount,
         totalLateMinutes: empLateMins,
         maxLateMinutes: empMaxLate,

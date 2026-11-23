@@ -4371,9 +4371,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* MODAL PERPINDAHAN DANA (CASH <-> REKENING / ANTAR REKENING) */}
       {/* =================================================================== */}
       {transferModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 no-print">
-          <div className="bg-white w-full max-w-lg rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
                   <ArrowLeftRight className="w-4 h-4" />
@@ -4390,13 +4390,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <button
                 type="button"
                 onClick={() => setTransferModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-md cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-white rounded-md cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveTransfer} className="p-5 space-y-4">
+            <form onSubmit={handleSaveTransfer} className="p-5 space-y-4 overflow-y-auto pb-safe">
               {/* Quick Preset Buttons */}
               <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg">
                 <button
@@ -5186,9 +5186,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* MODAL BACKUP & RESTORE DATA KEUANGAN */}
       {/* =================================================================== */}
       {backupModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 no-print">
-          <div className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="font-display text-sm font-bold text-white">
                   Backup &amp; Restore Keuangan
@@ -5200,13 +5200,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <button
                 type="button"
                 onClick={() => setBackupModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-md cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-white rounded-md cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 overflow-y-auto pb-safe">
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                 <div className="text-xs font-semibold text-slate-900">
                   Unduh File Backup (.json)

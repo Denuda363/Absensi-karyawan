@@ -3,13 +3,13 @@ import {
   calculateLatenessMinutes,
   Employee,
   EmployeeSalaryProfile,
-  getEmployeeShiftTolerance,
   getMonthEffectiveWorkDays,
   LateSettlement,
   PayrollAdjustment,
   PayrollMonthlyStatus,
   PayrollRecordStatus,
   PayrollSettings,
+  resolveAttendanceShift,
   SalaryRaiseRecord,
   ShiftConfig,
 } from '../types';
@@ -132,15 +132,17 @@ export function calculateEmployeePayroll(params: {
     ) / 10;
 
   // Lateness calculation unified with ReportsView & Excel export (integrated with LateSettlements)
-  const tolerance = getEmployeeShiftTolerance(employee, shifts);
   let totalLateMinutes = 0;
   for (const r of monthRecords) {
+    const recShift = resolveAttendanceShift(employee, shifts, r.shiftName);
     const rawLate = r.checkIn
-      ? calculateLatenessMinutes(r.checkIn, employee.shiftStart)
+      ? calculateLatenessMinutes(r.checkIn, recShift.shiftStart)
       : 0;
     const isLateRecord =
       r.status === 'terlambat' ||
-      (r.status === 'hadir' && Boolean(r.checkIn) && rawLate > tolerance);
+      (r.status === 'hadir' &&
+        Boolean(r.checkIn) &&
+        rawLate > recShift.lateToleranceMinutes);
     if (isLateRecord) {
       totalLateMinutes += rawLate;
     }

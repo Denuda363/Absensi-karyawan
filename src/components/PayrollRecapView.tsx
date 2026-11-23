@@ -247,7 +247,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
   const handleUnlockSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pinInput.trim()) {
-      setUnlockError('Masukkan PIN Superuser terlebih dahulu.');
+      setUnlockError('Masukkan PIN terlebih dahulu.');
       return;
     }
     setUnlocking(true);
@@ -260,7 +260,9 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       await loadPayrollData(result.token);
     } catch (err) {
       setUnlockError(
-        err instanceof Error ? err.message : 'PIN Superuser tidak valid.'
+        err instanceof Error
+          ? err.message
+          : 'PIN tidak valid. Gunakan PIN standar Admin atau PIN Superuser.'
       );
       setPinInput('');
     } finally {
@@ -830,7 +832,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   Akses Terbatas — Rekap Gaji
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Otorisasi PIN Superuser Rahasia
+                  Otorisasi PIN Standar Admin / Superuser
                 </p>
               </div>
             </div>
@@ -840,7 +842,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed flex items-start gap-2.5">
               <ShieldAlert className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
               <span>
-                Seluruh informasi gaji pokok, tunjangan, tanggal gajian, kenaikan gaji, bonus, potongan, dan slip gaji karyawan bersifat sangat rahasia. Masukkan PIN Superuser untuk membuka akses sementara.
+                Seluruh informasi gaji pokok, tunjangan, tanggal gajian, kenaikan gaji, bonus, potongan, dan slip gaji karyawan bersifat rahasia. Masukkan PIN standar Mode Admin atau PIN Superuser untuk membuka akses sementara.
               </span>
             </div>
 
@@ -856,7 +858,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 htmlFor="superuser-payroll-pin"
                 className="block text-xs font-semibold text-slate-700 mb-1.5"
               >
-                PIN Superuser
+                PIN Akses Rekap Gaji
               </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -868,7 +870,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   autoFocus
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="Masukkan PIN Superuser"
+                  placeholder="Masukkan PIN standar Admin atau Superuser"
                   className="w-full pl-10 pr-10 py-2.5 text-sm font-mono tracking-widest bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                 />
                 <button
@@ -923,7 +925,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             </div>
             <div>
               <div className="text-sm font-semibold text-white">
-                Mode Superuser Aktif — Data Penggajian Terbuka
+                Akses Penggajian Aktif — Data Gaji Terbuka
               </div>
               <div className="text-xs text-slate-400">
                 Gaji &amp; tanggal gajian diatur fleksibel per karyawan • Terkunci otomatis saat keluar menu

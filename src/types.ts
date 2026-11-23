@@ -10,6 +10,7 @@ export type AttendanceStatus =
 export type NavSection =
   | 'ringkasan'
   | 'matriks'
+  | 'jadwal-shift'
   | 'jadwal-libur'
   | 'rekap'
   | 'keuangan'
@@ -23,6 +24,7 @@ export interface ShiftConfig {
   startTime: string; // HH:mm
   endTime: string; // HH:mm
   lateToleranceMinutes: number;
+  dailyMemberIds?: Record<string, string[]>;
 }
 
 export interface CompanyBranch {
@@ -104,6 +106,7 @@ export interface AttendanceRecord {
   employeeName: string;
   date: string; // YYYY-MM-DD
   status: AttendanceStatus;
+  shiftName?: string;
   checkIn: string; // HH:mm or ''
   checkOut: string; // HH:mm or ''
   overtimeHours: number;
@@ -480,6 +483,146 @@ export function getEmployeeShiftTolerance(
     (s) => s.name.toLowerCase() === employee.shiftName.toLowerCase()
   );
   return match ? match.lateToleranceMinutes : 0;
+}
+
+export function getShiftMembersForWeekday(
+  shift: ShiftConfig,
+  dayIndex: number,
+  employees: Employee[]
+): {
+  members: Employee[];
+  isCustomDayRoster: boolean;
+} {
+  const dayKey = String(dayIndex);
+  const customIds = shift.dailyMemberIds?.[dayKey];
+  if (Array.isArray(customIds)) {
+    const empById = new Map<string, Employee>();
+    for (const emp of employees) {
+      if (emp.active) empById.set(emp.id, emp);
+    }
+    const members: Employee[] = [];
+    const seen = new Set<string>();
+    for (const id of customIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const found = empById.get(id);
+      if (found) members.push(found);
+    }
+    return { members, isCustomDayRoster: true };
+  }
+
+  const members = employees.filter(
+    (emp) =>
+      emp.active &&
+      emp.shiftName.toLowerCase() === shift.name.toLowerCase() &&
+      !emp.offDays.includes(dayIndex)
+  );
+  return { members, isCustomDayRoster: false };
+}
+
+export function resolveAttendanceShift(
+  employee: Employee,
+  shifts?: ShiftConfig[],
+  overrideShiftName?: string
+): {
+  shiftName: string;
+  shiftStart: string;
+  shiftEnd: string;
+  lateToleranceMinutes: number;
+} {
+  const targetName = String(overrideShiftName || '').trim() || employee.shiftName;
+  const match = shifts?.find(
+    (s) => s.name.toLowerCase() === targetName.toLowerCase()
+  );
+  if (match) {
+    return {
+      shiftName: match.name,
+      shiftStart: match.startTime,
+      shiftEnd: match.endTime,
+      lateToleranceMinutes: match.lateToleranceMinutes,
+    };
+  }
+  return {
+    shiftName: targetName,
+    shiftStart: employee.shiftStart,
+    shiftEnd: employee.shiftEnd,
+    lateToleranceMinutes: 0,
+  };
+}
+
+export function resolveEmployeeDefaultShiftForDate(
+  employee: Employee,
+  dateStr: string,
+  shifts?: ShiftConfig[]
+): {
+  shiftName: string;
+  shiftStart: string;
+  shiftEnd: string;
+  lateToleranceMinutes: number;
+  scheduledShiftNames: string[];
+} {
+  if (!shifts || shifts.length === 0) {
+    return {
+      ...resolveAttendanceShift(employee, shifts, employee.shiftName),
+      scheduledShiftNames: employee.shiftName ? [employee.shiftName] : [],
+    };
+  }
+  const dayIdx = getDayOfWeekFromDateStr(dateStr);
+  const scheduledShifts = shifts.filter((shift) => {
+    const { members } = getShiftMembersForWeekday(shift, dayIdx, [employee]);
+    return members.some((m) => m.id === employee.id);
+  });
+  const scheduledShiftNames = scheduledShifts.map((s) => s.name);
+
+  if (scheduledShifts.length > 0) {
+    const preferred =
+      scheduledShifts.find(
+        (s) => s.name.toLowerCase() === employee.shiftName.toLowerCase()
+      ) || scheduledShifts[0];
+    return {
+      shiftName: preferred.name,
+      shiftStart: preferred.startTime,
+      shiftEnd: preferred.endTime,
+      lateToleranceMinutes: preferred.lateToleranceMinutes,
+      scheduledShiftNames,
+    };
+  }
+
+  return {
+    ...resolveAttendanceShift(employee, shifts, employee.shiftName),
+    scheduledShiftNames: [],
+  };
+}
+
+export function packNotesWithShift(notes: string, shiftName?: string): string {
+  const unpacked = unpackShiftFromNotes(notes);
+  const cleanNotes = unpacked.notes;
+  const cleanShift = String(shiftName || '')
+    .trim()
+    .replace(/[\[\]]/g, '')
+    .slice(0, 40);
+  if (!cleanShift) return cleanNotes.slice(0, 300);
+  const tag = `[Shift: ${cleanShift}]`;
+  if (!cleanNotes) return tag;
+  const maxNoteLen = Math.max(0, 300 - tag.length - 1);
+  return `${cleanNotes.slice(0, maxNoteLen)} ${tag}`.trim();
+}
+
+export function unpackShiftFromNotes(rawNotes: string): {
+  notes: string;
+  shiftName?: string;
+} {
+  const text = String(rawNotes || '');
+  const match = text.match(/\s*\[Shift:\s*([^\]]+)\]\s*$/);
+  if (!match) {
+    return { notes: text.trim() };
+  }
+  const shiftName = match[1].trim().slice(0, 40);
+  const notes = text.slice(0, match.index).trim();
+  return {
+    notes,
+    ...(shiftName ? { shiftName } : {}),
+  };
 }
 
 export function evaluateLateness(

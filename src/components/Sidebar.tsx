@@ -14,8 +14,10 @@ import {
   LogOut,
   KeyRound,
   CircleDollarSign,
+  Clock,
 } from 'lucide-react';
 import { NavSection } from '../types';
+import { PWAInstallButton } from './PWAInstallControls';
 
 interface SidebarProps {
   activeNav: NavSection;
@@ -48,6 +50,7 @@ const NAV_GROUPS: {
   {
     groupLabel: 'Jadwal & Pelaporan',
     items: [
+      { id: 'jadwal-shift', label: 'Jadwal Shift', icon: Clock },
       { id: 'jadwal-libur', label: 'Jadwal Libur', icon: CalendarRange },
       { id: 'rekap', label: 'Rekap Bulanan', icon: FileSpreadsheet },
       { id: 'keuangan', label: 'Keuangan Perusahaan', icon: CircleDollarSign },
@@ -83,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const displayBrand = companyName && companyName.trim() ? companyName.trim() : 'KaryaPresensi';
 
   const sidebarContent = (
-    <div className="h-full flex flex-col bg-slate-950 text-slate-300 border-r border-slate-800 w-64 select-none">
+    <div className="h-full flex flex-col bg-slate-950 text-slate-300 border-r border-slate-800 w-72 lg:w-64 select-none pb-safe">
       <div className="h-16 px-5 flex items-center justify-between border-b border-slate-800/80 shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0 overflow-hidden shadow-xs">
@@ -111,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           type="button"
           onClick={onCloseMobile}
           aria-label="Tutup menu"
-          className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-md"
+          className="lg:hidden min-h-[44px] min-w-[44px] -mr-2 flex items-center justify-center text-slate-400 hover:text-white rounded-lg cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -143,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       key={item.id}
                       type="button"
                       onClick={() => handleNavClick(item.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                      className={`w-full min-h-[44px] lg:min-h-[38px] flex items-center justify-between px-3 py-2.5 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
                         isActive
                           ? 'bg-blue-700 text-white shadow-xs'
                           : 'text-slate-300 hover:bg-slate-900 hover:text-white'
@@ -187,7 +190,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-800/80 space-y-3 shrink-0 bg-slate-950">
+      <div className="p-4 border-t border-slate-800/80 space-y-2.5 shrink-0 bg-slate-950">
         <div className="flex items-center gap-3">
           <div
             className={`w-9 h-9 rounded-lg border flex items-center justify-center shrink-0 ${
@@ -208,6 +211,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
+        <PWAInstallButton variant="sidebar" onAfterAction={onCloseMobile} />
+
         {isAdminMode ? (
           <button
             type="button"
@@ -215,7 +220,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onExitAdminMode();
               onCloseMobile();
             }}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg transition-colors cursor-pointer"
+            className="w-full min-h-[42px] lg:min-h-[36px] flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg transition-colors cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Keluar Mode Admin</span>
@@ -227,7 +232,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onOpenAdminModeModal();
               onCloseMobile();
             }}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors cursor-pointer"
+            className="w-full min-h-[42px] lg:min-h-[36px] flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors cursor-pointer"
           >
             <KeyRound className="w-3.5 h-3.5" />
             <span>Masuk Mode Admin</span>
@@ -246,7 +251,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex no-print">
           <div
-            className="fixed inset-0 bg-slate-950/60"
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
             onClick={onCloseMobile}
             aria-hidden="true"
           />

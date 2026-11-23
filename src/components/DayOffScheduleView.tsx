@@ -317,7 +317,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
         </div>
       )}
       {/* Daily Coverage Strip (Mon-Sun) */}
-      <section className="bg-white border border-slate-200 rounded-xl p-5">
+      <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-100">
           <div>
             <h2 className="font-display text-base font-semibold text-slate-900">
@@ -332,7 +332,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
           </span>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
           {weekdayCoverage.map((day) => {
             const isTodayWeekday = new Date().getDay() === day.index;
             return (
@@ -369,13 +369,13 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
       </section>
 
       {/* Filter & View Switcher */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+      <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 sm:gap-3 flex-1">
+          <div className="grid grid-cols-2 sm:flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
             <button
               type="button"
               onClick={() => setViewMode('matriks')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`px-3 py-2 sm:py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 viewMode === 'matriks'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -386,7 +386,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('kalender')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`px-3 py-2 sm:py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 viewMode === 'kalender'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -398,21 +398,21 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
 
           {viewMode === 'matriks' ? (
             <>
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <div className="relative w-full sm:w-56">
+                <Search className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Cari nama, kode, divisi..."
-                  className="pl-8 pr-8 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 w-56"
+                  className="pl-9 sm:pl-8 pr-8 py-2.5 sm:py-2 text-sm sm:text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 w-full"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Hapus pencarian"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -423,7 +423,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 value={deptFilter}
                 onChange={(e) => setDeptFilter(e.target.value)}
                 aria-label="Filter Divisi"
-                className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                className="w-full sm:w-auto px-3 py-2.5 sm:py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
               >
                 <option value="all">Semua Divisi</option>
                 {departments
@@ -442,7 +442,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                     setSearchQuery('');
                     setDeptFilter('all');
                   }}
-                  className="px-2.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer self-start sm:self-auto"
                 >
                   Reset Filter
                 </button>
@@ -457,7 +457,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 setSelectedCalendarDate(`${e.target.value}-01`);
               }}
               aria-label="Pilih Bulan Kalender"
-              className="px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+              className="w-full sm:w-auto px-3 py-2.5 sm:py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
             />
           )}
         </div>
@@ -465,7 +465,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
         <button
           type="button"
           onClick={openAddEmployeeModal}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer w-full lg:w-auto min-h-[40px]"
         >
           <UserPlus className="w-3.5 h-3.5" />
           <span>Tambah Karyawan</span>
@@ -490,7 +490,116 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* Mobile Card List (< md) */}
+              <div className="md:hidden divide-y divide-slate-100">
+                {filteredEmployees.map((emp) => {
+                  const todayStatus = isEmployeeOffDay(emp, today);
+                  return (
+                    <div
+                      key={emp.id}
+                      className={`p-4 space-y-3 ${!emp.active ? 'opacity-65' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900 truncate">
+                              {emp.name}
+                            </span>
+                            {!emp.active && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                                Nonaktif
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5 truncate">
+                            <span className="font-mono">{emp.employeeCode}</span> · {emp.department}
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-600 mt-1 tabular-nums">
+                            {emp.shiftName} ({emp.shiftStart}–{emp.shiftEnd})
+                          </div>
+                        </div>
+                        {todayStatus.isOff && emp.active && (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded-md whitespace-nowrap shrink-0">
+                            Libur Hari Ini
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-1">
+                        {HARI_WEEKDAYS.map((day) => {
+                          const isOff = emp.offDays.includes(day.index);
+                          return (
+                            <div
+                              key={day.index}
+                              className={`py-1.5 rounded-md text-center border ${
+                                isOff
+                                  ? 'bg-amber-50 border-amber-300 text-amber-900 font-semibold'
+                                  : 'bg-slate-50 border-slate-200/80 text-slate-500'
+                              }`}
+                            >
+                              <div className="text-[10px] leading-tight">{day.short}</div>
+                              <div className="text-[9px] font-mono mt-0.5">
+                                {isOff ? 'OFF' : emp.shiftStart}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {emp.customOffDates && emp.customOffDates.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                          <span className="text-slate-500">Libur khusus:</span>
+                          {emp.customOffDates.slice(0, 3).map((dt) => (
+                            <span
+                              key={dt}
+                              className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono"
+                            >
+                              {dt}
+                            </span>
+                          ))}
+                          {emp.customOffDates.length > 3 && (
+                            <span className="text-slate-500">
+                              +{emp.customOffDates.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => openScheduleModal(emp)}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
+                        >
+                          <CalendarDays className="w-3.5 h-3.5" />
+                          <span>Atur Jadwal</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditEmployeeModal(emp)}
+                          aria-label={`Edit profil ${emp.name}`}
+                          className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmEmp(emp)}
+                          aria-label={`Hapus karyawan ${emp.name}`}
+                          className="p-2 text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table (>= md) */}
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
@@ -621,30 +730,31 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       ) : (
         /* Monthly Calendar View */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-5">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 pb-4 border-b border-slate-100">
               <h3 className="font-display text-base font-semibold text-slate-900">
-                Kalender Libur Karyawan — {formatIndonesianMonth(calendarMonth)}
+                Kalender Libur — {formatIndonesianMonth(calendarMonth)}
               </h3>
               <span className="text-xs text-slate-500">
-                Klik tanggal untuk melihat detail staf libur &amp; masuk
+                Ketuk tanggal untuk melihat detail staf libur &amp; masuk
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-500 pb-2">
+            <div className="mt-4 grid grid-cols-7 gap-1 sm:gap-2 text-center text-[11px] sm:text-xs font-semibold text-slate-500 pb-2">
               {HARI_WEEKDAYS.map((d) => (
                 <div key={d.index}>{d.short}</div>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
               {Array.from({ length: leadingBlankCells }).map((_, idx) => (
-                <div key={`blank_${idx}`} className="h-20 rounded-lg bg-slate-50/50" />
+                <div key={`blank_${idx}`} className="h-14 sm:h-20 rounded-lg bg-slate-50/50" />
               ))}
 
               {monthDays.map((dateStr) => {
@@ -660,7 +770,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                     key={dateStr}
                     type="button"
                     onClick={() => setSelectedCalendarDate(dateStr)}
-                    className={`h-20 p-2 rounded-lg border text-left flex flex-col justify-between transition-colors cursor-pointer ${
+                    className={`h-14 sm:h-20 p-1 sm:p-2 rounded-lg border text-left flex flex-col justify-between transition-colors cursor-pointer ${
                       isSelected
                         ? 'border-blue-600 bg-blue-50/70'
                         : isTodayCell
@@ -668,28 +778,32 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                         : 'border-slate-200 bg-white hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-0.5">
                       <span
-                        className={`font-mono text-xs font-semibold tabular-nums ${
+                        className={`font-mono text-[11px] sm:text-xs font-semibold tabular-nums ${
                           isSelected ? 'text-blue-800' : 'text-slate-900'
                         }`}
                       >
                         {dayNum}
                       </span>
                       {isTodayCell && (
-                        <span className="text-[10px] font-medium text-blue-700">
+                        <span className="hidden sm:inline text-[10px] font-medium text-blue-700">
                           Hari Ini
                         </span>
                       )}
                     </div>
 
-                    <div className="text-[11px] font-mono tabular-nums">
+                    <div className="text-[10px] sm:text-[11px] font-mono tabular-nums leading-tight truncate">
                       {offStaff.length > 0 ? (
                         <span className="text-amber-800 font-medium">
-                          {offStaff.length} libur
+                          {offStaff.length} <span className="hidden sm:inline">libur</span>
+                          <span className="sm:hidden">off</span>
                         </span>
                       ) : (
-                        <span className="text-emerald-700">Penuh</span>
+                        <span className="text-emerald-700">
+                          <span className="hidden sm:inline">Penuh</span>
+                          <span className="sm:hidden">OK</span>
+                        </span>
                       )}
                     </div>
                   </button>
@@ -698,7 +812,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
             </div>
           </div>
 
-          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-5">
+          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-5">
             <div className="pb-3 border-b border-slate-100">
               <div className="text-xs text-slate-500">Detail Tanggal</div>
               <h4 className="font-display text-base font-semibold text-slate-900 mt-0.5">
@@ -762,8 +876,8 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
 
       {/* Modal Editor Jadwal Libur Individu */}
       {editingScheduleEmp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/45">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-xl w-full max-w-lg p-5 sm:p-6 max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto pb-safe">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-lg font-semibold text-slate-900">
@@ -777,7 +891,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 type="button"
                 onClick={() => setEditingScheduleEmp(null)}
                 aria-label="Tutup modal"
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                className="p-2 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -942,14 +1056,14 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingScheduleEmp(null)}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={savingSchedule}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 cursor-pointer"
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 cursor-pointer"
                 >
                   {savingSchedule ? 'Menyimpan...' : 'Simpan Jadwal'}
                 </button>
@@ -961,8 +1075,8 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
 
       {/* Modal Tambah / Edit Profil Karyawan */}
       {empModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/45">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-xl w-full max-w-lg p-5 sm:p-6 max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto pb-safe">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <h3 className="font-display text-lg font-semibold text-slate-900">
                 {editingEmployee ? 'Ubah Data Karyawan' : 'Tambah Karyawan & Hari Libur'}
@@ -971,7 +1085,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 type="button"
                 onClick={() => setEmpModalOpen(false)}
                 aria-label="Tutup modal"
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                className="p-2 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1156,14 +1270,14 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setEmpModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={empSaving}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 cursor-pointer"
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>{empSaving ? 'Menyimpan...' : 'Simpan Karyawan'}</span>
@@ -1175,8 +1289,8 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
       )}
       {/* Modal Konfirmasi Hapus Karyawan */}
       {deleteConfirmEmp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md p-6 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/45">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-xl w-full max-w-md p-5 sm:p-6 space-y-4 pb-safe">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-lg bg-red-50 border border-red-200 text-red-700 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5" />
@@ -1196,7 +1310,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 type="button"
                 disabled={deletingEmp}
                 onClick={() => setDeleteConfirmEmp(null)}
-                className="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 cursor-pointer"
+                className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 cursor-pointer"
               >
                 Batal
               </button>
@@ -1204,7 +1318,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 type="button"
                 disabled={deletingEmp}
                 onClick={handleConfirmDeleteEmployee}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-red-700 rounded-lg hover:bg-red-800 disabled:opacity-50 cursor-pointer"
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-red-700 rounded-lg hover:bg-red-800 disabled:opacity-50 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{deletingEmp ? 'Menghapus...' : 'Ya, Hapus Karyawan'}</span>

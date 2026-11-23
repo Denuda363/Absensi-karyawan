@@ -72,6 +72,36 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidTestConnection(data) {
+      return data.keys().hasAll(['id', 'status', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'status', 'updatedAt'])
+        && isValidId(data.id)
+        && data.status is string && data.status.size() >= 1 && data.status.size() <= 32
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAppSettings(data) {
+      return data.keys().hasAll([
+          'id', 'companyName', 'companySubtitle', 'lateDeductionPerMinute',
+          'shiftCount', 'shifts', 'companyProfile', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'companyName', 'companySubtitle', 'lateDeductionPerMinute',
+          'shiftCount', 'shifts', 'companyProfile', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 120
+        && data.companySubtitle is string && data.companySubtitle.size() <= 120
+        && (data.lateDeductionPerMinute is int || data.lateDeductionPerMinute is float) && data.lateDeductionPerMinute >= 0
+        && (data.shiftCount is int || data.shiftCount is float) && data.shiftCount >= 0 && data.shiftCount <= 20
+        && data.shifts is list && data.shifts.size() <= 20
+        && (data.shifts.size() == 0 || data.shifts[0] is map)
+        && data.companyProfile is map && data.companyProfile.keys().size() <= 25
+        && (!('branches' in data.companyProfile) || (data.companyProfile.branches is list && data.companyProfile.branches.size() <= 30 && (data.companyProfile.branches.size() == 0 || data.companyProfile.branches[0] is map)))
+        && (!('logoDataUrl' in data.companyProfile) || (data.companyProfile.logoDataUrl is string && data.companyProfile.logoDataUrl.size() <= 300000))
+        && data.updatedAt is timestamp;
+    }
+
     function isValidEmployee(data) {
       return data.keys().hasAll([
           'id', 'userId', 'employeeCode', 'name', 'department', 'position',
@@ -104,11 +134,15 @@ service cloud.firestore {
     function isValidAttendance(data) {
       return data.keys().hasAll([
           'id', 'employeeId', 'employeeName', 'userId', 'date', 'status',
-          'checkIn', 'checkOut', 'entryType', 'notes', 'recordedBy', 'createdAt', 'updatedAt'
+          'checkIn', 'checkOut', 'overtimeHours', 'entryType', 'notes',
+          'latePermitReason', 'latePermitEstimatedArrival', 'latePermitApprovedBy',
+          'recordedBy', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
           'id', 'employeeId', 'employeeName', 'userId', 'date', 'status',
-          'checkIn', 'checkOut', 'entryType', 'notes', 'recordedBy', 'createdAt', 'updatedAt'
+          'checkIn', 'checkOut', 'overtimeHours', 'entryType', 'notes',
+          'latePermitReason', 'latePermitEstimatedArrival', 'latePermitApprovedBy',
+          'recordedBy', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
         && isValidId(data.employeeId)
@@ -118,85 +152,28 @@ service cloud.firestore {
         && data.status in ['hadir', 'terlambat', 'izin_terlambat', 'izin', 'sakit', 'alpha', 'libur']
         && isValidOptionalTimeStr(data.checkIn)
         && isValidOptionalTimeStr(data.checkOut)
+        && (data.overtimeHours is int || data.overtimeHours is float) && data.overtimeHours >= 0 && data.overtimeHours <= 24
         && data.entryType in ['manual_karyawan', 'manual_admin']
         && data.notes is string && data.notes.size() <= 300
-        && isValidId(data.recordedBy)
+        && data.latePermitReason is string && data.latePermitReason.size() <= 200
+        && isValidOptionalTimeStr(data.latePermitEstimatedArrival)
+        && data.latePermitApprovedBy is string && data.latePermitApprovedBy.size() <= 100
+        && data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 128
         && data.createdAt is timestamp
-        && data.updatedAt is timestamp;
-    }
-
-    function isValidOvertimeRequest(data) {
-      return data.keys().hasAll([
-          'id', 'employeeId', 'employeeName', 'userId', 'date', 'startTime', 'endTime',
-          'durationHours', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'id', 'employeeId', 'employeeName', 'userId', 'date', 'startTime', 'endTime',
-          'durationHours', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
-        ])
-        && isValidId(data.id)
-        && isValidId(data.employeeId)
-        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
-        && isValidId(data.userId)
-        && isValidDateStr(data.date)
-        && isValidTimeStr(data.startTime)
-        && isValidTimeStr(data.endTime)
-        && (data.durationHours is int || data.durationHours is float) && data.durationHours >= 0.5 && data.durationHours <= 16
-        && data.reason is string && data.reason.size() >= 5 && data.reason.size() <= 400
-        && data.status in ['pending', 'approved', 'rejected', 'cancelled']
-        && data.reviewedBy is string && data.reviewedBy.size() <= 128
-        && data.reviewNotes is string && data.reviewNotes.size() <= 300
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp;
-    }
-
-    function isValidLeaveRequest(data) {
-      return data.keys().hasAll([
-          'id', 'employeeId', 'employeeName', 'userId', 'leaveType', 'startDate', 'endDate',
-          'totalDays', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'id', 'employeeId', 'employeeName', 'userId', 'leaveType', 'startDate', 'endDate',
-          'totalDays', 'reason', 'status', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt'
-        ])
-        && isValidId(data.id)
-        && isValidId(data.employeeId)
-        && data.employeeName is string && data.employeeName.size() >= 2 && data.employeeName.size() <= 100
-        && isValidId(data.userId)
-        && data.leaveType in ['cuti_tahunan', 'izin_pribadi', 'sakit', 'izin_khusus']
-        && isValidDateStr(data.startDate)
-        && isValidDateStr(data.endDate)
-        && (data.totalDays is int || data.totalDays is float) && data.totalDays >= 1 && data.totalDays <= 60
-        && data.reason is string && data.reason.size() >= 5 && data.reason.size() <= 400
-        && data.status in ['pending', 'approved', 'rejected', 'cancelled']
-        && data.reviewedBy is string && data.reviewedBy.size() <= 128
-        && data.reviewNotes is string && data.reviewNotes.size() <= 300
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp;
-    }
-
-    function isValidTestConnection(data) {
-      return data.keys().hasAll(['id', 'status', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'status', 'updatedAt'])
-        && isValidId(data.id)
-        && data.status is string && data.status.size() >= 1 && data.status.size() <= 32
-        && data.updatedAt is timestamp;
-    }
-
-    function isValidAppSettings(data) {
-      return data.keys().hasAll(['id', 'companyName', 'companySubtitle', 'lateDeductionPerMinute', 'shiftCount', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'companyName', 'companySubtitle', 'lateDeductionPerMinute', 'shiftCount', 'updatedAt'])
-        && isValidId(data.id)
-        && data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 120
-        && data.companySubtitle is string && data.companySubtitle.size() <= 120
-        && (data.lateDeductionPerMinute is int || data.lateDeductionPerMinute is float) && data.lateDeductionPerMinute >= 0
-        && (data.shiftCount is int || data.shiftCount is float) && data.shiftCount >= 0 && data.shiftCount <= 50
         && data.updatedAt is timestamp;
     }
 
     function isValidLateSettlement(data) {
-      return data.keys().hasAll(['id', 'employeeId', 'employeeName', 'yearMonth', 'date', 'method', 'minutesSettled', 'notes', 'recordedBy', 'createdAt'])
-        && data.keys().hasOnly(['id', 'employeeId', 'employeeName', 'yearMonth', 'date', 'method', 'minutesSettled', 'notes', 'recordedBy', 'createdAt'])
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'yearMonth', 'date', 'method',
+          'minutesSettled', 'extraWorkStart', 'extraWorkEnd', 'deductionAmount',
+          'notes', 'recordedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'yearMonth', 'date', 'method',
+          'minutesSettled', 'extraWorkStart', 'extraWorkEnd', 'deductionAmount',
+          'notes', 'recordedBy', 'createdAt', 'updatedAt'
+        ])
         && isValidId(data.id)
         && isValidId(data.employeeId)
         && data.employeeName is string && data.employeeName.size() >= 1 && data.employeeName.size() <= 100
@@ -204,14 +181,144 @@ service cloud.firestore {
         && isValidDateStr(data.date)
         && data.method in ['tambahan_jam_kerja', 'potongan_gaji']
         && (data.minutesSettled is int || data.minutesSettled is float) && data.minutesSettled >= 0
+        && isValidOptionalTimeStr(data.extraWorkStart)
+        && isValidOptionalTimeStr(data.extraWorkEnd)
+        && (data.deductionAmount is int || data.deductionAmount is float) && data.deductionAmount >= 0
         && data.notes is string && data.notes.size() <= 300
         && data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 128
-        && data.createdAt is timestamp;
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayrollSettings(data) {
+      return data.keys().hasAll([
+          'id', 'defaultOvertimeHourlyRate', 'defaultAlphaDeductionPerDay',
+          'defaultIzinDeductionPerDay', 'autoDeductRemainingLate',
+          'bpjsKesehatanPct', 'bpjsKetenagakerjaanPct', 'paydayDayOfMonth', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'defaultOvertimeHourlyRate', 'defaultAlphaDeductionPerDay',
+          'defaultIzinDeductionPerDay', 'autoDeductRemainingLate',
+          'bpjsKesehatanPct', 'bpjsKetenagakerjaanPct', 'paydayDayOfMonth', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && (data.defaultOvertimeHourlyRate is int || data.defaultOvertimeHourlyRate is float) && data.defaultOvertimeHourlyRate >= 0
+        && (data.defaultAlphaDeductionPerDay is int || data.defaultAlphaDeductionPerDay is float) && data.defaultAlphaDeductionPerDay >= 0
+        && (data.defaultIzinDeductionPerDay is int || data.defaultIzinDeductionPerDay is float) && data.defaultIzinDeductionPerDay >= 0
+        && data.autoDeductRemainingLate is bool
+        && (data.bpjsKesehatanPct is int || data.bpjsKesehatanPct is float) && data.bpjsKesehatanPct >= 0 && data.bpjsKesehatanPct <= 20
+        && (data.bpjsKetenagakerjaanPct is int || data.bpjsKetenagakerjaanPct is float) && data.bpjsKetenagakerjaanPct >= 0 && data.bpjsKetenagakerjaanPct <= 20
+        && (data.paydayDayOfMonth is int || data.paydayDayOfMonth is float) && data.paydayDayOfMonth >= 1 && data.paydayDayOfMonth <= 31
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayrollProfile(data) {
+      return data.keys().hasAll([
+          'employeeId', 'baseSalary', 'positionAllowance', 'transportMealAllowance',
+          'otherAllowance', 'overtimeHourlyRate', 'paydayDay', 'paymentMethod',
+          'bankName', 'bankAccountNumber', 'bankAccountHolder', 'notes', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'employeeId', 'baseSalary', 'positionAllowance', 'transportMealAllowance',
+          'otherAllowance', 'overtimeHourlyRate', 'paydayDay', 'paymentMethod',
+          'bankName', 'bankAccountNumber', 'bankAccountHolder', 'notes', 'updatedAt'
+        ])
+        && isValidId(data.employeeId)
+        && (data.baseSalary is int || data.baseSalary is float) && data.baseSalary >= 0
+        && (data.positionAllowance is int || data.positionAllowance is float) && data.positionAllowance >= 0
+        && (data.transportMealAllowance is int || data.transportMealAllowance is float) && data.transportMealAllowance >= 0
+        && (data.otherAllowance is int || data.otherAllowance is float) && data.otherAllowance >= 0
+        && (data.overtimeHourlyRate is int || data.overtimeHourlyRate is float) && data.overtimeHourlyRate >= 0
+        && (data.paydayDay is int || data.paydayDay is float) && data.paydayDay >= 1 && data.paydayDay <= 31
+        && data.paymentMethod in ['transfer', 'tunai']
+        && data.bankName is string && data.bankName.size() <= 60
+        && data.bankAccountNumber is string && data.bankAccountNumber.size() <= 60
+        && data.bankAccountHolder is string && data.bankAccountHolder.size() <= 100
+        && data.notes is string && data.notes.size() <= 300
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayrollAdjustment(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'yearMonth', 'type',
+          'title', 'amount', 'date', 'notes', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'yearMonth', 'type',
+          'title', 'amount', 'date', 'notes', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 1 && data.employeeName.size() <= 100
+        && isValidYearMonthStr(data.yearMonth)
+        && data.type in ['bonus', 'tunjangan', 'potongan']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && (data.amount is int || data.amount is float) && data.amount >= 0
+        && isValidDateStr(data.date)
+        && data.notes is string && data.notes.size() <= 300
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayrollRaise(data) {
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'effectiveMonth', 'raiseDate', 'method',
+          'percentIncrease', 'previousBaseSalary', 'newBaseSalary',
+          'previousPositionAllowance', 'newPositionAllowance',
+          'previousTransportMealAllowance', 'newTransportMealAllowance',
+          'previousOtherAllowance', 'newOtherAllowance',
+          'reason', 'notes', 'appliedToProfile', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'effectiveMonth', 'raiseDate', 'method',
+          'percentIncrease', 'previousBaseSalary', 'newBaseSalary',
+          'previousPositionAllowance', 'newPositionAllowance',
+          'previousTransportMealAllowance', 'newTransportMealAllowance',
+          'previousOtherAllowance', 'newOtherAllowance',
+          'reason', 'notes', 'appliedToProfile', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && data.employeeName is string && data.employeeName.size() >= 1 && data.employeeName.size() <= 100
+        && isValidYearMonthStr(data.effectiveMonth)
+        && isValidDateStr(data.raiseDate)
+        && data.method in ['nominal', 'persentase']
+        && (data.percentIncrease is int || data.percentIncrease is float) && data.percentIncrease >= 0
+        && (data.previousBaseSalary is int || data.previousBaseSalary is float) && data.previousBaseSalary >= 0
+        && (data.newBaseSalary is int || data.newBaseSalary is float) && data.newBaseSalary >= 0
+        && (data.previousPositionAllowance is int || data.previousPositionAllowance is float) && data.previousPositionAllowance >= 0
+        && (data.newPositionAllowance is int || data.newPositionAllowance is float) && data.newPositionAllowance >= 0
+        && (data.previousTransportMealAllowance is int || data.previousTransportMealAllowance is float) && data.previousTransportMealAllowance >= 0
+        && (data.newTransportMealAllowance is int || data.newTransportMealAllowance is float) && data.newTransportMealAllowance >= 0
+        && (data.previousOtherAllowance is int || data.previousOtherAllowance is float) && data.previousOtherAllowance >= 0
+        && (data.newOtherAllowance is int || data.newOtherAllowance is float) && data.newOtherAllowance >= 0
+        && data.reason is string && data.reason.size() <= 200
+        && data.notes is string && data.notes.size() <= 300
+        && data.appliedToProfile is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayrollStatus(data) {
+      return data.keys().hasAll(['id', 'employeeId', 'yearMonth', 'status', 'paidAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'employeeId', 'yearMonth', 'status', 'paidAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.employeeId)
+        && isValidYearMonthStr(data.yearMonth)
+        && data.status in ['draft', 'disetujui', 'dibayar']
+        && data.paidAt is string && data.paidAt.size() <= 40
+        && data.updatedAt is timestamp;
     }
 
     function isValidFinanceAccount(data) {
-      return data.keys().hasAll(['id', 'name', 'kind', 'bankName', 'accountNumber', 'holderName', 'openingBalance', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'name', 'kind', 'bankName', 'accountNumber', 'holderName', 'openingBalance', 'updatedAt'])
+      return data.keys().hasAll([
+          'id', 'name', 'kind', 'bankName', 'accountNumber',
+          'holderName', 'openingBalance', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'kind', 'bankName', 'accountNumber',
+          'holderName', 'openingBalance', 'createdAt', 'updatedAt'
+        ])
         && isValidId(data.id)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
         && data.kind in ['cash', 'rekening']
@@ -219,22 +326,32 @@ service cloud.firestore {
         && data.accountNumber is string && data.accountNumber.size() <= 60
         && data.holderName is string && data.holderName.size() <= 100
         && (data.openingBalance is int || data.openingBalance is float)
+        && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
 
     function isValidFinanceCategory(data) {
-      return data.keys().hasAll(['id', 'name', 'type', 'description', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'name', 'type', 'description', 'updatedAt'])
+      return data.keys().hasAll(['id', 'name', 'type', 'description', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'type', 'description', 'createdAt', 'updatedAt'])
         && isValidId(data.id)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
         && data.type in ['pendapatan', 'pengeluaran']
         && data.description is string && data.description.size() <= 300
+        && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
 
     function isValidFinanceTransaction(data) {
-      return data.keys().hasAll(['id', 'date', 'type', 'method', 'categoryId', 'categoryName', 'accountId', 'title', 'amount', 'notes', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'date', 'type', 'method', 'categoryId', 'categoryName', 'accountId', 'title', 'amount', 'notes', 'updatedAt'])
+      return data.keys().hasAll([
+          'id', 'date', 'type', 'method', 'categoryId', 'categoryName',
+          'accountId', 'title', 'counterparty', 'bankAccount', 'referenceNo',
+          'amount', 'notes', 'recordedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'date', 'type', 'method', 'categoryId', 'categoryName',
+          'accountId', 'title', 'counterparty', 'bankAccount', 'referenceNo',
+          'amount', 'notes', 'recordedBy', 'createdAt', 'updatedAt'
+        ])
         && isValidId(data.id)
         && isValidDateStr(data.date)
         && data.type in ['pendapatan', 'pengeluaran']
@@ -243,14 +360,27 @@ service cloud.firestore {
         && data.categoryName is string && data.categoryName.size() >= 1 && data.categoryName.size() <= 100
         && isValidId(data.accountId)
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 150
+        && data.counterparty is string && data.counterparty.size() <= 100
+        && data.bankAccount is string && data.bankAccount.size() <= 120
+        && data.referenceNo is string && data.referenceNo.size() <= 50
         && (data.amount is int || data.amount is float) && data.amount >= 0
         && data.notes is string && data.notes.size() <= 300
+        && data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 100
+        && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
 
     function isValidFinanceTransfer(data) {
-      return data.keys().hasAll(['id', 'date', 'fromAccountId', 'fromAccountName', 'toAccountId', 'toAccountName', 'amount', 'notes', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'date', 'fromAccountId', 'fromAccountName', 'toAccountId', 'toAccountName', 'amount', 'notes', 'updatedAt'])
+      return data.keys().hasAll([
+          'id', 'date', 'fromAccountId', 'fromAccountName', 'toAccountId',
+          'toAccountName', 'amount', 'referenceNo', 'notes', 'recordedBy',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'date', 'fromAccountId', 'fromAccountName', 'toAccountId',
+          'toAccountName', 'amount', 'referenceNo', 'notes', 'recordedBy',
+          'createdAt', 'updatedAt'
+        ])
         && isValidId(data.id)
         && isValidDateStr(data.date)
         && isValidId(data.fromAccountId)
@@ -258,7 +388,19 @@ service cloud.firestore {
         && isValidId(data.toAccountId)
         && data.toAccountName is string && data.toAccountName.size() >= 1 && data.toAccountName.size() <= 100
         && (data.amount is int || data.amount is float) && data.amount > 0
+        && data.referenceNo is string && data.referenceNo.size() <= 50
         && data.notes is string && data.notes.size() <= 300
+        && data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSecurityConfig(data) {
+      return data.keys().hasAll(['id', 'adminPinSha256', 'databasePinSha256', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'adminPinSha256', 'databasePinSha256', 'updatedAt'])
+        && isValidId(data.id)
+        && data.adminPinSha256 is string && data.adminPinSha256.size() == 64 && data.adminPinSha256.matches('^[a-f0-9]{64}$')
+        && data.databasePinSha256 is string && (data.databasePinSha256.size() == 0 || (data.databasePinSha256.size() == 64 && data.databasePinSha256.matches('^[a-f0-9]{64}$')))
         && data.updatedAt is timestamp;
     }
 
@@ -297,6 +439,49 @@ service cloud.firestore {
       allow delete: if isValidId(userId) && isAdmin();
     }
 
+    match /test/{docId} {
+      allow get: if isValidId(docId) && isSignedIn();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(docId)
+        && docId == 'connection'
+        && isValidTestConnection(incoming())
+        && isAdmin()
+        && incoming().id == docId
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(docId)
+        && docId == 'connection'
+        && isValidTestConnection(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /appSettings/{settingId} {
+      allow get: if isValidId(settingId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(settingId)
+        && isValidAppSettings(incoming())
+        && isAdmin()
+        && incoming().id == settingId
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(settingId)
+        && isValidAppSettings(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'companyName', 'companySubtitle', 'lateDeductionPerMinute',
+          'shiftCount', 'shifts', 'companyProfile', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
     match /employees/{employeeId} {
       allow get: if isValidId(employeeId) && isSignedIn() && (resource == null || existing().active == true || existing().userId == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.active == true);
@@ -319,7 +504,14 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          isAdmin() ||
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'userId', 'employeeCode', 'name', 'department', 'position',
+              'shiftName', 'shiftStart', 'shiftEnd', 'offDays', 'customOffDates',
+              'active', 'updatedAt'
+            ])
+          ) ||
           (
             existing().userId == request.auth.uid &&
             incoming().userId == existing().userId &&
@@ -331,7 +523,7 @@ service cloud.firestore {
     }
 
     match /attendance/{recordId} {
-      allow get: if isValidId(recordId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow get: if isValidId(recordId) && isSignedIn() && (resource == null || existing().userId == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.userId == request.auth.uid);
 
       allow create: if isVerified()
@@ -359,183 +551,297 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          isAdmin() ||
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'employeeName', 'date', 'status', 'checkIn', 'checkOut', 'overtimeHours',
+              'entryType', 'notes', 'latePermitReason', 'latePermitEstimatedArrival',
+              'latePermitApprovedBy', 'recordedBy', 'updatedAt'
+            ])
+          ) ||
           (
             existing().userId == request.auth.uid &&
             incoming().entryType == 'manual_karyawan' &&
             incoming().recordedBy == request.auth.uid &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['checkIn', 'checkOut', 'status', 'notes', 'recordedBy', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'checkIn', 'checkOut', 'overtimeHours', 'status', 'notes',
+              'latePermitReason', 'latePermitEstimatedArrival', 'recordedBy', 'updatedAt'
+            ])
           )
         );
 
       allow delete: if isValidId(recordId) && isAdmin();
     }
 
-    match /overtimeRequests/{requestId} {
-      allow get: if isValidId(requestId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.userId == request.auth.uid);
-
-      allow create: if isVerified()
-        && isValidId(requestId)
-        && isValidOvertimeRequest(incoming())
-        && incoming().id == requestId
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
-        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId))
-        && (
-          isAdmin() ||
-          (
-            incoming().userId == request.auth.uid &&
-            incoming().status == 'pending' &&
-            incoming().reviewedBy == '' &&
-            incoming().reviewNotes == ''
-          )
-        );
-
-      allow update: if isVerified()
-        && isValidId(requestId)
-        && isValidOvertimeRequest(incoming())
-        && incoming().id == existing().id
-        && incoming().employeeId == existing().employeeId
-        && incoming().userId == existing().userId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && (
-          isAdmin() ||
-          (
-            existing().userId == request.auth.uid &&
-            existing().status == 'pending' &&
-            incoming().status == 'cancelled' &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
-          )
-        );
-
-      allow delete: if isValidId(requestId) && isAdmin();
-    }
-
-    match /leaveRequests/{requestId} {
-      allow get: if isValidId(requestId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (isBootstrappedAdmin() || resource.data.userId == request.auth.uid);
-
-      allow create: if isVerified()
-        && isValidId(requestId)
-        && isValidLeaveRequest(incoming())
-        && incoming().id == requestId
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
-        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId))
-        && (
-          isAdmin() ||
-          (
-            incoming().userId == request.auth.uid &&
-            incoming().status == 'pending' &&
-            incoming().reviewedBy == '' &&
-            incoming().reviewNotes == ''
-          )
-        );
-
-      allow update: if isVerified()
-        && isValidId(requestId)
-        && isValidLeaveRequest(incoming())
-        && incoming().id == existing().id
-        && incoming().employeeId == existing().employeeId
-        && incoming().userId == existing().userId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && (
-          isAdmin() ||
-          (
-            existing().userId == request.auth.uid &&
-            existing().status == 'pending' &&
-            incoming().status == 'cancelled' &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
-          )
-        );
-
-      allow delete: if isValidId(requestId) && isAdmin();
-    }
-
-    match /test/{docId} {
-      allow get: if isValidId(docId) && isSignedIn();
-      allow list: if isAdmin();
-      allow create, update: if isValidId(docId)
-        && docId == 'connection'
-        && isAdmin()
-        && isValidTestConnection(incoming())
-        && incoming().id == docId
-        && incoming().updatedAt == request.time;
-      allow delete: if false;
-    }
-
-    match /appSettings/{settingId} {
-      allow get: if isValidId(settingId) && isAdmin();
-      allow list: if isAdmin();
-      allow create, update: if isValidId(settingId)
-        && isAdmin()
-        && isValidAppSettings(incoming())
-        && incoming().id == settingId
-        && incoming().updatedAt == request.time;
-      allow delete: if false;
-    }
-
     match /lateSettlements/{settlementId} {
       allow get: if isValidId(settlementId) && isAdmin();
-      allow list: if isAdmin();
-      allow create: if isValidId(settlementId)
-        && isAdmin()
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(settlementId)
         && isValidLateSettlement(incoming())
+        && isAdmin()
         && incoming().id == settlementId
-        && incoming().createdAt == request.time;
-      allow update: if isValidId(settlementId)
-        && isAdmin()
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId));
+      allow update: if isVerified()
+        && isValidId(settlementId)
         && isValidLateSettlement(incoming())
+        && isAdmin()
         && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt;
+        && incoming().employeeId == existing().employeeId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'employeeName', 'yearMonth', 'date', 'method', 'minutesSettled',
+          'extraWorkStart', 'extraWorkEnd', 'deductionAmount', 'notes', 'recordedBy', 'updatedAt'
+        ]);
       allow delete: if isValidId(settlementId) && isAdmin();
+    }
+
+    match /payrollSettings/{settingId} {
+      allow get: if isValidId(settingId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(settingId)
+        && isValidPayrollSettings(incoming())
+        && isAdmin()
+        && incoming().id == settingId
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(settingId)
+        && isValidPayrollSettings(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'defaultOvertimeHourlyRate', 'defaultAlphaDeductionPerDay',
+          'defaultIzinDeductionPerDay', 'autoDeductRemainingLate',
+          'bpjsKesehatanPct', 'bpjsKetenagakerjaanPct', 'paydayDayOfMonth', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    match /payrollProfiles/{employeeId} {
+      allow get: if isValidId(employeeId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(employeeId)
+        && isValidPayrollProfile(incoming())
+        && isAdmin()
+        && incoming().employeeId == employeeId
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(employeeId));
+      allow update: if isVerified()
+        && isValidId(employeeId)
+        && isValidPayrollProfile(incoming())
+        && isAdmin()
+        && incoming().employeeId == existing().employeeId
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'baseSalary', 'positionAllowance', 'transportMealAllowance', 'otherAllowance',
+          'overtimeHourlyRate', 'paydayDay', 'paymentMethod', 'bankName',
+          'bankAccountNumber', 'bankAccountHolder', 'notes', 'updatedAt'
+        ]);
+      allow delete: if isValidId(employeeId) && isAdmin();
+    }
+
+    match /payrollAdjustments/{adjustmentId} {
+      allow get: if isValidId(adjustmentId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(adjustmentId)
+        && isValidPayrollAdjustment(incoming())
+        && isAdmin()
+        && incoming().id == adjustmentId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId));
+      allow update: if isVerified()
+        && isValidId(adjustmentId)
+        && isValidPayrollAdjustment(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'employeeName', 'yearMonth', 'type', 'title', 'amount', 'date', 'notes', 'updatedAt'
+        ]);
+      allow delete: if isValidId(adjustmentId) && isAdmin();
+    }
+
+    match /payrollRaises/{raiseId} {
+      allow get: if isValidId(raiseId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(raiseId)
+        && isValidPayrollRaise(incoming())
+        && isAdmin()
+        && incoming().id == raiseId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId));
+      allow update: if isVerified()
+        && isValidId(raiseId)
+        && isValidPayrollRaise(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'employeeName', 'effectiveMonth', 'raiseDate', 'method', 'percentIncrease',
+          'previousBaseSalary', 'newBaseSalary', 'previousPositionAllowance', 'newPositionAllowance',
+          'previousTransportMealAllowance', 'newTransportMealAllowance',
+          'previousOtherAllowance', 'newOtherAllowance', 'reason', 'notes', 'appliedToProfile', 'updatedAt'
+        ]);
+      allow delete: if isValidId(raiseId) && isAdmin();
+    }
+
+    match /payrollStatuses/{statusId} {
+      allow get: if isValidId(statusId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(statusId)
+        && isValidPayrollStatus(incoming())
+        && isAdmin()
+        && incoming().id == statusId
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId));
+      allow update: if isVerified()
+        && isValidId(statusId)
+        && isValidPayrollStatus(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().employeeId == existing().employeeId
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'yearMonth', 'status', 'paidAt', 'updatedAt'
+        ]);
+      allow delete: if isValidId(statusId) && isAdmin();
     }
 
     match /financeAccounts/{accountId} {
       allow get: if isValidId(accountId) && isAdmin();
-      allow list: if isAdmin();
-      allow create, update: if isValidId(accountId)
-        && isAdmin()
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(accountId)
         && isValidFinanceAccount(incoming())
+        && isAdmin()
         && incoming().id == accountId
+        && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(accountId)
+        && isValidFinanceAccount(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'kind', 'bankName', 'accountNumber', 'holderName', 'openingBalance', 'updatedAt'
+        ]);
       allow delete: if isValidId(accountId) && isAdmin();
     }
 
     match /financeCategories/{categoryId} {
       allow get: if isValidId(categoryId) && isAdmin();
-      allow list: if isAdmin();
-      allow create, update: if isValidId(categoryId)
-        && isAdmin()
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(categoryId)
         && isValidFinanceCategory(incoming())
+        && isAdmin()
         && incoming().id == categoryId
+        && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(categoryId)
+        && isValidFinanceCategory(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'type', 'description', 'updatedAt'
+        ]);
       allow delete: if isValidId(categoryId) && isAdmin();
     }
 
     match /financeTransactions/{transactionId} {
       allow get: if isValidId(transactionId) && isAdmin();
-      allow list: if isAdmin();
-      allow create, update: if isValidId(transactionId)
-        && isAdmin()
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(transactionId)
         && isValidFinanceTransaction(incoming())
+        && isAdmin()
         && incoming().id == transactionId
-        && incoming().updatedAt == request.time;
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/financeCategories/$(incoming().categoryId));
+      allow update: if isVerified()
+        && isValidId(transactionId)
+        && isValidFinanceTransaction(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/financeCategories/$(incoming().categoryId))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'date', 'type', 'method', 'categoryId', 'categoryName', 'accountId',
+          'title', 'counterparty', 'bankAccount', 'referenceNo', 'amount',
+          'notes', 'recordedBy', 'updatedAt'
+        ]);
       allow delete: if isValidId(transactionId) && isAdmin();
     }
 
     match /financeTransfers/{transferId} {
       allow get: if isValidId(transferId) && isAdmin();
-      allow list: if isAdmin();
-      allow create, update: if isValidId(transferId)
-        && isAdmin()
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(transferId)
         && isValidFinanceTransfer(incoming())
+        && isAdmin()
         && incoming().id == transferId
-        && incoming().updatedAt == request.time;
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().fromAccountId != incoming().toAccountId
+        && exists(/databases/$(database)/documents/financeAccounts/$(incoming().fromAccountId))
+        && exists(/databases/$(database)/documents/financeAccounts/$(incoming().toAccountId));
+      allow update: if isVerified()
+        && isValidId(transferId)
+        && isValidFinanceTransfer(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().fromAccountId != incoming().toAccountId
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'date', 'fromAccountId', 'fromAccountName', 'toAccountId', 'toAccountName',
+          'amount', 'referenceNo', 'notes', 'recordedBy', 'updatedAt'
+        ]);
       allow delete: if isValidId(transferId) && isAdmin();
+    }
+
+    match /securityConfig/{configId} {
+      allow get: if isValidId(configId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified()
+        && isValidId(configId)
+        && isValidSecurityConfig(incoming())
+        && isAdmin()
+        && incoming().id == configId
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(configId)
+        && isValidSecurityConfig(incoming())
+        && isAdmin()
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'adminPinSha256', 'databasePinSha256', 'updatedAt'
+        ]);
+      allow delete: if false;
     }
   }
 }

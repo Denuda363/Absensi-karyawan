@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Clock,
   Layers,
-  Plus,
   Search,
   Users,
   X,
@@ -15,25 +14,19 @@ import {
   AppSettings,
   ATTENDANCE_STATUS_META,
   AttendanceRecord,
-  AttendanceStatus,
   calculateLatenessMinutes,
   Employee,
   formatIndonesianDate,
   formatOffDaysSummary,
   formatShortDateLabel,
-  getCurrentTimeStr,
   getCurrentYearMonth,
-  getEmployeeShiftTolerance,
   getLastNDates,
   getTodayDateStr,
   isEmployeeOffDay,
   NavSection,
+  resolveAttendanceShift,
   ShiftConfig,
 } from '../types';
-import {
-  bulkMarkScheduledOffDays,
-  createAttendanceRecord,
-} from '../services/attendanceService';
 import { RealtimeClock } from './RealtimeClock';
 
 interface OverviewViewProps {
@@ -42,9 +35,7 @@ interface OverviewViewProps {
   shifts?: ShiftConfig[];
   settings?: AppSettings;
   loading: boolean;
-  onRefresh: () => Promise<void>;
   onNavigate: (nav: NavSection) => void;
-  onOpenManualEntry: (employeeId?: string, status?: AttendanceStatus) => void;
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({
@@ -53,15 +44,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   shifts = [],
   settings,
   loading,
-  onRefresh,
   onNavigate,
-  onOpenManualEntry,
 }) => {
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
-  const [busyEmpId, setBusyEmpId] = useState<string | null>(null);
-  const [bulkBusy, setBulkBusy] = useState<boolean>(false);
-  const [bannerMessage, setBannerMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [unloggedSearch, setUnloggedSearch] = useState<string>('');
 
   const today = getTodayDateStr();
@@ -125,7 +110,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       if (rec.status !== 'terlambat' || !rec.checkIn) return acc;
       const emp = employees.find((e) => e.id === rec.employeeId);
       if (!emp) return acc;
-      return acc + calculateLatenessMinutes(rec.checkIn, emp.shiftStart);
+      const shiftInfo = resolveAttendanceShift(emp, shifts, rec.shiftName);
+      return acc + calculateLatenessMinutes(rec.checkIn, shiftInfo.shiftStart);
     }, 0);
 
     return {
@@ -138,7 +124,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       ratePct,
       totalLateMinutesToday,
     };
-  }, [todayRecords, employeesWorkingToday.length, employees]);
+  }, [todayRecords, employeesWorkingToday.length, employees, shifts]);
 
   const monthlyOvertimeHours = useMemo(() => {
     return attendanceRecords
@@ -255,80 +241,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       .sort((a, b) => b.attendanceRate - a.attendanceRate);
   }, [activeEmployees, todayRecords, attendanceRecords, today, currentMonth]);
 
-  const handleQuickLogEmployee = async (
-    emp: Employee,
-    status: AttendanceStatus
-  ) => {
-    setBusyEmpId(emp.id);
-    setBannerMessage(null);
-    setErrorMessage(null);
-    try {
-      let quickCheckIn = '';
-      if (status === 'hadir') {
-        quickCheckIn = emp.shiftStart;
-      } else if (status === 'terlambat') {
-        const nowStr = getCurrentTimeStr();
-        const tol = getEmployeeShiftTolerance(emp, shifts);
-        if (calculateLatenessMinutes(nowStr, emp.shiftStart) > tol) {
-          quickCheckIn = nowStr;
-        } else {
-          const [sh, sm] = emp.shiftStart.split(':').map(Number);
-          const fallbackMin =
-            (isNaN(sh) || isNaN(sm) ? 8 * 60 : sh * 60 + sm) +
-            Math.max(15, tol + 5);
-          const hh = String(Math.floor(fallbackMin / 60) % 24).padStart(2, '0');
-          const mm = String(fallbackMin % 60).padStart(2, '0');
-          quickCheckIn = `${hh}:${mm}`;
-        }
-      }
-
-      await createAttendanceRecord({
-        employeeId: emp.id,
-        date: today,
-        status,
-        checkIn: quickCheckIn,
-        checkOut: '',
-        overtimeHours: 0,
-        notes:
-          status === 'hadir'
-            ? 'Dicatat masuk oleh Admin HR'
-            : status === 'terlambat'
-            ? 'Dicatat terlambat oleh Admin HR'
-            : 'Dicatat izin oleh Admin HR',
-      });
-      await onRefresh();
-      setBannerMessage(
-        `${emp.name} dicatat sebagai ${ATTENDANCE_STATUS_META[status].label}.`
-      );
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : `Gagal mencatat absensi ${emp.name}.`
-      );
-    } finally {
-      setBusyEmpId(null);
-    }
-  };
-
-  const handleBulkMarkOff = async () => {
-    setBulkBusy(true);
-    setBannerMessage(null);
-    setErrorMessage(null);
-    try {
-      const res = await bulkMarkScheduledOffDays(today);
-      await onRefresh();
-      setBannerMessage(
-        res.createdCount > 0
-          ? `${res.createdCount} karyawan libur terjadwal hari ini telah ditandai otomatis.`
-          : 'Seluruh karyawan libur hari ini sudah memiliki catatan.'
-      );
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal menandai staf libur hari ini.'
-      );
-    } finally {
-      setBulkBusy(false);
-    }
-  };
+  const _unusedOffCount = employeesOffToday.length;
+  void _unusedOffCount;
 
   if (loading) {
     return (
@@ -348,10 +262,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Executive Command Header */}
-      <section className="bg-white border border-slate-200 rounded-xl p-6">
-        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+      <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 sm:gap-5">
           <div className="min-w-0">
             <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
               <span>{formatIndonesianDate(today)}</span>
@@ -360,69 +274,39 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 {activeEmployees.length} Karyawan Aktif
               </span>
             </div>
-            <h2 className="font-display text-xl font-bold text-slate-900 mt-1">
+            <h2 className="font-display text-lg sm:text-xl font-bold text-slate-900 mt-1">
               Operasional Kehadiran — {settings?.companyName || 'KaryaPresensi'}
             </h2>
-            {bannerMessage && (
-              <div className="mt-2.5 inline-flex items-center gap-2 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-md">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>{bannerMessage}</span>
-              </div>
-            )}
-            {errorMessage && (
-              <div className="mt-2.5 inline-flex items-center gap-2 text-xs font-medium text-red-800 bg-red-50 border border-red-200 px-3 py-1.5 rounded-md">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 shrink-0">
             <RealtimeClock variant="chronometer" />
 
-            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-              {unloggedOffToday.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleBulkMarkOff}
-                  disabled={bulkBusy}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <CalendarOff className="w-3.5 h-3.5" />
-                  <span>
-                    {bulkBusy
-                      ? 'Memproses...'
-                      : `Tandai ${unloggedOffToday.length} Staf Libur`}
-                  </span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => onOpenManualEntry()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Input Absensi</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('matriks')}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer w-full sm:w-auto min-h-[40px]"
+            >
+              <span>Buka Matriks Absensi</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </section>
 
       {/* 4-Column Executive KPI Strip */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Tingkat Kehadiran Hari Ini</span>
-            <Users className="w-4 h-4 text-slate-400" />
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+          <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-slate-500">
+            <span className="truncate">Kehadiran Hari Ini</span>
+            <Users className="w-4 h-4 text-slate-400 shrink-0" />
           </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold text-slate-900 tabular-nums">
+          <div className="mt-2 flex flex-wrap items-baseline justify-between gap-1">
+            <span className="font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
               {todayMetrics.ratePct}%
             </span>
-            <span className="font-mono text-xs text-slate-500 tabular-nums">
-              {todayMetrics.presentTotal} / {todayMetrics.target} wajib masuk
+            <span className="font-mono text-[11px] sm:text-xs text-slate-500 tabular-nums">
+              {todayMetrics.presentTotal}/{todayMetrics.target} masuk
             </span>
           </div>
           <div className="mt-3 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -433,62 +317,62 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Ketepatan Masuk Shift</span>
-            <AlertTriangle className="w-4 h-4 text-slate-400" />
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+          <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-slate-500">
+            <span className="truncate">Ketepatan Shift</span>
+            <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+          <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums leading-tight">
             {todayMetrics.hadirCount}
-            <span className="text-sm font-normal text-slate-500"> tepat · </span>
+            <span className="text-xs sm:text-sm font-normal text-slate-500"> tepat · </span>
             <span className={todayMetrics.terlambatCount > 0 ? 'text-amber-700' : 'text-slate-900'}>
               {todayMetrics.terlambatCount}
             </span>
-            <span className="text-sm font-normal text-slate-500"> telat</span>
+            <span className="text-xs sm:text-sm font-normal text-slate-500"> telat</span>
           </div>
-          <div className="mt-2.5 text-xs text-slate-500 font-mono tabular-nums">
+          <div className="mt-2 text-[11px] sm:text-xs text-slate-500 font-mono tabular-nums truncate">
             {todayMetrics.totalLateMinutesToday > 0
-              ? `Akumulasi telat: +${todayMetrics.totalLateMinutesToday} mnt`
-              : 'Belum ada telat tanpa izin'}
+              ? `Telat: +${todayMetrics.totalLateMinutesToday} mnt`
+              : 'Belum ada telat'}
             {todayMetrics.izinTerlambatCount > 0 && (
               <span className="text-teal-700 font-semibold">
                 {' '}
-                · {todayMetrics.izinTerlambatCount} izin telat
+                · {todayMetrics.izinTerlambatCount} izin
               </span>
             )}
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Jadwal Libur Hari Ini</span>
-            <CalendarOff className="w-4 h-4 text-slate-400" />
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+          <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-slate-500">
+            <span className="truncate">Libur Hari Ini</span>
+            <CalendarOff className="w-4 h-4 text-slate-400 shrink-0" />
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+          <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
             {employeesOffToday.length}
-            <span className="text-sm font-normal text-slate-500">
+            <span className="text-xs sm:text-sm font-normal text-slate-500">
               {' '}
-              / {activeEmployees.length} karyawan
+              / {activeEmployees.length} staf
             </span>
           </div>
-          <div className="mt-2.5 text-xs text-slate-500 truncate">
+          <div className="mt-2 text-[11px] sm:text-xs text-slate-500 truncate">
             {employeesOffToday.length > 0
               ? employeesOffToday.map((e) => e.name.split(' ')[0]).join(', ')
-              : 'Seluruh staf dijadwalkan masuk'}
+              : 'Semua masuk'}
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Jam Lembur (Bulan Ini)</span>
-            <Clock className="w-4 h-4 text-slate-400" />
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+          <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-slate-500">
+            <span className="truncate">Lembur Bulan Ini</span>
+            <Clock className="w-4 h-4 text-slate-400 shrink-0" />
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+          <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
             {monthlyOvertimeHours.toFixed(1)}
-            <span className="text-sm font-normal text-slate-500"> jam</span>
+            <span className="text-xs sm:text-sm font-normal text-slate-500"> jam</span>
           </div>
-          <div className="mt-2.5 text-xs text-slate-500">
-            Izin / Sakit / Alpha hari ini:{' '}
+          <div className="mt-2 text-[11px] sm:text-xs text-slate-500 truncate">
+            Izin/Sakit/Alpha:{' '}
             <span className="font-mono font-semibold text-slate-700 tabular-nums">
               {todayMetrics.izinSakitAlpha}
             </span>
@@ -497,9 +381,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       </section>
 
       {/* Enterprise Analytics Row: 7-Day Trend Chart + Department Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-stretch">
         {/* Left: 7-Day Attendance Stacked Bar Chart */}
-        <section className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between h-full">
+        <section className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col justify-between h-full">
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
               <div>
@@ -531,10 +415,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             </div>
 
             {/* Interactive SVG Stacked Bar Chart */}
-            <div className="mt-6">
-              <div className="grid grid-cols-7 gap-3 items-end h-44 px-1">
+            <div className="mt-5 sm:mt-6">
+              <div className="grid grid-cols-7 gap-1 sm:gap-3 items-end h-40 sm:h-44 px-0.5 sm:px-1">
                 {sevenDayTrend.map((day) => {
-                  const chartHeight = 144;
+                  const chartHeight = 132;
                   const scale = (val: number) =>
                     Math.round((val / maxTrendTotal) * chartHeight);
                   const hHadir = scale(day.hadir);
@@ -550,11 +434,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                       onMouseEnter={() => setHoveredDate(day.date)}
                       onFocus={() => setHoveredDate(day.date)}
                       onClick={() => setHoveredDate(day.date)}
-                      className={`flex flex-col items-center justify-end h-full group cursor-pointer rounded-lg px-1 pt-2 transition-colors ${
-                        isFocused ? 'bg-slate-50' : 'hover:bg-slate-50/70'
+                      className={`flex flex-col items-center justify-end h-full group cursor-pointer rounded-lg px-0.5 sm:px-1 pt-2 transition-colors ${
+                        isFocused ? 'bg-slate-50 ring-1 ring-slate-200/80' : 'hover:bg-slate-50/70'
                       }`}
                     >
-                      <div className="w-full max-w-[34px] flex flex-col-reverse overflow-hidden rounded-t-md">
+                      <div className="w-full max-w-[26px] sm:max-w-[34px] flex flex-col-reverse overflow-hidden rounded-t-md">
                         {day.hadir > 0 && (
                           <div
                             style={{ height: `${Math.max(4, hHadir)}px` }}
@@ -584,7 +468,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                         )}
                       </div>
                       <div
-                        className={`mt-2 font-mono text-[11px] tabular-nums whitespace-nowrap ${
+                        className={`mt-2 font-mono text-[10px] sm:text-[11px] tabular-nums whitespace-nowrap ${
                           isFocused ? 'font-bold text-blue-700' : 'text-slate-500'
                         }`}
                       >
@@ -621,7 +505,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </section>
 
         {/* Right: Department Attendance Analytics */}
-        <section className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between h-full">
+        <section className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col justify-between h-full">
           <div>
             <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
@@ -643,8 +527,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             <div className="mt-4 space-y-4">
               {departmentStats.map((dept) => (
                 <div key={dept.department} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="font-semibold text-slate-900 truncate pr-2">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs">
+                    <div className="font-semibold text-slate-900 truncate min-w-0">
                       {dept.department}
                       <span className="font-normal text-slate-500 ml-1.5">
                         ({dept.staffCount} staf)
@@ -678,12 +562,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           )}
           </div>
 
-          <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-xs text-slate-500">Lihat laporan lengkap per karyawan</span>
+          <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-500">Laporan lengkap per karyawan</span>
             <button
               type="button"
               onClick={() => onNavigate('rekap')}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer"
+              className="inline-flex items-center gap-1 py-1.5 px-2 text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer shrink-0"
             >
               <span>Buka Rekap Bulanan</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -693,39 +577,49 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       </div>
 
       {/* Operational Action Row: Unlogged Mandatory Staff + Today's Off-Day & Log */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-stretch">
         {/* Left: Actionable Unlogged Staff Today */}
-        <section className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 flex flex-col">
-          <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100">
+        <section className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 pb-4 border-b border-slate-100">
             <div>
               <h3 className="font-display text-base font-semibold text-slate-900">
                 Wajib Masuk — Belum Diabsen Hari Ini
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Klik cepat untuk mencatat kehadiran karyawan yang terjadwal masuk hari ini
+                Daftar monitoring harian (input absensi hanya dilakukan di halaman Matriks Daftar Hadir)
               </p>
             </div>
-            <span className="font-mono text-xs font-semibold text-slate-700 tabular-nums shrink-0">
-              {unloggedWorkingToday.length} Belum Tercatat
-            </span>
+            <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+              <span className="font-mono text-xs font-semibold text-slate-700 tabular-nums">
+                {unloggedWorkingToday.length} Belum Tercatat
+              </span>
+              <button
+                type="button"
+                onClick={() => onNavigate('matriks')}
+                className="inline-flex items-center gap-1 py-1 px-2 text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer"
+              >
+                <span>Ke Matriks</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {unloggedWorkingToday.length > 0 && (
             <div className="mt-3 relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={unloggedSearch}
                 onChange={(e) => setUnloggedSearch(e.target.value)}
-                placeholder="Cari nama, kode, atau divisi untuk absen cepat..."
-                className="w-full pl-8 pr-8 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                placeholder="Cari nama, kode, atau divisi..."
+                className="w-full pl-9 pr-9 py-2.5 sm:py-2 text-sm sm:text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
               />
               {unloggedSearch && (
                 <button
                   type="button"
                   onClick={() => setUnloggedSearch('')}
                   aria-label="Hapus pencarian"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -740,7 +634,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <span>Seluruh karyawan wajib masuk hari ini sudah diabsen</span>
               </div>
               <p className="text-xs text-slate-500">
-                Anda dapat mengoreksi atau menambah jam lembur melalui menu Matriks Daftar Hadir.
+                Untuk mengubah atau menginput absensi, buka menu Matriks Daftar Hadir.
               </p>
             </div>
           ) : filteredUnloggedToday.length === 0 ? (
@@ -752,53 +646,20 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               {filteredUnloggedToday.map((emp) => (
                 <div
                   key={emp.id}
-                  className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                  className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3"
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-slate-900 truncate">
                       {emp.name}
                     </div>
                     <div className="text-xs text-slate-500 truncate">
-                      <span className="font-mono">{emp.employeeCode}</span> · {emp.department} ·
-                      Shift{' '}
-                      <span className="font-mono tabular-nums">
-                        {emp.shiftStart}–{emp.shiftEnd}
-                      </span>
+                      <span className="font-mono">{emp.employeeCode}</span> · {emp.department}
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      disabled={busyEmpId === emp.id}
-                      onClick={() => handleQuickLogEmployee(emp, 'hadir')}
-                      className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Hadir
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyEmpId === emp.id}
-                      onClick={() => handleQuickLogEmployee(emp, 'terlambat')}
-                      className="px-2.5 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Terlambat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenManualEntry(emp.id, 'izin_terlambat')}
-                      className="px-2.5 py-1.5 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100 whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Izin Telat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenManualEntry(emp.id)}
-                      className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200 whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Input Detail
-                    </button>
-                  </div>
+                  <span className="self-start sm:self-auto px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-md whitespace-nowrap shrink-0 font-mono tabular-nums">
+                    {emp.shiftName} ({emp.shiftStart}–{emp.shiftEnd})
+                  </span>
                 </div>
               ))}
             </div>
@@ -806,7 +667,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </section>
 
         {/* Right: Staff Off Today & Recent Today Records */}
-        <section className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6 space-y-6">
+        <section className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-6">
           <div>
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <h3 className="font-display text-base font-semibold text-slate-900">

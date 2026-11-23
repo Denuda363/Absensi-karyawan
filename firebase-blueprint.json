@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Private user account and role mapping isolated from public employee roster.",
+      "description": "Private user account and role mapping isolated from employee directory.",
       "type": "object",
       "properties": {
         "uid": {
@@ -14,6 +14,7 @@
         "email": {
           "type": "string",
           "format": "email",
+          "minLength": 3,
           "maxLength": 150
         },
         "displayName": {
@@ -42,9 +43,82 @@
       },
       "required": ["uid", "email", "displayName", "role", "employeeId", "createdAt", "updatedAt"]
     },
+    "TestConnectionDoc": {
+      "title": "TestConnectionDoc",
+      "description": "Firestore connectivity verification document.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "status", "updatedAt"]
+    },
+    "AppSettingsDoc": {
+      "title": "AppSettingsDoc",
+      "description": "Company identity, shift schedule configuration, and company profile.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "companyName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "companySubtitle": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "lateDeductionPerMinute": {
+          "type": "number"
+        },
+        "shiftCount": {
+          "type": "number"
+        },
+        "shifts": {
+          "type": "array",
+          "description": "Native list of shift configuration objects (max 20 items)."
+        },
+        "companyProfile": {
+          "type": "object",
+          "description": "Native map storing legal identity, leadership, and branch offices (max 30 branches)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "companyName",
+        "companySubtitle",
+        "lateDeductionPerMinute",
+        "shiftCount",
+        "shifts",
+        "companyProfile",
+        "updatedAt"
+      ]
+    },
     "Employee": {
       "title": "Employee",
-      "description": "Employee work profile and individual weekly day-off schedule without PII.",
+      "description": "Employee work profile and individual weekly/custom off-day schedule.",
       "type": "object",
       "properties": {
         "id": {
@@ -134,7 +208,7 @@
     },
     "AttendanceRecord": {
       "title": "AttendanceRecord",
-      "description": "Manual employee attendance log entry.",
+      "description": "Matrix attendance log including overtime hours and late-arrival permit fields.",
       "type": "object",
       "properties": {
         "id": {
@@ -179,6 +253,9 @@
           "maxLength": 5,
           "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$|^$"
         },
+        "overtimeHours": {
+          "type": "number"
+        },
         "entryType": {
           "type": "string",
           "enum": ["manual_karyawan", "manual_admin"]
@@ -186,6 +263,19 @@
         "notes": {
           "type": "string",
           "maxLength": 300
+        },
+        "latePermitReason": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "latePermitEstimatedArrival": {
+          "type": "string",
+          "maxLength": 5,
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$|^$"
+        },
+        "latePermitApprovedBy": {
+          "type": "string",
+          "maxLength": 100
         },
         "recordedBy": {
           "type": "string",
@@ -210,214 +300,16 @@
         "status",
         "checkIn",
         "checkOut",
+        "overtimeHours",
         "entryType",
         "notes",
+        "latePermitReason",
+        "latePermitEstimatedArrival",
+        "latePermitApprovedBy",
         "recordedBy",
         "createdAt",
         "updatedAt"
       ]
-    },
-    "OvertimeRequest": {
-      "title": "OvertimeRequest",
-      "description": "Employee overtime request with approval workflow.",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "employeeId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "employeeName": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 100
-        },
-        "userId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "date": {
-          "type": "string",
-          "maxLength": 10,
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-        },
-        "startTime": {
-          "type": "string",
-          "maxLength": 5,
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "endTime": {
-          "type": "string",
-          "maxLength": 5,
-          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
-        },
-        "durationHours": {
-          "type": "number"
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 5,
-          "maxLength": 400
-        },
-        "status": {
-          "type": "string",
-          "enum": ["pending", "approved", "rejected", "cancelled"]
-        },
-        "reviewedBy": {
-          "type": "string",
-          "maxLength": 128
-        },
-        "reviewNotes": {
-          "type": "string",
-          "maxLength": 300
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "employeeId",
-        "employeeName",
-        "userId",
-        "date",
-        "startTime",
-        "endTime",
-        "durationHours",
-        "reason",
-        "status",
-        "reviewedBy",
-        "reviewNotes",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "LeaveRequest": {
-      "title": "LeaveRequest",
-      "description": "Employee leave, permission, or sick day request with approval workflow.",
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "employeeId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "employeeName": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 100
-        },
-        "userId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "leaveType": {
-          "type": "string",
-          "enum": ["cuti_tahunan", "izin_pribadi", "sakit", "izin_khusus"]
-        },
-        "startDate": {
-          "type": "string",
-          "maxLength": 10,
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-        },
-        "endDate": {
-          "type": "string",
-          "maxLength": 10,
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-        },
-        "totalDays": {
-          "type": "number"
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 5,
-          "maxLength": 400
-        },
-        "status": {
-          "type": "string",
-          "enum": ["pending", "approved", "rejected", "cancelled"]
-        },
-        "reviewedBy": {
-          "type": "string",
-          "maxLength": 128
-        },
-        "reviewNotes": {
-          "type": "string",
-          "maxLength": 300
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "employeeId",
-        "employeeName",
-        "userId",
-        "leaveType",
-        "startDate",
-        "endDate",
-        "totalDays",
-        "reason",
-        "status",
-        "reviewedBy",
-        "reviewNotes",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "TestConnectionDoc": {
-      "title": "TestConnectionDoc",
-      "description": "Firestore connectivity check document.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "status": { "type": "string", "minLength": 1, "maxLength": 32 },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["id", "status", "updatedAt"]
-    },
-    "AppSettingsDoc": {
-      "title": "AppSettingsDoc",
-      "description": "Company general settings and shifts snapshot.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "companyName": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "companySubtitle": { "type": "string", "maxLength": 120 },
-        "lateDeductionPerMinute": { "type": "number" },
-        "shiftCount": { "type": "number" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["id", "companyName", "companySubtitle", "lateDeductionPerMinute", "shiftCount", "updatedAt"]
     },
     "LateSettlementDoc": {
       "title": "LateSettlementDoc",
@@ -431,11 +323,186 @@
         "date": { "type": "string", "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "method": { "type": "string", "enum": ["tambahan_jam_kerja", "potongan_gaji"] },
         "minutesSettled": { "type": "number" },
+        "extraWorkStart": { "type": "string", "maxLength": 5, "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$|^$" },
+        "extraWorkEnd": { "type": "string", "maxLength": 5, "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$|^$" },
+        "deductionAmount": { "type": "number" },
         "notes": { "type": "string", "maxLength": 300 },
         "recordedBy": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "employeeId", "employeeName", "yearMonth", "date", "method", "minutesSettled", "notes", "recordedBy", "createdAt"]
+      "required": [
+        "id",
+        "employeeId",
+        "employeeName",
+        "yearMonth",
+        "date",
+        "method",
+        "minutesSettled",
+        "extraWorkStart",
+        "extraWorkEnd",
+        "deductionAmount",
+        "notes",
+        "recordedBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PayrollSettingsDoc": {
+      "title": "PayrollSettingsDoc",
+      "description": "Global payroll policy rates, BPJS percentages, and default payday.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "defaultOvertimeHourlyRate": { "type": "number" },
+        "defaultAlphaDeductionPerDay": { "type": "number" },
+        "defaultIzinDeductionPerDay": { "type": "number" },
+        "autoDeductRemainingLate": { "type": "boolean" },
+        "bpjsKesehatanPct": { "type": "number" },
+        "bpjsKetenagakerjaanPct": { "type": "number" },
+        "paydayDayOfMonth": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "defaultOvertimeHourlyRate",
+        "defaultAlphaDeductionPerDay",
+        "defaultIzinDeductionPerDay",
+        "autoDeductRemainingLate",
+        "bpjsKesehatanPct",
+        "bpjsKetenagakerjaanPct",
+        "paydayDayOfMonth",
+        "updatedAt"
+      ]
+    },
+    "PayrollProfileDoc": {
+      "title": "PayrollProfileDoc",
+      "description": "Confidential employee salary structure and bank account profile.",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "baseSalary": { "type": "number" },
+        "positionAllowance": { "type": "number" },
+        "transportMealAllowance": { "type": "number" },
+        "otherAllowance": { "type": "number" },
+        "overtimeHourlyRate": { "type": "number" },
+        "paydayDay": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["transfer", "tunai"] },
+        "bankName": { "type": "string", "maxLength": 60 },
+        "bankAccountNumber": { "type": "string", "maxLength": 60 },
+        "bankAccountHolder": { "type": "string", "maxLength": 100 },
+        "notes": { "type": "string", "maxLength": 300 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "employeeId",
+        "baseSalary",
+        "positionAllowance",
+        "transportMealAllowance",
+        "otherAllowance",
+        "overtimeHourlyRate",
+        "paydayDay",
+        "paymentMethod",
+        "bankName",
+        "bankAccountNumber",
+        "bankAccountHolder",
+        "notes",
+        "updatedAt"
+      ]
+    },
+    "PayrollAdjustmentDoc": {
+      "title": "PayrollAdjustmentDoc",
+      "description": "Monthly payroll bonus, extra allowance, or deduction adjustment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "yearMonth": { "type": "string", "maxLength": 7, "pattern": "^\\d{4}-\\d{2}$" },
+        "type": { "type": "string", "enum": ["bonus", "tunjangan", "potongan"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "employeeId",
+        "employeeName",
+        "yearMonth",
+        "type",
+        "title",
+        "amount",
+        "date",
+        "notes",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PayrollRaiseDoc": {
+      "title": "PayrollRaiseDoc",
+      "description": "Employee salary raise history record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "effectiveMonth": { "type": "string", "maxLength": 7, "pattern": "^\\d{4}-\\d{2}$" },
+        "raiseDate": { "type": "string", "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "method": { "type": "string", "enum": ["nominal", "persentase"] },
+        "percentIncrease": { "type": "number" },
+        "previousBaseSalary": { "type": "number" },
+        "newBaseSalary": { "type": "number" },
+        "previousPositionAllowance": { "type": "number" },
+        "newPositionAllowance": { "type": "number" },
+        "previousTransportMealAllowance": { "type": "number" },
+        "newTransportMealAllowance": { "type": "number" },
+        "previousOtherAllowance": { "type": "number" },
+        "newOtherAllowance": { "type": "number" },
+        "reason": { "type": "string", "maxLength": 200 },
+        "notes": { "type": "string", "maxLength": 300 },
+        "appliedToProfile": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "employeeId",
+        "employeeName",
+        "effectiveMonth",
+        "raiseDate",
+        "method",
+        "percentIncrease",
+        "previousBaseSalary",
+        "newBaseSalary",
+        "previousPositionAllowance",
+        "newPositionAllowance",
+        "previousTransportMealAllowance",
+        "newTransportMealAllowance",
+        "previousOtherAllowance",
+        "newOtherAllowance",
+        "reason",
+        "notes",
+        "appliedToProfile",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PayrollStatusDoc": {
+      "title": "PayrollStatusDoc",
+      "description": "Monthly payroll approval and disbursement status per employee.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "employeeId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "yearMonth": { "type": "string", "maxLength": 7, "pattern": "^\\d{4}-\\d{2}$" },
+        "status": { "type": "string", "enum": ["draft", "disetujui", "dibayar"] },
+        "paidAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "employeeId", "yearMonth", "status", "paidAt", "updatedAt"]
     },
     "FinanceAccountDoc": {
       "title": "FinanceAccountDoc",
@@ -449,9 +516,20 @@
         "accountNumber": { "type": "string", "maxLength": 60 },
         "holderName": { "type": "string", "maxLength": 100 },
         "openingBalance": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "name", "kind", "bankName", "accountNumber", "holderName", "openingBalance", "updatedAt"]
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "bankName",
+        "accountNumber",
+        "holderName",
+        "openingBalance",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "FinanceCategoryDoc": {
       "title": "FinanceCategoryDoc",
@@ -462,9 +540,10 @@
         "name": { "type": "string", "minLength": 1, "maxLength": 100 },
         "type": { "type": "string", "enum": ["pendapatan", "pengeluaran"] },
         "description": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "name", "type", "description", "updatedAt"]
+      "required": ["id", "name", "type", "description", "createdAt", "updatedAt"]
     },
     "FinanceTransactionDoc": {
       "title": "FinanceTransactionDoc",
@@ -479,11 +558,33 @@
         "categoryName": { "type": "string", "minLength": 1, "maxLength": 100 },
         "accountId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "title": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "counterparty": { "type": "string", "maxLength": 100 },
+        "bankAccount": { "type": "string", "maxLength": 120 },
+        "referenceNo": { "type": "string", "maxLength": 50 },
         "amount": { "type": "number" },
         "notes": { "type": "string", "maxLength": 300 },
+        "recordedBy": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "date", "type", "method", "categoryId", "categoryName", "accountId", "title", "amount", "notes", "updatedAt"]
+      "required": [
+        "id",
+        "date",
+        "type",
+        "method",
+        "categoryId",
+        "categoryName",
+        "accountId",
+        "title",
+        "counterparty",
+        "bankAccount",
+        "referenceNo",
+        "amount",
+        "notes",
+        "recordedBy",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "FinanceTransferDoc": {
       "title": "FinanceTransferDoc",
@@ -497,10 +598,38 @@
         "toAccountId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "toAccountName": { "type": "string", "minLength": 1, "maxLength": 100 },
         "amount": { "type": "number" },
+        "referenceNo": { "type": "string", "maxLength": 50 },
         "notes": { "type": "string", "maxLength": 300 },
+        "recordedBy": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "date", "fromAccountId", "fromAccountName", "toAccountId", "toAccountName", "amount", "notes", "updatedAt"]
+      "required": [
+        "id",
+        "date",
+        "fromAccountId",
+        "fromAccountName",
+        "toAccountId",
+        "toAccountName",
+        "amount",
+        "referenceNo",
+        "notes",
+        "recordedBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SecurityConfigDoc": {
+      "title": "SecurityConfigDoc",
+      "description": "SHA-256 hashes for Admin Mode and Database Settings PINs.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "adminPinSha256": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "databasePinSha256": { "type": "string", "maxLength": 64, "pattern": "^[a-f0-9]{64}$|^$" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "adminPinSha256", "databasePinSha256", "updatedAt"]
     }
   },
   "firestore": {
@@ -508,49 +637,65 @@
       "schema": { "$ref": "#/entities/UserProfile" },
       "description": "User authentication profile and role mapping (PII protected)."
     },
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/TestConnectionDoc" },
+      "description": "Firestore connectivity verification document."
+    },
+    "/appSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSettingsDoc" },
+      "description": "Company identity, shift schedule configuration, and profile metadata."
+    },
     "/employees/{employeeId}": {
       "schema": { "$ref": "#/entities/Employee" },
       "description": "Active employee profiles and per-employee day-off schedules."
     },
     "/attendance/{recordId}": {
       "schema": { "$ref": "#/entities/AttendanceRecord" },
-      "description": "Manual employee attendance logs."
-    },
-    "/overtimeRequests/{requestId}": {
-      "schema": { "$ref": "#/entities/OvertimeRequest" },
-      "description": "Employee overtime request records and approval statuses."
-    },
-    "/leaveRequests/{requestId}": {
-      "schema": { "$ref": "#/entities/LeaveRequest" },
-      "description": "Employee leave, permission, and sick request records."
-    },
-    "/test/{docId}": {
-      "schema": { "$ref": "#/entities/TestConnectionDoc" },
-      "description": "Connectivity verification document."
-    },
-    "/appSettings/{settingId}": {
-      "schema": { "$ref": "#/entities/AppSettingsDoc" },
-      "description": "Company settings and shift configuration metadata."
+      "description": "Matrix employee attendance logs including late-arrival permits and overtime."
     },
     "/lateSettlements/{settlementId}": {
       "schema": { "$ref": "#/entities/LateSettlementDoc" },
-      "description": "Employee late compensation settlements."
+      "description": "Employee late compensation and deduction settlements."
+    },
+    "/payrollSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/PayrollSettingsDoc" },
+      "description": "Global payroll policy settings (admin-only)."
+    },
+    "/payrollProfiles/{employeeId}": {
+      "schema": { "$ref": "#/entities/PayrollProfileDoc" },
+      "description": "Confidential employee salary profiles (admin-only)."
+    },
+    "/payrollAdjustments/{adjustmentId}": {
+      "schema": { "$ref": "#/entities/PayrollAdjustmentDoc" },
+      "description": "Monthly payroll adjustments such as bonuses, allowances, and deductions (admin-only)."
+    },
+    "/payrollRaises/{raiseId}": {
+      "schema": { "$ref": "#/entities/PayrollRaiseDoc" },
+      "description": "Employee salary raise history records (admin-only)."
+    },
+    "/payrollStatuses/{statusId}": {
+      "schema": { "$ref": "#/entities/PayrollStatusDoc" },
+      "description": "Monthly payroll approval and payment statuses (admin-only)."
     },
     "/financeAccounts/{accountId}": {
       "schema": { "$ref": "#/entities/FinanceAccountDoc" },
-      "description": "Company cash and bank accounts."
+      "description": "Company cash and bank accounts (admin-only)."
     },
     "/financeCategories/{categoryId}": {
       "schema": { "$ref": "#/entities/FinanceCategoryDoc" },
-      "description": "Company finance income/expense categories."
+      "description": "Company finance income/expense categories (admin-only)."
     },
     "/financeTransactions/{transactionId}": {
       "schema": { "$ref": "#/entities/FinanceTransactionDoc" },
-      "description": "Company financial transactions."
+      "description": "Company financial income and expense journal transactions (admin-only)."
     },
     "/financeTransfers/{transferId}": {
       "schema": { "$ref": "#/entities/FinanceTransferDoc" },
-      "description": "Internal transfers between cash and bank accounts."
+      "description": "Internal fund transfers between cash and bank accounts (admin-only)."
+    },
+    "/securityConfig/{configId}": {
+      "schema": { "$ref": "#/entities/SecurityConfigDoc" },
+      "description": "Admin and Database settings PIN SHA-256 digests (admin-only, delete forbidden)."
     }
   }
 }

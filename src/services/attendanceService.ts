@@ -85,6 +85,7 @@ export async function createAttendanceRecord(payload: {
   employeeId: string;
   date: string;
   status: AttendanceStatus;
+  shiftName?: string;
   checkIn: string;
   checkOut: string;
   overtimeHours: number;
@@ -108,6 +109,7 @@ export async function updateAttendanceRecord(
   recordId: string,
   payload: {
     status?: AttendanceStatus;
+    shiftName?: string;
     checkIn?: string;
     checkOut?: string;
     overtimeHours?: number;

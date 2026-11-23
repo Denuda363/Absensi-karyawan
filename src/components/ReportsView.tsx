@@ -25,12 +25,12 @@ import {
   formatIndonesianMonth,
   formatOffDaysSummary,
   getCurrentYearMonth,
-  getEmployeeShiftTolerance,
   getMonthEffectiveWorkDays,
   getTodayDateStr,
   LateSettlement,
   LateSettlementMethod,
   NavSection,
+  resolveAttendanceShift,
 } from '../types';
 import {
   createLateSettlement,
@@ -271,14 +271,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       )
       .map((rec) => {
         const employee = empMap.get(rec.employeeId)!;
+        const shiftInfo = resolveAttendanceShift(employee, settings?.shifts, rec.shiftName);
         const refTime = rec.checkIn || rec.latePermitEstimatedArrival || '';
         const diffMins = refTime
-          ? calculateLatenessMinutes(refTime, employee.shiftStart)
+          ? calculateLatenessMinutes(refTime, shiftInfo.shiftStart)
           : 0;
         return { record: rec, employee, diffMins };
       })
       .sort((a, b) => b.record.date.localeCompare(a.record.date));
-  }, [scopedEmployees, attendanceRecords, selectedMonth]);
+  }, [scopedEmployees, attendanceRecords, selectedMonth, settings?.shifts]);
 
   // Lateness computation (Rekap Karyawan Terlambat + Penggantian/Cicilan)
   const { lateEmployeeSummaries, lateLogDetails, lateStats } = useMemo(() => {
@@ -286,7 +287,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     const empSummaries: EmployeeLatenessSummary[] = [];
 
     for (const emp of scopedEmployees) {
-      const tolerance = getEmployeeShiftTolerance(emp, settings?.shifts);
+      const defaultTolerance = resolveAttendanceShift(emp, settings?.shifts).lateToleranceMinutes;
       const monthAtt = attendanceRecords.filter(
         (r) => r.employeeId === emp.id && r.date.startsWith(selectedMonth)
       );
@@ -301,8 +302,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       const empLateLogs: LateLogDetail[] = [];
 
       for (const rec of monthAtt) {
+        const recShift = resolveAttendanceShift(emp, settings?.shifts, rec.shiftName);
+        const tolerance = recShift.lateToleranceMinutes;
         const rawLate = rec.checkIn
-          ? calculateLatenessMinutes(rec.checkIn, emp.shiftStart)
+          ? calculateLatenessMinutes(rec.checkIn, recShift.shiftStart)
           : 0;
         const isLateRecord =
           rec.status === 'terlambat' ||
@@ -319,6 +322,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           details.push(item);
         }
       }
+
+      const tolerance = defaultTolerance;
 
       const empSettlements = monthScopedSettlements.filter(
         (s) => s.employeeId === emp.id
@@ -863,35 +868,35 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       </div>
 
       {/* Sub-navigation Tabs + Toolbar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4 no-print">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
-          <div className="inline-flex p-1 bg-slate-100 rounded-lg border border-slate-200/80 self-start">
+      <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-3.5 sm:space-y-4 no-print">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-3 pb-3 border-b border-slate-100">
+          <div className="grid grid-cols-2 sm:inline-flex p-1 bg-slate-100 rounded-lg border border-slate-200/80 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setActiveTab('kehadiran')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+              className={`inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 sm:py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                 activeTab === 'kehadiran'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Rekap Kehadiran &amp; Lembur</span>
+              <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Kehadiran &amp; Lembur</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('terlambat')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+              className={`inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 sm:py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                 activeTab === 'terlambat'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-              <span>Rekap Karyawan Terlambat</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span className="truncate">Terlambat</span>
               <span
-                className={`font-mono text-[11px] tabular-nums px-1.5 py-0.5 rounded ${
+                className={`font-mono text-[11px] tabular-nums px-1.5 py-0.5 rounded shrink-0 ${
                   lateStats.totalRemainingLateMinutes > 0
                     ? 'bg-amber-100 text-amber-800'
                     : 'bg-slate-200 text-slate-600'
@@ -910,8 +915,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5">
             <div>
               <label className="sr-only" htmlFor="month-select">
                 Periode Bulan
@@ -921,7 +926,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 type="month"
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
-                className="px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                className="w-full sm:w-auto px-3 py-2.5 sm:py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
               />
             </div>
 
@@ -929,7 +934,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
               aria-label="Filter Divisi"
-              className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+              className="w-full sm:w-auto px-3 py-2.5 sm:py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
             >
               <option value="all">Semua Divisi</option>
               {departments
@@ -945,20 +950,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDeptFilter('all')}
-                className="px-2.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="col-span-2 sm:col-span-1 px-2.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Reset Divisi
               </button>
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
             {activeTab === 'terlambat' && (
               <button
                 type="button"
                 onClick={() => openSettlementModal()}
                 disabled={lateEmployeeSummaries.length === 0}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Catat Ganti Keterlambatan</span>
@@ -969,17 +974,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigate('matriks')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
               >
                 <Table2 className="w-3.5 h-3.5" />
-                <span>Lihat Tampilan Matriks</span>
+                <span>Matriks</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Cetak / PDF</span>
@@ -990,7 +995,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 type="button"
                 onClick={handleExportMonthlyCsv}
                 disabled={summaries.length === 0}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Ekspor CSV</span>
@@ -1000,10 +1005,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 type="button"
                 onClick={handleExportLatenessCsv}
                 disabled={lateLogDetails.length === 0 && monthScopedSettlements.length === 0}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Ekspor CSV Keterlambatan</span>
+                <span>CSV Telat</span>
               </button>
             )}
 
@@ -1035,7 +1040,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   setExportingExcel(false);
                 }
               }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>{exportingExcel ? 'Menyiapkan...' : 'Ekspor Excel (.xlsx)'}</span>
@@ -1081,7 +1086,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       {activeTab === 'kehadiran' ? (
         <>
           {/* Print Header & Summary */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-100">
               <div>
                 <h2 className="font-display text-base font-semibold text-slate-900">
@@ -1096,34 +1101,34 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-xs font-medium text-slate-500">Total Kehadiran Tercatat</div>
-                <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
+                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Kehadiran</div>
+                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
                   {aggregate.totalPresent} <span className="text-xs font-normal text-slate-500">hari</span>
                 </div>
               </div>
-              <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-xs font-medium text-slate-500">Total Keterlambatan</div>
-                <div className="mt-2 font-mono text-2xl font-bold text-amber-700 tabular-nums">
+              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
+                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Keterlambatan</div>
+                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-amber-700 tabular-nums">
                   {aggregate.totalLate} <span className="text-xs font-normal text-slate-500">kali</span>
                 </div>
                 {aggregate.totalIzinTerlambat > 0 && (
                   <div className="mt-1 text-[11px] font-medium text-teal-700 font-mono tabular-nums">
-                    + {aggregate.totalIzinTerlambat} izin datang terlambat
+                    + {aggregate.totalIzinTerlambat} izin telat
                   </div>
                 )}
               </div>
-              <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-xs font-medium text-slate-500">Akumulasi Jam Kerja</div>
-                <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
+                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Akumulasi Jam Kerja</div>
+                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
                   {aggregate.totalWorkHours.toFixed(1)}{' '}
                   <span className="text-xs font-normal text-slate-500">jam</span>
                 </div>
               </div>
-              <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-xs font-medium text-slate-500">Total Jam Lembur</div>
-                <div className="mt-2 font-mono text-2xl font-bold text-blue-700 tabular-nums">
+              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
+                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Jam Lembur</div>
+                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-blue-700 tabular-nums">
                   {aggregate.totalOtHours.toFixed(1)}{' '}
                   <span className="text-xs font-normal text-slate-500">jam</span>
                 </div>
@@ -1144,68 +1149,132 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 Belum ada data karyawan untuk periode ini.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
-                      <th className="py-3 px-4">Karyawan</th>
-                      <th className="py-3 px-4">Hari Libur</th>
-                      <th className="py-3 px-3 text-right">Wajib Kerja</th>
-                      <th className="py-3 px-3 text-right">Hadir</th>
-                      <th className="py-3 px-3 text-right">Izin Telat</th>
-                      <th className="py-3 px-3 text-right">Terlambat</th>
-                      <th className="py-3 px-3 text-right">Izin/Sakit</th>
-                      <th className="py-3 px-3 text-right">Alpha</th>
-                      <th className="py-3 px-3 text-right">Jam Kerja</th>
-                      <th className="py-3 px-3 text-right">Lembur</th>
-                      <th className="py-3 px-4 text-right">Rasio Hadir</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {summaries.map((row) => (
-                      <tr key={row.employee.id} className="hover:bg-slate-50/70">
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-900">{row.employee.name}</div>
-                          <div className="text-xs text-slate-500">
+              <>
+                {/* Mobile Card List (< md) */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {summaries.map((row) => (
+                    <div key={row.employee.id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 truncate">
+                            {row.employee.name}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">
                             <span className="font-mono">{row.employee.employeeCode}</span> ·{' '}
                             {row.employee.department}
                           </div>
-                        </td>
-                        <td className="py-3 px-4 text-xs text-slate-600">
-                          {formatOffDaysSummary(row.employee.offDays)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs text-slate-700 tabular-nums">
-                          {row.effectiveWorkDays} hr
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-emerald-700 tabular-nums">
-                          {row.hadirCount}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-teal-700 tabular-nums">
-                          {row.izinTerlambatCount}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs text-amber-700 tabular-nums">
-                          {row.terlambatCount}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs text-sky-700 tabular-nums">
-                          {row.izinSakitCount}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs text-red-700 tabular-nums">
-                          {row.alphaCount}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs text-slate-800 tabular-nums">
-                          {row.totalWorkHours.toFixed(1)} j
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-blue-700 tabular-nums">
-                          {row.manualOvertimeHours.toFixed(1)} j
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-slate-900 tabular-nums">
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Libur: {formatOffDaysSummary(row.employee.offDays)}
+                          </div>
+                        </div>
+                        <span className="px-2 py-1 text-xs font-mono font-bold rounded-md bg-slate-900 text-white tabular-nums shrink-0">
                           {row.attendancePct}%
-                        </td>
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1.5 text-center">
+                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/70">
+                          <div className="text-[10px] text-slate-500">Wajib</div>
+                          <div className="font-mono text-xs font-semibold text-slate-800 tabular-nums">
+                            {row.effectiveWorkDays}h
+                          </div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-emerald-50/70 border border-emerald-200/70">
+                          <div className="text-[10px] text-emerald-700">Hadir</div>
+                          <div className="font-mono text-xs font-bold text-emerald-800 tabular-nums">
+                            {row.hadirCount}
+                          </div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-200/70">
+                          <div className="text-[10px] text-amber-800">Telat</div>
+                          <div className="font-mono text-xs font-bold text-amber-800 tabular-nums">
+                            {row.terlambatCount}
+                          </div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-red-50/70 border border-red-200/70">
+                          <div className="text-[10px] text-red-700">Alpha</div>
+                          <div className="font-mono text-xs font-bold text-red-700 tabular-nums">
+                            {row.alphaCount}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-600 tabular-nums pt-0.5">
+                        <span>
+                          Izin Telat: <strong className="text-teal-700">{row.izinTerlambatCount}</strong> · Izin/Sakit: <strong className="text-sky-700">{row.izinSakitCount}</strong>
+                        </span>
+                        <span>
+                          Kerja: <strong>{row.totalWorkHours.toFixed(1)}j</strong> · Lembur: <strong className="text-blue-700">{row.manualOvertimeHours.toFixed(1)}j</strong>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
+                        <th className="py-3 px-4">Karyawan</th>
+                        <th className="py-3 px-4">Hari Libur</th>
+                        <th className="py-3 px-3 text-right">Wajib Kerja</th>
+                        <th className="py-3 px-3 text-right">Hadir</th>
+                        <th className="py-3 px-3 text-right">Izin Telat</th>
+                        <th className="py-3 px-3 text-right">Terlambat</th>
+                        <th className="py-3 px-3 text-right">Izin/Sakit</th>
+                        <th className="py-3 px-3 text-right">Alpha</th>
+                        <th className="py-3 px-3 text-right">Jam Kerja</th>
+                        <th className="py-3 px-3 text-right">Lembur</th>
+                        <th className="py-3 px-4 text-right">Rasio Hadir</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-sm">
+                      {summaries.map((row) => (
+                        <tr key={row.employee.id} className="hover:bg-slate-50/70">
+                          <td className="py-3 px-4">
+                            <div className="font-medium text-slate-900">{row.employee.name}</div>
+                            <div className="text-xs text-slate-500">
+                              <span className="font-mono">{row.employee.employeeCode}</span> ·{' '}
+                              {row.employee.department}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-xs text-slate-600">
+                            {formatOffDaysSummary(row.employee.offDays)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs text-slate-700 tabular-nums">
+                            {row.effectiveWorkDays} hr
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-emerald-700 tabular-nums">
+                            {row.hadirCount}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-teal-700 tabular-nums">
+                            {row.izinTerlambatCount}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs text-amber-700 tabular-nums">
+                            {row.terlambatCount}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs text-sky-700 tabular-nums">
+                            {row.izinSakitCount}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs text-red-700 tabular-nums">
+                            {row.alphaCount}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs text-slate-800 tabular-nums">
+                            {row.totalWorkHours.toFixed(1)} j
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-blue-700 tabular-nums">
+                            {row.manualOvertimeHours.toFixed(1)} j
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-slate-900 tabular-nums">
+                            {row.attendancePct}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </>
@@ -1213,7 +1282,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         /* TAB: REKAP DATA KARYAWAN TERLAMBAT & GANTI KETERLAMBATAN */
         <div className="space-y-6">
           {/* Summary Header + 4 KPI Cards */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-100">
               <div>
                 <h2 className="font-display text-base font-semibold text-slate-900">
@@ -1228,7 +1297,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                   <span>Total Keterlambatan</span>
@@ -1332,7 +1401,128 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 .
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Mobile Card List (< md) */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {lateEmployeeSummaries.map((row) => {
+                    const isExpanded = expandedLateEmpIds.has(row.employee.id);
+                    return (
+                      <div key={row.employee.id} className="p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-900 truncate">
+                              {row.employee.name}
+                            </div>
+                            <div className="text-xs text-slate-500 truncate">
+                              <span className="font-mono">{row.employee.employeeCode}</span> ·{' '}
+                              {row.employee.department}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500 mt-0.5 tabular-nums">
+                              {row.employee.shiftName} ({row.employee.shiftStart}–{row.employee.shiftEnd})
+                            </div>
+                          </div>
+                          {row.remainingLateMinutes === 0 ? (
+                            <span className="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                              Lunas
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
+                              Sisa {row.remainingLateMinutes} mnt
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-200/70">
+                            <div className="text-[10px] text-amber-800">Total Telat</div>
+                            <div className="font-mono text-xs font-bold text-amber-900 tabular-nums">
+                              +{row.totalLateMinutes}m
+                            </div>
+                            <div className="text-[10px] text-slate-500">{row.lateCount}x</div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-200/70">
+                            <div className="text-[10px] text-blue-800">Jam Kerja</div>
+                            <div className="font-mono text-xs font-bold text-blue-800 tabular-nums">
+                              {row.workSettledMinutes}m
+                            </div>
+                            <div className="text-[10px] text-slate-500">{row.workInstallmentCount}x</div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-rose-50/70 border border-rose-200/70">
+                            <div className="text-[10px] text-rose-800">Potong Gaji</div>
+                            <div className="font-mono text-xs font-bold text-rose-800 tabular-nums">
+                              {row.salarySettledMinutes}m
+                            </div>
+                            {row.totalDeductionAmount > 0 && (
+                              <div className="text-[10px] text-rose-700 truncate">
+                                {formatRupiah(row.totalDeductionAmount)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {row.lateLogs.length > 0 && (
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandLateEmp(row.employee.id)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800 py-1 cursor-pointer"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                  <span>Tutup rincian ({row.lateLogs.length})</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                  <span>Lihat {row.lateLogs.length} tanggal telat</span>
+                                </>
+                              )}
+                            </button>
+
+                            {isExpanded && (
+                              <div className="mt-2 space-y-1.5 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs">
+                                {row.lateLogs.map((entry) => (
+                                  <div
+                                    key={entry.record.id}
+                                    className="flex items-center justify-between gap-2 pb-1.5 last:pb-0 border-b border-slate-200/70 last:border-0"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="font-mono font-semibold text-slate-800">
+                                        {entry.record.date} · masuk {entry.record.checkIn || '—'}
+                                      </div>
+                                      {entry.record.notes && (
+                                        <div className="text-[11px] text-slate-500 truncate">
+                                          {entry.record.notes}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <span className="font-mono font-semibold text-amber-800 shrink-0">
+                                      +{entry.lateMinutes}m
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={row.remainingLateMinutes === 0}
+                          onClick={() => openSettlementModal(row.employee.id)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Ganti / Cicil Keterlambatan</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
@@ -1525,12 +1715,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
 
           {/* Installment & Settlement History Table */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <h3 className="font-display text-sm font-semibold text-slate-900">
                   Riwayat Cicilan Jam Kerja &amp; Potongan Gaji Keterlambatan
@@ -1550,7 +1741,63 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 <span className="font-semibold text-slate-700">Ganti / Cicil</span> pada baris karyawan untuk mencatat.
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Mobile Card List (< md) */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {monthScopedSettlements.map((st) => (
+                    <div key={st.id} className="p-4 flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-slate-900 truncate">
+                            {st.employeeName}
+                          </span>
+                          <span className="font-mono text-xs font-bold text-slate-800">
+                            {st.minutesSettled} mnt
+                          </span>
+                        </div>
+                        <div className="font-mono text-[11px] text-slate-500">
+                          {st.date} · {formatIndonesianDate(st.date)}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          {st.method === 'tambahan_jam_kerja' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium bg-blue-50 text-blue-800 border border-blue-200 rounded-md">
+                              <Clock className="w-3 h-3" />
+                              Tambahan Jam
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium bg-rose-50 text-rose-800 border border-rose-200 rounded-md">
+                              <Banknote className="w-3 h-3" />
+                              Potongan Gaji
+                            </span>
+                          )}
+                          <span className="font-mono text-[11px] text-slate-700">
+                            {st.method === 'tambahan_jam_kerja'
+                              ? st.extraWorkStart && st.extraWorkEnd
+                                ? `${st.extraWorkStart}–${st.extraWorkEnd}`
+                                : 'Manual'
+                              : formatRupiah(st.deductionAmount || 0)}
+                          </span>
+                        </div>
+                        {st.notes && (
+                          <div className="text-xs text-slate-600">{st.notes}</div>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={deletingSettlementId === st.id}
+                        onClick={() => handleDeleteSettlement(st)}
+                        aria-label={`Hapus transaksi ${st.employeeName}`}
+                        className="p-2 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg disabled:opacity-40 shrink-0 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
@@ -1619,12 +1866,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
 
           {/* Chronological Detailed Lateness Log Table */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
                 <h3 className="font-display text-sm font-semibold text-slate-900">
                   Rincian Log Tanggal Terlambat
@@ -1635,8 +1883,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </div>
 
               {lateLogDetails.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 no-print">
-                  <div className="w-56">
+                <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 no-print">
+                  <div className="w-full sm:w-56">
                     <SearchableEmployeeSelect
                       value={lateEmpFilter}
                       onChange={setLateEmpFilter}
@@ -1657,7 +1905,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     value={lateShiftFilter}
                     onChange={(e) => setLateShiftFilter(e.target.value)}
                     aria-label="Filter Shift"
-                    className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                    className="w-full sm:w-auto px-3 py-2 sm:py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   >
                     <option value="all">Semua Shift</option>
                     {lateShiftOptions
@@ -1676,14 +1924,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                       value={lateSearch}
                       onChange={(e) => setLateSearch(e.target.value)}
                       placeholder="Cari tanggal, shift, catatan..."
-                      className="w-full pl-8 pr-8 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                      className="w-full pl-8 pr-8 py-2 sm:py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                     />
                     {lateSearch && (
                       <button
                         type="button"
                         onClick={() => setLateSearch('')}
                         aria-label="Hapus pencarian"
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -1700,7 +1948,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         setLateShiftFilter('all');
                         setLateSearch('');
                       }}
-                      className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      className="px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer self-start sm:self-auto"
                     >
                       Reset Filter
                     </button>
@@ -1716,7 +1964,38 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   : 'Tidak ada log keterlambatan yang cocok dengan filter yang dipilih.'}
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Mobile Card List (< md) */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {filteredLateLogDetails.map((item) => (
+                    <div key={item.record.id} className="p-4 space-y-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 truncate">
+                            {item.employee.name}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">
+                            {item.employee.shiftName} ({item.employee.shiftStart}–{item.employee.shiftEnd})
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-amber-50 text-amber-800 border border-amber-200 shrink-0 tabular-nums">
+                          +{item.lateMinutes} mnt
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px] text-slate-600">
+                        {item.record.date} · Masuk aktual: <strong>{item.record.checkIn || '—'}</strong>
+                      </div>
+                      {item.record.notes && (
+                        <div className="text-xs text-slate-600 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-100">
+                          {item.record.notes}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
@@ -1772,13 +2051,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
 
           {/* Authorized Late Arrival Permit Audit Table */}
           {latePermitLogs.length > 0 && (
             <div className="bg-white border border-teal-200 rounded-xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-teal-100 bg-teal-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="px-4 sm:px-5 py-3.5 border-b border-teal-100 bg-teal-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <h3 className="font-display text-sm font-semibold text-teal-950">
                     Riwayat Izin Datang Terlambat Resmi ({latePermitLogs.length} Catatan)
@@ -1787,11 +2067,47 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     Izin resmi masuk terlambat yang disetujui — tetap dihitung hadir &amp; bebas denda keterlambatan
                   </p>
                 </div>
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-white border border-teal-200 text-teal-800 whitespace-nowrap shrink-0">
+                <span className="self-start sm:self-auto text-[11px] font-semibold px-2.5 py-1 rounded-md bg-white border border-teal-200 text-teal-800 whitespace-nowrap shrink-0">
                   Bebas Potongan Gaji
                 </span>
               </div>
-              <div className="overflow-x-auto">
+
+              {/* Mobile Card List (< md) */}
+              <div className="md:hidden divide-y divide-teal-100/70">
+                {latePermitLogs.map((item) => (
+                  <div key={item.record.id} className="p-4 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-900 truncate">
+                          {item.employee.name}
+                        </div>
+                        <div className="text-xs text-slate-500 truncate">
+                          <span className="font-mono">{item.employee.employeeCode}</span> · {item.employee.department}
+                        </div>
+                      </div>
+                      <span className="font-mono text-[11px] font-semibold text-teal-800 shrink-0">
+                        {item.record.date}
+                      </span>
+                    </div>
+                    <div className="font-mono text-xs text-teal-800 tabular-nums">
+                      {item.record.checkIn
+                        ? `Aktual ${item.record.checkIn}`
+                        : item.record.latePermitEstimatedArrival
+                        ? `Est. ${item.record.latePermitEstimatedArrival}`
+                        : '—'}
+                      {item.diffMins > 0 && ` (+${item.diffMins} mnt)`}
+                    </div>
+                    <div className="text-xs text-slate-700">
+                      {item.record.latePermitReason || item.record.notes || '—'} ·{' '}
+                      <span className="font-medium text-slate-600">
+                        ACC: {item.record.latePermitApprovedBy || 'Admin HR'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
@@ -1870,12 +2186,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       {/* Modal: Ganti Keterlambatan (Cicilan Tambahan Jam Kerja / Potongan Gaji) */}
       {settlementModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 no-print"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4 no-print"
           role="dialog"
           aria-modal="true"
           aria-labelledby="settlement-modal-title"
         >
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-lg shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-xl w-full max-w-lg shadow-xl overflow-hidden max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 shrink-0">
               <div>
                 <h3
@@ -1891,14 +2207,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setSettlementModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                className="p-2 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
                 aria-label="Tutup modal"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitSettlement} className="p-5 space-y-4 overflow-y-auto">
+            <form onSubmit={handleSubmitSettlement} className="p-5 space-y-4 overflow-y-auto pb-safe">
               {formError && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg">
                   {formError}
@@ -2163,14 +2479,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSettlementModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={submittingSettlement}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 cursor-pointer"
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 cursor-pointer"
                 >
                   {submittingSettlement ? 'Menyimpan...' : 'Simpan Penggantian'}
                 </button>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+  </defs>
+  <!-- Full square background for crisp iOS / Android adaptive rendering -->
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)" />
+  <!-- Calendar / Matrix frame -->
+  <rect x="104" y="112" width="304" height="296" rx="40" fill="#ffffff" />
+  <rect x="104" y="112" width="304" height="82" rx="40" fill="url(#accentGrad)" />
+  <rect x="104" y="156" width="304" height="38" fill="url(#accentGrad)" />
+  <!-- Calendar binding rings -->
+  <rect x="172" y="84" width="28" height="56" rx="14" fill="#e2e8f0" />
+  <rect x="312" y="84" width="28" height="56" rx="14" fill="#e2e8f0" />
+  <!-- Subtle matrix grid dots in background -->
+  <rect x="148" y="226" width="44" height="32" rx="8" fill="#e2e8f0" />
+  <rect x="208" y="226" width="44" height="32" rx="8" fill="#e2e8f0" />
+  <rect x="268" y="226" width="44" height="32" rx="8" fill="#e2e8f0" />
+  <rect x="148" y="274" width="44" height="32" rx="8" fill="#e2e8f0" />
+  <rect x="208" y="274" width="44" height="32" rx="8" fill="#e2e8f0" />
+  <rect x="148" y="322" width="44" height="32" rx="8" fill="#e2e8f0" />
+  <!-- Emerald Check Badge -->
+  <circle cx="336" cy="322" r="76" fill="#0f172a" />
+  <circle cx="336" cy="322" r="64" fill="#16a34a" />
+  <path
+    d="M304 323l22 22 44-48"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

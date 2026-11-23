@@ -21,6 +21,7 @@ import {
   FinanceTransfer,
   LateSettlement,
   LateSettlementMethod,
+  packNotesWithShift,
   PayrollAdjustment,
   PayrollAdjustmentType,
   PayrollDatabaseState,
@@ -32,6 +33,7 @@ import {
   ShiftConfig,
   SupabaseSyncResult,
   SupabaseTestResult,
+  unpackShiftFromNotes,
 } from '../types';
 import { FIREBASE_APPLET_META } from './firebaseClient';
 import { HttpApiError } from './apiClient';
@@ -332,15 +334,35 @@ function normalizeCompanyProfile(
 function normalizeSettings(rawSettings: Partial<AppSettings> | undefined): AppSettings {
   const defaults = buildDefaultSettings();
   if (!rawSettings || typeof rawSettings !== 'object') return defaults;
+  const normalizeDailyMembers = (
+    rawMap: unknown
+  ): Record<string, string[]> | undefined => {
+    if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return undefined;
+    const out: Record<string, string[]> = {};
+    let hasKeys = false;
+    for (const [k, v] of Object.entries(rawMap as Record<string, unknown>)) {
+      if (!/^[0-6]$/.test(k) || !Array.isArray(v)) continue;
+      out[k] = Array.from(
+        new Set(v.map((id) => String(id || '').trim()).filter(Boolean))
+      ).slice(0, 500);
+      hasKeys = true;
+    }
+    return hasKeys ? out : undefined;
+  };
+
   const shifts: ShiftConfig[] =
     Array.isArray(rawSettings.shifts) && rawSettings.shifts.length > 0
-      ? rawSettings.shifts.map((s, idx) => ({
-          id: String(s.id || `shift_${idx + 1}`),
-          name: String(s.name || `Shift ${idx + 1}`).trim().slice(0, 40),
-          startTime: String(s.startTime || '08:00'),
-          endTime: String(s.endTime || '17:00'),
-          lateToleranceMinutes: Math.max(0, Math.min(120, Number(s.lateToleranceMinutes ?? 10))),
-        }))
+      ? rawSettings.shifts.map((s, idx) => {
+          const dailyMemberIds = normalizeDailyMembers(s.dailyMemberIds);
+          return {
+            id: String(s.id || `shift_${idx + 1}`),
+            name: String(s.name || `Shift ${idx + 1}`).trim().slice(0, 40),
+            startTime: String(s.startTime || '08:00'),
+            endTime: String(s.endTime || '17:00'),
+            lateToleranceMinutes: Math.max(0, Math.min(120, Number(s.lateToleranceMinutes ?? 10))),
+            ...(dailyMemberIds ? { dailyMemberIds } : {}),
+          };
+        })
       : defaults.shifts;
 
   return {
@@ -1157,9 +1179,18 @@ function readAttendanceDbSync(): ClientAppDatabaseState {
   return seed;
 }
 
+let attendanceSyncQueue: Promise<void> = Promise.resolve();
+
 function writeAttendanceDbSync(db: ClientAppDatabaseState): void {
   writeStorageItem(LS_ATTENDANCE_KEY, JSON.stringify(db));
-  void syncAttendanceToSupabaseBrowser(db);
+  attendanceSyncQueue = attendanceSyncQueue
+    .then(async () => {
+      const latest = readAttendanceDbSync();
+      await syncAttendanceToSupabaseBrowser(latest);
+    })
+    .catch(() => {
+      // non-blocking serialized sync
+    });
 }
 
 function readPayrollDbSync(): PayrollDatabaseState {
@@ -1297,10 +1328,10 @@ async function syncAttendanceToSupabaseBrowser(db: ClientAppDatabaseState): Prom
     if (r2.error) failed.push({ tableName: 'employees', error: r2.error });
     else synced.push({ tableName: 'employees', rowCount: r2.rowCount });
 
-    const r3 = await upsertBrowserSupabase(
-      sb,
-      'attendance_records',
-      db.attendanceRecords.map((a) => ({
+    const attByKey = new Map<string, Record<string, unknown>>();
+    for (const a of db.attendanceRecords) {
+      const key = `${a.employeeId}__${a.date}`;
+      attByKey.set(key, {
         id: a.id,
         employee_id: a.employeeId,
         employee_name: a.employeeName,
@@ -1309,14 +1340,20 @@ async function syncAttendanceToSupabaseBrowser(db: ClientAppDatabaseState): Prom
         check_in: a.checkIn || '',
         check_out: a.checkOut || '',
         overtime_hours: Number(a.overtimeHours || 0),
-        notes: a.notes || '',
+        notes: packNotesWithShift(a.notes || '', a.shiftName),
         late_permit_reason: a.latePermitReason || null,
         late_permit_estimated_arrival: a.latePermitEstimatedArrival || null,
         late_permit_approved_by: a.latePermitApprovedBy || null,
         recorded_by: a.recordedBy || 'Admin HR',
         created_at: a.createdAt || nowIso,
         updated_at: a.updatedAt || nowIso,
-      }))
+      });
+    }
+    const r3 = await upsertBrowserSupabase(
+      sb,
+      'attendance_records',
+      Array.from(attByKey.values()),
+      'employee_id,attendance_date'
     );
     if (r3.error) failed.push({ tableName: 'attendance_records', error: r3.error });
     else synced.push({ tableName: 'attendance_records', rowCount: r3.rowCount });
@@ -1655,27 +1692,31 @@ async function pullAllFromSupabaseBrowser(): Promise<{
   else {
     syncedTables.push({ tableName: 'attendance_records', rowCount: attRows?.length || 0 });
     if (attRows && attRows.length > 0) {
-      curAtt.attendanceRecords = attRows.map((a: Record<string, unknown>) => ({
-        id: String(a.id),
-        employeeId: String(a.employee_id),
-        employeeName: String(a.employee_name || ''),
-        date: String(a.attendance_date || '').slice(0, 10),
-        status: (a.status as AttendanceStatus) || 'hadir',
-        checkIn: String(a.check_in || ''),
-        checkOut: String(a.check_out || ''),
-        overtimeHours: Number(a.overtime_hours || 0),
-        notes: String(a.notes || ''),
-        latePermitReason: a.late_permit_reason ? String(a.late_permit_reason) : undefined,
-        latePermitEstimatedArrival: a.late_permit_estimated_arrival
-          ? String(a.late_permit_estimated_arrival)
-          : undefined,
-        latePermitApprovedBy: a.late_permit_approved_by
-          ? String(a.late_permit_approved_by)
-          : undefined,
-        recordedBy: String(a.recorded_by || 'Admin HR'),
-        createdAt: String(a.created_at || new Date().toISOString()),
-        updatedAt: String(a.updated_at || new Date().toISOString()),
-      }));
+      curAtt.attendanceRecords = attRows.map((a: Record<string, unknown>) => {
+        const unpacked = unpackShiftFromNotes(String(a.notes || ''));
+        return {
+          id: String(a.id),
+          employeeId: String(a.employee_id),
+          employeeName: String(a.employee_name || ''),
+          date: String(a.attendance_date || '').slice(0, 10),
+          status: (a.status as AttendanceStatus) || 'hadir',
+          ...(unpacked.shiftName ? { shiftName: unpacked.shiftName } : {}),
+          checkIn: String(a.check_in || ''),
+          checkOut: String(a.check_out || ''),
+          overtimeHours: Number(a.overtime_hours || 0),
+          notes: unpacked.notes,
+          latePermitReason: a.late_permit_reason ? String(a.late_permit_reason) : undefined,
+          latePermitEstimatedArrival: a.late_permit_estimated_arrival
+            ? String(a.late_permit_estimated_arrival)
+            : undefined,
+          latePermitApprovedBy: a.late_permit_approved_by
+            ? String(a.late_permit_approved_by)
+            : undefined,
+          recordedBy: String(a.recorded_by || 'Admin HR'),
+          createdAt: String(a.created_at || new Date().toISOString()),
+          updatedAt: String(a.updated_at || new Date().toISOString()),
+        };
+      });
       attChanged = true;
     }
   }
@@ -2142,6 +2183,7 @@ export async function clientCreateAttendanceRecord(payload: {
   employeeId: string;
   date: string;
   status: AttendanceStatus;
+  shiftName?: string;
   checkIn: string;
   checkOut: string;
   overtimeHours: number;
@@ -2164,20 +2206,28 @@ export async function clientCreateAttendanceRecord(payload: {
   const isLatePermit = payload.status === 'izin_terlambat';
   const needsTime =
     payload.status === 'hadir' || payload.status === 'terlambat' || isLatePermit;
+  const cleanShiftName =
+    payload.shiftName !== undefined
+      ? String(payload.shiftName || '').trim().slice(0, 40)
+      : undefined;
+  const cleanNotes = unpackShiftFromNotes(String(payload.notes || '')).notes.slice(0, 300);
 
   const existingIdx = db.attendanceRecords.findIndex(
     (r) => r.employeeId === emp.id && r.date === dateStr
   );
   if (existingIdx >= 0) {
     const existing = db.attendanceRecords[existingIdx];
+    const nextShiftName =
+      cleanShiftName !== undefined ? cleanShiftName || undefined : existing.shiftName;
     const updatedRecord: AttendanceRecord = {
       ...existing,
       employeeName: emp.name,
       status: payload.status,
+      shiftName: nextShiftName,
       checkIn: needsTime ? String(payload.checkIn || '') : '',
       checkOut: needsTime ? String(payload.checkOut || '') : '',
       overtimeHours: Math.max(0, Math.min(16, Number(payload.overtimeHours || 0))),
-      notes: String(payload.notes || '').trim().slice(0, 300),
+      notes: cleanNotes,
       latePermitReason: isLatePermit
         ? String(payload.latePermitReason || '').trim().slice(0, 200)
         : undefined,
@@ -2201,10 +2251,11 @@ export async function clientCreateAttendanceRecord(payload: {
     employeeName: emp.name,
     date: dateStr,
     status: payload.status,
+    ...(cleanShiftName ? { shiftName: cleanShiftName } : {}),
     checkIn: needsTime ? String(payload.checkIn || '') : '',
     checkOut: needsTime ? String(payload.checkOut || '') : '',
     overtimeHours: Math.max(0, Math.min(16, Number(payload.overtimeHours || 0))),
-    notes: String(payload.notes || '').trim().slice(0, 300),
+    notes: cleanNotes,
     ...(isLatePermit
       ? {
           latePermitReason: String(payload.latePermitReason || '').trim().slice(0, 200),
@@ -2229,6 +2280,7 @@ export async function clientUpdateAttendanceRecord(
   recordId: string,
   payload: {
     status?: AttendanceStatus;
+    shiftName?: string;
     checkIn?: string;
     checkOut?: string;
     overtimeHours?: number;
@@ -2252,6 +2304,10 @@ export async function clientUpdateAttendanceRecord(
   const updated: AttendanceRecord = {
     ...existing,
     status: nextStatus,
+    shiftName:
+      payload.shiftName !== undefined
+        ? String(payload.shiftName || '').trim().slice(0, 40) || undefined
+        : existing.shiftName,
     checkIn: needsTime ? (payload.checkIn !== undefined ? String(payload.checkIn) : existing.checkIn) : '',
     checkOut: needsTime
       ? payload.checkOut !== undefined
@@ -2262,7 +2318,10 @@ export async function clientUpdateAttendanceRecord(
       payload.overtimeHours !== undefined
         ? Math.max(0, Math.min(16, Number(payload.overtimeHours)))
         : existing.overtimeHours,
-    notes: payload.notes !== undefined ? String(payload.notes).trim().slice(0, 300) : existing.notes,
+    notes:
+      payload.notes !== undefined
+        ? unpackShiftFromNotes(String(payload.notes)).notes.slice(0, 300)
+        : existing.notes,
     latePermitReason: isLatePermit
       ? payload.latePermitReason !== undefined
         ? String(payload.latePermitReason).trim().slice(0, 200)
@@ -2289,9 +2348,25 @@ export async function clientUpdateAttendanceRecord(
 export async function clientDeleteAttendanceRecord(recordId: string): Promise<void> {
   await ensureClientHydratedOnce();
   const db = readAttendanceDbSync();
+  const target = db.attendanceRecords.find((r) => r.id === recordId);
   db.attendanceRecords = db.attendanceRecords.filter((r) => r.id !== recordId);
   writeAttendanceDbSync(db);
   void deleteBrowserSupabaseRow('attendance_records', recordId);
+  if (target) {
+    void (async () => {
+      try {
+        const sb = getBrowserSupabaseClient();
+        if (!sb) return;
+        await sb
+          .from('attendance_records')
+          .delete()
+          .eq('employee_id', target.employeeId)
+          .eq('attendance_date', target.date);
+      } catch {
+        // non-blocking remote delete
+      }
+    })();
+  }
 }
 
 export async function clientBulkMarkScheduledOffDays(
