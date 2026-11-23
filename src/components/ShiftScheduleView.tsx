@@ -25,7 +25,6 @@ import {
   AppSettings,
   calculateDurationHours,
   Employee,
-  formatIndonesianDate,
   formatOffDaysSummary,
   getShiftMembersForWeekday,
   getTodayDateStr,
@@ -37,6 +36,7 @@ import {
 } from '../types';
 import { updateAppSettings, updateEmployee } from '../services/attendanceService';
 import { exportShiftScheduleToExcel } from '../utils/excelShiftExport';
+import { buildDailyScheduleBlocks } from '../utils/shiftScheduleLayout';
 
 interface ShiftScheduleViewProps {
   employees: Employee[];
@@ -300,6 +300,16 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     if (selectedWeekdayFilter === 'ALL') return HARI_WEEKDAYS;
     return HARI_WEEKDAYS.filter((d) => d.index === selectedWeekdayFilter);
   }, [selectedWeekdayFilter]);
+
+  const printBlocks = useMemo(
+    () =>
+      buildDailyScheduleBlocks({
+        shifts,
+        employees: activeEmployees,
+        days: visibleWeekdays,
+      }),
+    [shifts, activeEmployees, visibleWeekdays]
+  );
 
   const showToast = (msg: string) => {
     setErrorMessage(null);
@@ -891,7 +901,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       )}
 
       {/* Top Shift Summary Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 no-print">
         {shiftSummaries.map(
           ({ shift, style, todayAssignedCount, onDutyToday, offToday, durationHours }) => {
             const isSelected = shiftFilter === shift.id;
@@ -1083,19 +1093,92 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         </div>
       </div>
 
-      {/* Print Header */}
-      <div className="hidden print:block mb-4 border-b border-slate-300 pb-3">
-        <h2 className="font-display text-lg font-bold text-slate-900">
-          JADWAL SHIFT KARYAWAN — {settings.companyName}
-        </h2>
-        <p className="text-xs text-slate-600">
-          Dicetak pada {formatIndonesianDate(today)} • Total {activeEmployees.length} karyawan aktif
-        </p>
+      {/* Print View (Format sesuai tabel Jadwal Harian: Header Biru, Shift, Jabatan Kuning/Oranye, Footer OFF Merah) */}
+      <div className="hidden print:block space-y-6">
+        {printBlocks.map((block) => {
+          const colCount = Math.max(1, block.shiftHeaders.length);
+          const offText = `OFF : ${block.offNames.length > 0 ? block.offNames.join(', ') : '-'}`;
+          return (
+            <div key={block.dayIndex} className="break-inside-avoid">
+              <table className="w-full border-collapse border-2 border-black text-black font-sans table-fixed">
+                <thead>
+                  <tr>
+                    <th
+                      colSpan={colCount}
+                      className="bg-[#00B0F0] text-black font-bold text-center text-[13px] py-1.5 px-2 border-b-2 border-black uppercase tracking-wide"
+                    >
+                      {block.dayLabel}
+                    </th>
+                  </tr>
+                  <tr>
+                    {block.shiftHeaders.map((header, idx) => (
+                      <th
+                        key={idx}
+                        className="bg-white text-black font-bold text-center text-[11px] py-1.5 px-2 border-b-2 border-black border-r-2 last:border-r-0"
+                      >
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.roleGroups.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={colCount}
+                        className="bg-white text-center text-[11px] py-3 px-2 border-b border-black text-slate-500"
+                      >
+                        Belum ada data karyawan aktif.
+                      </td>
+                    </tr>
+                  ) : (
+                    block.roleGroups.map((group) => (
+                      <React.Fragment key={group.key}>
+                        <tr>
+                          <td
+                            colSpan={colCount}
+                            className={`${
+                              group.isLeader ? 'bg-[#FFC000]' : 'bg-[#FFFF00]'
+                            } text-black font-bold text-center text-[11px] py-1 px-2 border-t-2 border-b border-black uppercase`}
+                          >
+                            {group.label}
+                          </td>
+                        </tr>
+                        {group.rows.map((rRow, rIdx) => (
+                          <tr key={rIdx}>
+                            {rRow.cells.map((cellVal, cIdx) => (
+                              <td
+                                key={cIdx}
+                                className="bg-white text-black text-left text-[11px] font-normal py-1 px-2 border-t border-b border-black border-r-2 last:border-r-0 h-6 align-middle"
+                              >
+                                {cellVal}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td
+                      colSpan={colCount}
+                      className="bg-[#FF0000] text-white font-bold text-left text-[11px] py-1.5 px-2 border-t-2 border-black uppercase"
+                    >
+                      {offText}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          );
+        })}
       </div>
 
       {/* TAB 1: Jadwal Harian (Senin -> Shift Pagi: a, b, c; Shift Sela: a, b, c; dst.) */}
       {subTab === 'harian' && (
-        <div className="space-y-4 sm:space-y-5">
+        <div className="space-y-4 sm:space-y-5 no-print">
           {/* Day Filter Pill Bar */}
           <div className="bg-white rounded-xl border border-slate-200 p-3 sm:p-3.5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 no-print">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:pb-0">
@@ -1356,7 +1439,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
 
       {/* TAB 2: Master per Shift */}
       {subTab === 'roster' && (
-        <div className="space-y-6">
+        <div className="space-y-6 no-print">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {visibleShiftSummaries.map(
               ({ shift, style, allMembers, filteredMembers, onDutyToday, durationHours }) => (
@@ -1587,7 +1670,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
 
       {/* TAB 3: Matriks Mingguan (Shift x Senin-Minggu) */}
       {subTab === 'mingguan' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden no-print">
           <div className="px-4 sm:px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-display text-sm font-bold text-slate-900">

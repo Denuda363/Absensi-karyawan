@@ -6,6 +6,7 @@ import {
   HARI_WEEKDAYS,
   ShiftConfig,
 } from '../types';
+import { buildDailyScheduleBlocks } from './shiftScheduleLayout';
 
 export async function exportShiftScheduleToExcel(params: {
   companyName: string;
@@ -31,11 +32,6 @@ export async function exportShiftScheduleToExcel(params: {
     pattern: 'solid',
     fgColor: { argb: 'FFE2E8F0' },
   };
-  const dayHeaderFill: ExcelJS.Fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFDBEAFE' },
-  };
   const thinBorder: Partial<ExcelJS.Borders> = {
     top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
     left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
@@ -43,76 +39,200 @@ export async function exportShiftScheduleToExcel(params: {
     right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
   };
 
-  // Sheet 1: Jadwal Harian (Senin -> Shift Pagi, Shift Sela, dll.)
-  const dailySheet = workbook.addWorksheet('Jadwal Harian');
-  dailySheet.columns = [
-    { key: 'hari', width: 16 },
-    { key: 'shift', width: 20 },
-    { key: 'hours', width: 16 },
-    { key: 'count', width: 14 },
-    { key: 'members', width: 64 },
-  ];
-
-  dailySheet.mergeCells('A1:E1');
-  const dTitle = dailySheet.getCell('A1');
-  dTitle.value = `JADWAL SHIFT HARIAN (SENIN – MINGGU) — ${(companyName || 'KARYAPRESENSI').toUpperCase()}`;
-  dTitle.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF0F172A' } };
-  dTitle.alignment = { vertical: 'middle', horizontal: 'left' };
-  dailySheet.getRow(1).height = 24;
-
-  const dHeader = dailySheet.getRow(3);
-  ['Hari', 'Nama Shift', 'Jam Kerja', 'Jumlah', 'Daftar Karyawan Bertugas'].forEach((h, idx) => {
-    const cell = dHeader.getCell(idx + 1);
-    cell.value = h;
-    cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = headerFill;
-    cell.alignment = { vertical: 'middle', horizontal: idx === 3 ? 'center' : 'left' };
-    cell.border = thinBorder;
+  // =========================================================================
+  // Sheet 1: Jadwal Harian (Format blok harian per shift & jabatan)
+  // =========================================================================
+  const dailySheet = workbook.addWorksheet('Jadwal Harian', {
+    views: [{ showGridLines: true }],
   });
-  dHeader.height = 22;
 
-  let dRowIdx = 4;
-  for (const day of HARI_WEEKDAYS) {
-    let firstForDay = true;
-    for (const shift of shifts) {
-      const { members } = getShiftMembersForWeekday(shift, day.index, activeEmployees);
-      const row = dailySheet.getRow(dRowIdx++);
-      row.getCell(1).value = firstForDay ? day.label.toUpperCase() : '';
-      row.getCell(2).value = shift.name;
-      row.getCell(3).value = `${shift.startTime} - ${shift.endTime}`;
-      row.getCell(4).value = members.length;
-      row.getCell(5).value =
-        members.length > 0
-          ? members.map((m, i) => `${i + 1}. ${m.name} (${m.department})`).join('\n')
-          : '(Belum ada anggota)';
+  const colCount = Math.max(1, shifts.length);
+  const colWidth = colCount <= 3 ? 30 : colCount === 4 ? 24 : 20;
+  dailySheet.columns = Array.from({ length: colCount }, (_, idx) => ({
+    key: `shift_${idx}`,
+    width: colWidth,
+  }));
+  dailySheet.pageSetup = {
+    paperSize: 9,
+    orientation: colCount > 4 ? 'landscape' : 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: {
+      left: 0.35,
+      right: 0.35,
+      top: 0.4,
+      bottom: 0.4,
+      header: 0.2,
+      footer: 0.2,
+    },
+  };
 
-      for (let col = 1; col <= 5; col++) {
-        const c = row.getCell(col);
-        c.border = thinBorder;
-        c.font = {
-          name: 'Arial',
-          size: 10,
-          bold: col === 1 || col === 2,
-          italic: col === 5 && members.length === 0,
-          color: {
-            argb: col === 5 && members.length === 0 ? 'FF94A3B8' : 'FF0F172A',
-          },
-        };
-        if (firstForDay && col === 1) {
-          c.fill = dayHeaderFill;
-        }
-        c.alignment = {
-          vertical: 'top',
-          horizontal: col === 4 ? 'center' : 'left',
-          wrapText: true,
+  const blackMedium: ExcelJS.Border = { style: 'medium', color: { argb: 'FF000000' } };
+  const blackThin: ExcelJS.Border = { style: 'thin', color: { argb: 'FF000000' } };
+
+  const dayBannerFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF00B0F0' },
+  };
+  const leaderBannerFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFFC000' },
+  };
+  const roleBannerFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFFFF00' },
+  };
+  const offBannerFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF0000' },
+  };
+  const whiteFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFFFFFF' },
+  };
+
+  const dailyBlocks = buildDailyScheduleBlocks({
+    shifts,
+    employees: activeEmployees,
+    days: HARI_WEEKDAYS,
+  });
+
+  let dRowIdx = 1;
+  for (const block of dailyBlocks) {
+    // 1. Day Header Row (e.g., SENIN)
+    const dayRowNum = dRowIdx++;
+    if (colCount > 1) {
+      dailySheet.mergeCells(dayRowNum, 1, dayRowNum, colCount);
+    }
+    const dayRow = dailySheet.getRow(dayRowNum);
+    dayRow.height = 22;
+    dayRow.getCell(1).value = block.dayLabel;
+    for (let c = 1; c <= colCount; c++) {
+      const cell = dayRow.getCell(c);
+      cell.fill = dayBannerFill;
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border = {
+        top: blackMedium,
+        bottom: blackMedium,
+        left: c === 1 ? blackMedium : undefined,
+        right: c === colCount ? blackMedium : undefined,
+      };
+    }
+
+    // 2. Shift Column Header Row (e.g., PAGI (07:00-17:00) | SELA (10:00-20:00) | ...)
+    const shiftHeaderRowNum = dRowIdx++;
+    const shiftHeaderRow = dailySheet.getRow(shiftHeaderRowNum);
+    shiftHeaderRow.height = 22;
+    for (let c = 1; c <= colCount; c++) {
+      const cell = shiftHeaderRow.getCell(c);
+      cell.value = block.shiftHeaders[c - 1] ?? '-';
+      cell.fill = whiteFill;
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      cell.border = {
+        top: blackMedium,
+        bottom: blackMedium,
+        left: blackMedium,
+        right: blackMedium,
+      };
+    }
+
+    // 3. Role Groups (LEADER orange, others yellow) + member rows
+    if (block.roleGroups.length === 0) {
+      const emptyRowNum = dRowIdx++;
+      const emptyRow = dailySheet.getRow(emptyRowNum);
+      emptyRow.height = 20;
+      for (let c = 1; c <= colCount; c++) {
+        const cell = emptyRow.getCell(c);
+        cell.value = '';
+        cell.fill = whiteFill;
+        cell.border = {
+          top: blackThin,
+          bottom: blackThin,
+          left: blackMedium,
+          right: blackMedium,
         };
       }
-      row.height = Math.max(22, members.length * 14 + 8);
-      firstForDay = false;
+    } else {
+      for (const group of block.roleGroups) {
+        const groupRowNum = dRowIdx++;
+        if (colCount > 1) {
+          dailySheet.mergeCells(groupRowNum, 1, groupRowNum, colCount);
+        }
+        const groupRow = dailySheet.getRow(groupRowNum);
+        groupRow.height = 20;
+        groupRow.getCell(1).value = group.label;
+        for (let c = 1; c <= colCount; c++) {
+          const cell = groupRow.getCell(c);
+          cell.fill = group.isLeader ? leaderBannerFill : roleBannerFill;
+          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: blackMedium,
+            bottom: blackThin,
+            left: c === 1 ? blackMedium : undefined,
+            right: c === colCount ? blackMedium : undefined,
+          };
+        }
+
+        for (const rRow of group.rows) {
+          const memRowNum = dRowIdx++;
+          const memRow = dailySheet.getRow(memRowNum);
+          memRow.height = 19;
+          for (let c = 1; c <= colCount; c++) {
+            const cell = memRow.getCell(c);
+            cell.value = rRow.cells[c - 1] ?? '';
+            cell.fill = whiteFill;
+            cell.font = { name: 'Calibri', size: 11, bold: false, color: { argb: 'FF000000' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+            cell.border = {
+              top: blackThin,
+              bottom: blackThin,
+              left: blackMedium,
+              right: blackMedium,
+            };
+          }
+        }
+      }
     }
+
+    // 4. Red OFF Footer Row
+    const offRowNum = dRowIdx++;
+    if (colCount > 1) {
+      dailySheet.mergeCells(offRowNum, 1, offRowNum, colCount);
+    }
+    const offText = `OFF : ${block.offNames.length > 0 ? block.offNames.join(', ') : '-'}`;
+    const offRow = dailySheet.getRow(offRowNum);
+    const estLines = Math.max(1, Math.ceil(offText.length / Math.max(40, colCount * 25)));
+    offRow.height = Math.max(22, estLines * 16 + 6);
+    offRow.getCell(1).value = offText;
+    for (let c = 1; c <= colCount; c++) {
+      const cell = offRow.getCell(c);
+      cell.fill = offBannerFill;
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      cell.border = {
+        top: blackMedium,
+        bottom: blackMedium,
+        left: c === 1 ? blackMedium : undefined,
+        right: c === colCount ? blackMedium : undefined,
+      };
+    }
+
+    // Blank separator row before the next day
+    dRowIdx += 1;
   }
 
+  // =========================================================================
   // Sheet 2: Master Roster per Shift
+  // =========================================================================
   const rosterSheet = workbook.addWorksheet('Master per Shift');
   rosterSheet.columns = [
     { key: 'no', width: 6 },
@@ -231,7 +351,9 @@ export async function exportShiftScheduleToExcel(params: {
     });
   }
 
+  // =========================================================================
   // Sheet 3: Matriks Mingguan per Shift (Senin - Minggu)
+  // =========================================================================
   const weeklySheet = workbook.addWorksheet('Matriks Mingguan');
   weeklySheet.columns = [
     { key: 'shift', width: 22 },
@@ -282,7 +404,6 @@ export async function exportShiftScheduleToExcel(params: {
     row.height = Math.max(36, maxLen * 14 + 10);
   }
 
-  // Off row
   const offRow = weeklySheet.getRow(wRowIdx);
   offRow.getCell(1).value = 'Libur Mingguan';
   offRow.getCell(1).font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF92400E' } };
