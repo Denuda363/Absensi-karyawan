@@ -37,7 +37,10 @@ import {
 } from '../types';
 import { updateAppSettings, updateEmployee } from '../services/attendanceService';
 import { exportShiftScheduleToExcel } from '../utils/excelShiftExport';
-import { buildDailyScheduleBlocks } from '../utils/shiftScheduleLayout';
+import {
+  buildDailyScheduleBlocks,
+  groupEmployeesByPosition,
+} from '../utils/shiftScheduleLayout';
 
 interface ShiftScheduleViewProps {
   employees: Employee[];
@@ -193,6 +196,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   const [dailyModalSelectedIds, setDailyModalSelectedIds] = useState<Set<string>>(new Set());
   const [dailyModalSearch, setDailyModalSearch] = useState<string>('');
   const [dailyModalApplyScope, setDailyModalApplyScope] = useState<'single' | 'weekdays' | 'all'>('single');
+  const [dailyModalError, setDailyModalError] = useState<string | null>(null);
   const [savingDailyModal, setSavingDailyModal] = useState<boolean>(false);
 
   // Modal B: Salin Jadwal Satu Hari ke Hari Lain
@@ -335,6 +339,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     setDailyModalSelectedIds(new Set(members.map((m) => m.id)));
     setDailyModalSearch('');
     setDailyModalApplyScope('single');
+    setDailyModalError(null);
     setErrorMessage(null);
   };
 
@@ -345,11 +350,51 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       return (
         emp.name.toLowerCase().includes(q) ||
         emp.employeeCode.toLowerCase().includes(q) ||
+        emp.position.toLowerCase().includes(q) ||
         emp.department.toLowerCase().includes(q) ||
         emp.shiftName.toLowerCase().includes(q)
       );
     });
   }, [activeEmployees, dailyModalSearch]);
+
+  const dailyModalGroupedEmployees = useMemo(
+    () => groupEmployeesByPosition(dailyModalFilteredEmployees),
+    [dailyModalFilteredEmployees]
+  );
+
+  // Map employeeId -> array of conflicting other shift labels across target days (anti double shift)
+  const dailyOtherShiftMap = useMemo(() => {
+    const result = new Map<string, string[]>();
+    if (!dailyModal) return result;
+    const targetDays: number[] =
+      dailyModalApplyScope === 'all'
+        ? [1, 2, 3, 4, 5, 6, 0]
+        : dailyModalApplyScope === 'weekdays'
+          ? [1, 2, 3, 4, 5, 6]
+          : [dailyModal.dayIndex];
+
+    for (const s of shifts) {
+      if (s.id === dailyModal.shift.id) continue;
+      for (const d of targetDays) {
+        const { members } = getShiftMembersForWeekday(s, d, activeEmployees);
+        for (const m of members) {
+          const prev = result.get(m.id) ?? [];
+          const label =
+            targetDays.length === 1 ? s.name : `${s.name} (${HARI_MAP[d]?.short ?? ''})`;
+          if (!prev.includes(label)) {
+            prev.push(label);
+            result.set(m.id, prev);
+          }
+        }
+      }
+    }
+    return result;
+  }, [dailyModal, dailyModalApplyScope, shifts, activeEmployees]);
+
+  const dailyOffEmployeesOnModalDay = useMemo(() => {
+    if (!dailyModal) return [];
+    return activeEmployees.filter((emp) => emp.offDays.includes(dailyModal.dayIndex));
+  }, [dailyModal, activeEmployees]);
 
   const handleSaveDailyModal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -366,7 +411,28 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       .filter((emp) => dailyModalSelectedIds.has(emp.id))
       .map((emp) => emp.id);
 
+    // Enforce anti-double-shift validation across every target day
+    const conflicts: string[] = [];
+    for (const empId of orderedSelectedIds) {
+      const otherLabels = dailyOtherShiftMap.get(empId);
+      if (otherLabels && otherLabels.length > 0) {
+        const emp = activeEmployees.find((item) => item.id === empId);
+        if (emp) {
+          conflicts.push(`${emp.name} (${otherLabels.join(', ')})`);
+        }
+      }
+    }
+    if (conflicts.length > 0) {
+      const preview = conflicts.slice(0, 3).join('; ');
+      const extra = conflicts.length > 3 ? ` dan ${conflicts.length - 3} lainnya` : '';
+      setDailyModalError(
+        `Tidak bisa double shift! Karyawan berikut sudah masuk shift lain: ${preview}${extra}. Keluarkan dari shift sebelumnya terlebih dahulu.`
+      );
+      return;
+    }
+
     setSavingDailyModal(true);
+    setDailyModalError(null);
     setErrorMessage(null);
     try {
       const nextShifts = shifts.map((s) => {
@@ -392,9 +458,10 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
           : `Jadwal ${shiftName} diterapkan ke ${targetDays.length} hari (${orderedSelectedIds.length} karyawan).`
       );
     } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal menyimpan jadwal shift harian.'
-      );
+      const msg =
+        err instanceof Error ? err.message : 'Gagal menyimpan jadwal shift harian.';
+      setDailyModalError(msg);
+      setErrorMessage(msg);
     } finally {
       setSavingDailyModal(false);
     }
@@ -439,6 +506,36 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     shift: ShiftConfig,
     dayIndex: number
   ) => {
+    // Check if restoring master shift members would create a double shift on dayIndex
+    const defaultMasterMembers = activeEmployees.filter(
+      (emp) =>
+        emp.shiftName.toLowerCase() === shift.name.toLowerCase() &&
+        !emp.offDays.includes(dayIndex)
+    );
+    const conflictingNames: string[] = [];
+    for (const otherShift of shifts) {
+      if (otherShift.id === shift.id) continue;
+      const { members: otherMembers } = getShiftMembersForWeekday(
+        otherShift,
+        dayIndex,
+        activeEmployees
+      );
+      const otherIds = new Set(otherMembers.map((m) => m.id));
+      for (const emp of defaultMasterMembers) {
+        if (otherIds.has(emp.id)) {
+          conflictingNames.push(`${emp.name} (${otherShift.name})`);
+        }
+      }
+    }
+    if (conflictingNames.length > 0) {
+      setErrorMessage(
+        `Tidak bisa mengembalikan ke master shift karena dapat menyebabkan double shift pada hari ${HARI_MAP[dayIndex]?.label ?? ''}: ${conflictingNames
+          .slice(0, 3)
+          .join(', ')}.`
+      );
+      return;
+    }
+
     const lockKey = `${shift.id}__${dayIndex}`;
     setBusyDailyKey(lockKey);
     setErrorMessage(null);
@@ -588,6 +685,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         return (
           emp.name.toLowerCase().includes(q) ||
           emp.employeeCode.toLowerCase().includes(q) ||
+          emp.position.toLowerCase().includes(q) ||
           emp.department.toLowerCase().includes(q) ||
           emp.shiftName.toLowerCase().includes(q)
         );
@@ -595,6 +693,11 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       return true;
     });
   }, [activeEmployees, memberModalShift, memberModalSearch, memberModalOnlyUnassigned]);
+
+  const memberModalGroupedEmployees = useMemo(
+    () => groupEmployeesByPosition(memberModalFilteredEmployees),
+    [memberModalFilteredEmployees]
+  );
 
   const removedFromTargetCount = useMemo(() => {
     if (!memberModalShift) return 0;
@@ -1444,8 +1547,8 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                             </div>
                           </div>
 
-                          {/* Member list: a, b, c */}
-                          <div className="divide-y divide-slate-100 flex-1">
+                          {/* Member list grouped by Jabatan */}
+                          <div className="flex-1 divide-y divide-slate-100">
                             {displayMembers.length === 0 ? (
                               <div className="px-4 py-5 text-center">
                                 <p className="text-xs text-slate-400 italic">
@@ -1465,57 +1568,107 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                 )}
                               </div>
                             ) : (
-                              displayMembers.map((emp, idx) => {
-                                const isRoutineOff = emp.offDays.includes(day.index);
-                                return (
+                              groupEmployeesByPosition(displayMembers).map((posGroup) => (
+                                <div key={posGroup.key}>
                                   <div
-                                    key={emp.id}
-                                    className="px-3.5 py-2.5 sm:py-2 flex items-center justify-between gap-2 hover:bg-slate-50/70"
+                                    className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between border-b border-slate-200/80 ${
+                                      posGroup.isLeader
+                                        ? 'bg-amber-50 text-amber-900'
+                                        : 'bg-slate-50 text-slate-700'
+                                    }`}
                                   >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                      <span className="font-mono text-[11px] text-slate-400 w-4 shrink-0">
-                                        {idx + 1}.
-                                      </span>
-                                      <div className="min-w-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="text-xs font-semibold text-slate-900 truncate">
-                                            {emp.name}
-                                          </span>
-                                          {isRoutineOff && (
-                                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                              Libur Rutin
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="text-[11px] text-slate-500 truncate">
-                                          {emp.employeeCode} · {emp.department}
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <button
-                                      type="button"
-                                      disabled={isLocked}
-                                      onClick={() =>
-                                        handleRemoveEmployeeFromDailyShift(
-                                          shift,
-                                          day.index,
-                                          emp
-                                        )
-                                      }
-                                      title={`Keluarkan ${emp.name} dari ${shift.name} hari ${day.label}`}
-                                      className="p-2 sm:p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 shrink-0 cursor-pointer no-print"
-                                    >
-                                      <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                                    </button>
+                                    <span>{posGroup.label}</span>
+                                    <span className="font-mono text-[10px] opacity-75">
+                                      {posGroup.employees.length}
+                                    </span>
                                   </div>
-                                );
-                              })
+                                  <div className="divide-y divide-slate-100">
+                                    {posGroup.employees.map((emp, idx) => {
+                                      const isRoutineOff = emp.offDays.includes(day.index);
+                                      return (
+                                        <div
+                                          key={emp.id}
+                                          className="px-3.5 py-2.5 sm:py-2 flex items-center justify-between gap-2 hover:bg-slate-50/70"
+                                        >
+                                          <div className="flex items-center gap-2.5 min-w-0">
+                                            <span className="font-mono text-[11px] text-slate-400 w-4 shrink-0">
+                                              {idx + 1}.
+                                            </span>
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="text-xs font-semibold text-slate-900 truncate">
+                                                  {emp.name}
+                                                </span>
+                                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 uppercase">
+                                                  {emp.position || emp.department}
+                                                </span>
+                                                {isRoutineOff && (
+                                                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                                    Libur Rutin
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <div className="text-[11px] text-slate-500 truncate">
+                                                {emp.employeeCode} · {emp.department}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <button
+                                            type="button"
+                                            disabled={isLocked}
+                                            onClick={() =>
+                                              handleRemoveEmployeeFromDailyShift(
+                                                shift,
+                                                day.index,
+                                                emp
+                                              )
+                                            }
+                                            title={`Keluarkan ${emp.name} dari ${shift.name} hari ${day.label}`}
+                                            className="p-2 sm:p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 shrink-0 cursor-pointer no-print"
+                                          >
+                                            <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))
                             )}
                           </div>
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Karyawan Libur / OFF Section on Day Card */}
+                  <div className="px-4 sm:px-5 py-3 bg-rose-50/70 border-t border-rose-200/80 flex flex-col sm:flex-row sm:items-center gap-2">
+                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 shrink-0">
+                      <CalendarOff className="w-3.5 h-3.5 text-rose-700" />
+                      <span>
+                        Libur / OFF {day.label} ({offEmployeesOnDay.length}):
+                      </span>
+                    </div>
+                    {offEmployeesOnDay.length === 0 ? (
+                      <span className="text-xs text-slate-500 italic">
+                        Tidak ada karyawan libur rutin pada hari {day.label}.
+                      </span>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {offEmployeesOnDay.map((emp) => (
+                          <span
+                            key={emp.id}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-rose-200 text-[11px] text-rose-950 font-medium"
+                          >
+                            <span className="font-semibold">{emp.name}</span>
+                            <span className="text-[10px] text-rose-700 uppercase font-semibold">
+                              ({emp.position || emp.department})
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </section>
               );
@@ -1592,8 +1745,8 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Employee List */}
-                  <div className="divide-y divide-slate-100 flex-1">
+                  {/* Employee List grouped by Jabatan */}
+                  <div className="flex-1 divide-y divide-slate-100">
                     {filteredMembers.length === 0 ? (
                       <div className="px-5 py-8 text-center">
                         <p className="text-xs text-slate-500">
@@ -1613,86 +1766,107 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                         )}
                       </div>
                     ) : (
-                      filteredMembers.map((emp) => {
-                        const offToday = isEmployeeOffDay(emp, today);
-                        const hasCustomHours =
-                          emp.shiftStart !== shift.startTime ||
-                          emp.shiftEnd !== shift.endTime;
-                        const isBusy = busyEmployeeId === emp.id;
-
-                        return (
+                      groupEmployeesByPosition(filteredMembers).map((posGroup) => (
+                        <div key={posGroup.key}>
                           <div
-                            key={emp.id}
-                            className="px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                            className={`px-5 py-1.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between border-b border-slate-200/80 ${
+                              posGroup.isLeader
+                                ? 'bg-amber-50 text-amber-900'
+                                : 'bg-slate-50 text-slate-700'
+                            }`}
                           >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 font-display text-xs font-bold flex items-center justify-center shrink-0">
-                                {getInitials(emp.name)}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-sm font-semibold text-slate-900 truncate">
-                                    {emp.name}
-                                  </span>
-                                  <span className="font-mono text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                    {emp.employeeCode}
-                                  </span>
-                                  {offToday.isOff ? (
-                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                      Libur Hari Ini
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      Bertugas
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-                                  <span>
-                                    {emp.department} · {emp.position}
-                                  </span>
-                                  <span className="text-slate-300">•</span>
-                                  <span>Libur: {formatOffDaysSummary(emp.offDays)}</span>
-                                  {hasCustomHours && (
-                                    <>
-                                      <span className="text-slate-300">•</span>
-                                      <span className="text-amber-700 font-mono font-medium">
-                                        Jam khusus: {emp.shiftStart}–{emp.shiftEnd}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        disabled={isBusy}
-                                        onClick={() => handleSyncEmployeeHours(emp, shift)}
-                                        className="text-blue-700 hover:underline font-medium cursor-pointer no-print"
-                                      >
-                                        Samakan
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 shrink-0 no-print">
-                              <select
-                                aria-label={`Pindahkan shift ${emp.name}`}
-                                value={shift.id}
-                                disabled={isBusy}
-                                onChange={(e) => handleQuickAssignShift(emp, e.target.value)}
-                                className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 disabled:opacity-50 cursor-pointer"
-                              >
-                                {shifts.map((opt) => (
-                                  <option key={opt.id} value={opt.id}>
-                                    {opt.id === shift.id
-                                      ? `${opt.name} (${opt.startTime})`
-                                      : `Pindah → ${opt.name}`}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                            <span>{posGroup.label}</span>
+                            <span className="font-mono text-[10px] opacity-75">
+                              {posGroup.employees.length}
+                            </span>
                           </div>
-                        );
-                      })
+                          <div className="divide-y divide-slate-100">
+                            {posGroup.employees.map((emp) => {
+                              const offToday = isEmployeeOffDay(emp, today);
+                              const hasCustomHours =
+                                emp.shiftStart !== shift.startTime ||
+                                emp.shiftEnd !== shift.endTime;
+                              const isBusy = busyEmployeeId === emp.id;
+
+                              return (
+                                <div
+                                  key={emp.id}
+                                  className="px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 font-display text-xs font-bold flex items-center justify-center shrink-0">
+                                      {getInitials(emp.name)}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-sm font-semibold text-slate-900 truncate">
+                                          {emp.name}
+                                        </span>
+                                        <span className="font-mono text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                          {emp.employeeCode}
+                                        </span>
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 uppercase">
+                                          {emp.position || emp.department}
+                                        </span>
+                                        {offToday.isOff ? (
+                                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                            Libur Hari Ini
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            Bertugas
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                                        <span>
+                                          {emp.department} · {emp.position}
+                                        </span>
+                                        <span className="text-slate-300">•</span>
+                                        <span>Libur: {formatOffDaysSummary(emp.offDays)}</span>
+                                        {hasCustomHours && (
+                                          <>
+                                            <span className="text-slate-300">•</span>
+                                            <span className="text-amber-700 font-mono font-medium">
+                                              Jam khusus: {emp.shiftStart}–{emp.shiftEnd}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              disabled={isBusy}
+                                              onClick={() => handleSyncEmployeeHours(emp, shift)}
+                                              className="text-blue-700 hover:underline font-medium cursor-pointer no-print"
+                                            >
+                                              Samakan
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0 no-print">
+                                    <select
+                                      aria-label={`Pindahkan shift ${emp.name}`}
+                                      value={shift.id}
+                                      disabled={isBusy}
+                                      onChange={(e) => handleQuickAssignShift(emp, e.target.value)}
+                                      className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 disabled:opacity-50 cursor-pointer"
+                                    >
+                                      {shifts.map((opt) => (
+                                        <option key={opt.id} value={opt.id}>
+                                          {opt.id === shift.id
+                                            ? `${opt.name} (${opt.startTime})`
+                                            : `Pindah → ${opt.name}`}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))
                     )}
                   </div>
                 </div>
@@ -1856,8 +2030,8 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                   className="px-2 py-1 rounded bg-slate-50 border border-slate-200/80 text-slate-800 font-medium leading-tight"
                                 >
                                   <div className="truncate">{emp.name}</div>
-                                  <div className="text-[10px] text-slate-500 truncate">
-                                    {emp.department}
+                                  <div className="text-[10px] text-slate-500 truncate uppercase">
+                                    {emp.position || emp.department}
                                   </div>
                                 </div>
                               ))}
@@ -1947,7 +2121,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     type="text"
                     value={dailyModalSearch}
                     onChange={(e) => setDailyModalSearch(e.target.value)}
-                    placeholder="Cari nama karyawan, kode, divisi, atau shift utama..."
+                    placeholder="Cari nama karyawan, jabatan, kode, atau shift utama..."
                     className="w-full pl-9 pr-3 py-2.5 sm:py-2 text-sm sm:text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   />
                 </div>
@@ -1961,19 +2135,27 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     <button
                       type="button"
                       onClick={() => {
+                        setDailyModalError(null);
                         setDailyModalSelectedIds((prev) => {
                           const next = new Set(prev);
-                          dailyModalFilteredEmployees.forEach((emp) => next.add(emp.id));
+                          dailyModalFilteredEmployees.forEach((emp) => {
+                            if (!dailyOtherShiftMap.has(emp.id)) {
+                              next.add(emp.id);
+                            }
+                          });
                           return next;
                         });
                       }}
                       className="text-blue-700 hover:underline font-semibold py-1 cursor-pointer"
                     >
-                      Pilih semua
+                      Pilih semua yang tersedia
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDailyModalSelectedIds(new Set())}
+                      onClick={() => {
+                        setDailyModalError(null);
+                        setDailyModalSelectedIds(new Set());
+                      }}
                       className="text-slate-600 hover:underline font-medium py-1 cursor-pointer"
                     >
                       Kosongkan
@@ -1998,7 +2180,10 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     <button
                       key={opt.id}
                       type="button"
-                      onClick={() => setDailyModalApplyScope(opt.id)}
+                      onClick={() => {
+                        setDailyModalApplyScope(opt.id);
+                        setDailyModalError(null);
+                      }}
                       className={`px-2.5 py-1.5 sm:py-1 text-[11px] font-semibold rounded-md border cursor-pointer ${
                         dailyModalApplyScope === opt.id
                           ? 'bg-blue-700 text-white border-blue-700'
@@ -2009,57 +2194,163 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     </button>
                   ))}
                 </div>
+
+                <div className="text-[11px] text-slate-600 bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                  <span>
+                    Aturan anti double shift: karyawan yang sudah terjadwal di shift lain pada hari target tidak dapat dipilih. Keluarkan dulu dari shift sebelumnya jika ingin memindahkan.
+                  </span>
+                </div>
+
+                {dailyOffEmployeesOnModalDay.length > 0 && (
+                  <div className="text-[11px] text-rose-900 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <CalendarOff className="w-3.5 h-3.5 text-rose-700 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">
+                        Libur Rutin {HARI_MAP[dailyModal.dayIndex]?.label} ({dailyOffEmployeesOnModalDay.length}):
+                      </span>{' '}
+                      <span>
+                        {dailyOffEmployeesOnModalDay
+                          .map((e) => `${e.name} (${e.position || e.department})`)
+                          .join(', ')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {dailyModalError && (
+                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs font-medium text-red-800 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>{dailyModalError}</span>
+                  </div>
+                )}
               </div>
 
-              <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-                {dailyModalFilteredEmployees.map((emp) => {
-                  const checked = dailyModalSelectedIds.has(emp.id);
-                  const isOffOnDay = emp.offDays.includes(dailyModal.dayIndex);
-                  return (
-                    <label
-                      key={emp.id}
-                      className={`px-4 sm:px-5 py-3 sm:py-2.5 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 ${
-                        checked ? 'bg-blue-50/40' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            const isChecked = e.target.checked;
-                            setDailyModalSelectedIds((prev) => {
-                              const next = new Set(prev);
-                              if (isChecked) next.add(emp.id);
-                              else next.delete(emp.id);
-                              return next;
-                            });
-                          }}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                        />
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 truncate">
-                            {emp.name}{' '}
-                            <span className="font-mono text-[11px] text-slate-500">
-                              ({emp.employeeCode})
+              <div className="flex-1 overflow-y-auto">
+                {dailyModalGroupedEmployees.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-xs text-slate-400">
+                    Tidak ada karyawan yang cocok dengan pencarian.
+                  </div>
+                ) : (
+                  dailyModalGroupedEmployees.map((posGroup) => {
+                    const eligibleInGroup = posGroup.employees.filter(
+                      (emp) => !dailyOtherShiftMap.has(emp.id)
+                    );
+                    const allEligibleChecked =
+                      eligibleInGroup.length > 0 &&
+                      eligibleInGroup.every((emp) => dailyModalSelectedIds.has(emp.id));
+
+                    return (
+                      <div key={posGroup.key} className="border-b border-slate-200 last:border-b-0">
+                        <div
+                          className={`sticky top-0 z-10 px-4 sm:px-5 py-2 border-b border-slate-200 flex items-center justify-between gap-2 ${
+                            posGroup.isLeader ? 'bg-amber-50' : 'bg-slate-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">
+                              {posGroup.label}
+                            </span>
+                            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
+                              {posGroup.employees.length}
                             </span>
                           </div>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            {emp.department} · Shift utama: {emp.shiftName}
-                          </div>
+                          {eligibleInGroup.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDailyModalError(null);
+                                setDailyModalSelectedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (allEligibleChecked) {
+                                    eligibleInGroup.forEach((emp) => next.delete(emp.id));
+                                  } else {
+                                    eligibleInGroup.forEach((emp) => next.add(emp.id));
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="text-[11px] font-semibold text-blue-700 hover:underline cursor-pointer"
+                            >
+                              {allEligibleChecked ? 'Lepas Grup' : 'Pilih Grup'}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {posGroup.employees.map((emp) => {
+                            const checked = dailyModalSelectedIds.has(emp.id);
+                            const isOffOnDay = emp.offDays.includes(dailyModal.dayIndex);
+                            const otherShifts = dailyOtherShiftMap.get(emp.id) ?? [];
+                            const isBlockedByOtherShift = otherShifts.length > 0 && !checked;
+
+                            return (
+                              <label
+                                key={emp.id}
+                                className={`px-4 sm:px-5 py-3 sm:py-2.5 flex items-center justify-between gap-3 ${
+                                  isBlockedByOtherShift
+                                    ? 'bg-slate-50/80 opacity-65 cursor-not-allowed'
+                                    : checked
+                                      ? 'bg-blue-50/40 cursor-pointer hover:bg-blue-50/60'
+                                      : 'cursor-pointer hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={isBlockedByOtherShift}
+                                    onChange={(e) => {
+                                      const isChecked = e.target.checked;
+                                      if (isChecked && otherShifts.length > 0) return;
+                                      setDailyModalError(null);
+                                      setDailyModalSelectedIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (isChecked) next.add(emp.id);
+                                        else next.delete(emp.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600 disabled:opacity-50"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-xs font-semibold text-slate-900 truncate">
+                                        {emp.name}
+                                      </span>
+                                      <span className="font-mono text-[11px] text-slate-500">
+                                        ({emp.employeeCode})
+                                      </span>
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 uppercase">
+                                        {emp.position || emp.department}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 truncate">
+                                      {emp.department} · Shift utama: {emp.shiftName}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 flex flex-wrap items-center justify-end gap-1.5">
+                                  {otherShifts.length > 0 && (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200">
+                                      Sudah di {otherShifts.join(', ')}
+                                    </span>
+                                  )}
+                                  {isOffOnDay && (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                      Libur Rutin {HARI_MAP[dailyModal.dayIndex]?.short}
+                                    </span>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
                         </div>
                       </div>
-
-                      <div className="shrink-0 flex items-center gap-1.5">
-                        {isOffOnDay && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                            Libur Rutin {HARI_MAP[dailyModal.dayIndex]?.short}
-                          </span>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2 shrink-0 pb-safe">
@@ -2261,73 +2552,96 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-                {memberModalFilteredEmployees.map((emp) => {
-                  const checked = memberModalSelectedIds.has(emp.id);
-                  const isCurrentlyInTarget =
-                    emp.shiftName.toLowerCase() === memberModalShift.name.toLowerCase();
-                  const cannotUncheck = isCurrentlyInTarget && shifts.length <= 1;
-
-                  return (
-                    <label
-                      key={emp.id}
-                      className={`px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 ${
-                        checked ? 'bg-blue-50/40' : ''
+              <div className="flex-1 overflow-y-auto">
+                {memberModalGroupedEmployees.map((posGroup) => (
+                  <div key={posGroup.key} className="border-b border-slate-200 last:border-b-0">
+                    <div
+                      className={`sticky top-0 z-10 px-5 py-2 border-b border-slate-200 flex items-center justify-between ${
+                        posGroup.isLeader ? 'bg-amber-50' : 'bg-slate-100'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={cannotUncheck}
-                          onChange={(e) => {
-                            const isChecked = e.target.checked;
-                            setMemberModalSelectedIds((prev) => {
-                              const next = new Set(prev);
-                              if (isChecked) next.add(emp.id);
-                              else next.delete(emp.id);
-                              return next;
-                            });
-                          }}
-                          className="w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                        />
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 truncate">
-                            {emp.name}{' '}
-                            <span className="font-mono text-[11px] text-slate-500">
-                              ({emp.employeeCode})
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            {emp.department} · {emp.position}
-                          </div>
-                        </div>
-                      </div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">
+                        {posGroup.label}
+                      </span>
+                      <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
+                        {posGroup.employees.length}
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {posGroup.employees.map((emp) => {
+                        const checked = memberModalSelectedIds.has(emp.id);
+                        const isCurrentlyInTarget =
+                          emp.shiftName.toLowerCase() === memberModalShift.name.toLowerCase();
+                        const cannotUncheck = isCurrentlyInTarget && shifts.length <= 1;
 
-                      <div className="shrink-0 text-right">
-                        {isCurrentlyInTarget ? (
-                          checked ? (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              Anggota Saat Ini
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                              Akan Dipindah
-                            </span>
-                          )
-                        ) : checked ? (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                            {emp.shiftName} → {memberModalShift.name}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                            Saat ini: {emp.shiftName}
-                          </span>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
+                        return (
+                          <label
+                            key={emp.id}
+                            className={`px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 ${
+                              checked ? 'bg-blue-50/40' : ''
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={cannotUncheck}
+                                onChange={(e) => {
+                                  const isChecked = e.target.checked;
+                                  setMemberModalSelectedIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (isChecked) next.add(emp.id);
+                                    else next.delete(emp.id);
+                                    return next;
+                                  });
+                                }}
+                                className="w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-semibold text-slate-900 truncate">
+                                    {emp.name}
+                                  </span>
+                                  <span className="font-mono text-[11px] text-slate-500">
+                                    ({emp.employeeCode})
+                                  </span>
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 uppercase">
+                                    {emp.position || emp.department}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 truncate">
+                                  {emp.department} · {emp.position}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 text-right">
+                              {isCurrentlyInTarget ? (
+                                checked ? (
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    Anggota Saat Ini
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                    Akan Dipindah
+                                  </span>
+                                )
+                              ) : checked ? (
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                  {emp.shiftName} → {memberModalShift.name}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                                  Saat ini: {emp.shiftName}
+                                </span>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2 shrink-0 pb-safe">
@@ -2454,46 +2768,59 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     placeholder="Cari karyawan untuk langsung dimasukkan..."
                     className="w-full px-3 py-2 sm:py-1.5 text-sm sm:text-xs border border-slate-200 rounded-lg"
                   />
-                  <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
-                    {activeEmployees
-                      .filter((emp) => {
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
+                    {groupEmployeesByPosition(
+                      activeEmployees.filter((emp) => {
                         const q = newShiftMemberSearch.trim().toLowerCase();
                         if (!q) return true;
                         return (
                           emp.name.toLowerCase().includes(q) ||
+                          emp.position.toLowerCase().includes(q) ||
                           emp.department.toLowerCase().includes(q) ||
                           emp.employeeCode.toLowerCase().includes(q)
                         );
                       })
-                      .map((emp) => (
-                        <label
-                          key={emp.id}
-                          className="px-3 py-2.5 sm:py-2 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 cursor-pointer"
-                        >
-                          <span className="flex items-center gap-2 min-w-0">
-                            <input
-                              type="checkbox"
-                              checked={newShiftMemberIds.has(emp.id)}
-                              onChange={(e) => {
-                                const checked = e.target.checked;
-                                setNewShiftMemberIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (checked) next.add(emp.id);
-                                  else next.delete(emp.id);
-                                  return next;
-                                });
-                              }}
-                              className="w-4 h-4 rounded border-slate-300 text-blue-700"
-                            />
-                            <span className="font-medium text-slate-800 truncate">
-                              {emp.name}
-                            </span>
-                          </span>
-                          <span className="text-[11px] text-slate-500 shrink-0">
-                            {emp.shiftName}
-                          </span>
-                        </label>
-                      ))}
+                    ).map((posGroup) => (
+                      <div key={posGroup.key} className="border-b border-slate-200 last:border-b-0">
+                        <div className="px-3 py-1 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
+                          {posGroup.label} ({posGroup.employees.length})
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                          {posGroup.employees.map((emp) => (
+                            <label
+                              key={emp.id}
+                              className="px-3 py-2.5 sm:py-2 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={newShiftMemberIds.has(emp.id)}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setNewShiftMemberIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (checked) next.add(emp.id);
+                                      else next.delete(emp.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-300 text-blue-700"
+                                />
+                                <span className="font-medium text-slate-800 truncate">
+                                  {emp.name}
+                                </span>
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 uppercase shrink-0">
+                                  {emp.position || emp.department}
+                                </span>
+                              </span>
+                              <span className="text-[11px] text-slate-500 shrink-0">
+                                {emp.shiftName}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

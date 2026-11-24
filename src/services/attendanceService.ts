@@ -1,5 +1,6 @@
 import {
   AppSettings,
+  ATTENDANCE_STATUS_META,
   AttendanceRecord,
   AttendanceStatus,
   CompanyProfile,
@@ -12,6 +13,10 @@ import {
 } from '../types';
 import { executeApiWithFallback } from './apiClient';
 import { resetFirestoreData } from './firebaseClient';
+import {
+  emitAppNotification,
+  formatRupiahNotif,
+} from './notificationCenterService';
 import {
   clientBulkMarkScheduledOffDays,
   clientCreateAttendanceRecord,
@@ -46,7 +51,7 @@ export async function fetchDatabaseState(): Promise<AppDatabaseState> {
 export async function createEmployee(
   payload: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<Employee> {
-  return executeApiWithFallback(
+  const created = await executeApiWithFallback(
     () =>
       fetch('/api/employees', {
         method: 'POST',
@@ -55,13 +60,23 @@ export async function createEmployee(
       }),
     () => clientCreateEmployee(payload)
   );
+  emitAppNotification({
+    title: 'Karyawan Baru Ditambahkan',
+    message: `${created.name} (${created.position} · ${created.department}) · Shift ${created.shiftName}`,
+    module: 'sdm',
+    severity: 'success',
+    actionType: 'create_employee',
+    targetLabel: created.name,
+    targetNav: 'matriks',
+  });
+  return created;
 }
 
 export async function updateEmployee(
   employeeId: string,
   payload: Partial<Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>>
 ): Promise<Employee> {
-  return executeApiWithFallback(
+  const updated = await executeApiWithFallback(
     () =>
       fetch(`/api/employees/${encodeURIComponent(employeeId)}`, {
         method: 'PUT',
@@ -70,6 +85,22 @@ export async function updateEmployee(
       }),
     () => clientUpdateEmployee(employeeId, payload)
   );
+  const isScheduleOnly =
+    ('offDays' in payload || 'customOffDates' in payload) &&
+    !('name' in payload) &&
+    !('position' in payload);
+  emitAppNotification({
+    title: isScheduleOnly
+      ? 'Jadwal Libur Karyawan Diperbarui'
+      : 'Data Karyawan Diperbarui',
+    message: `${updated.name} (${updated.position} · ${updated.department})`,
+    module: isScheduleOnly ? 'jadwal' : 'sdm',
+    severity: 'info',
+    actionType: isScheduleOnly ? 'update_employee_off_schedule' : 'update_employee',
+    targetLabel: updated.name,
+    targetNav: isScheduleOnly ? 'jadwal-libur' : 'matriks',
+  });
+  return updated;
 }
 
 export async function deleteEmployee(employeeId: string): Promise<void> {
@@ -83,6 +114,14 @@ export async function deleteEmployee(employeeId: string): Promise<void> {
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Data Karyawan Dihapus',
+    message: `Profil karyawan dengan ID ${employeeId} telah dihapus dari daftar aktif.`,
+    module: 'sdm',
+    severity: 'warning',
+    actionType: 'delete_employee',
+    targetNav: 'matriks',
+  });
 }
 
 export async function createAttendanceRecord(payload: {
@@ -98,7 +137,7 @@ export async function createAttendanceRecord(payload: {
   latePermitEstimatedArrival?: string;
   latePermitApprovedBy?: string;
 }): Promise<AttendanceRecord> {
-  return executeApiWithFallback(
+  const rec = await executeApiWithFallback(
     () =>
       fetch('/api/attendance', {
         method: 'POST',
@@ -107,6 +146,29 @@ export async function createAttendanceRecord(payload: {
       }),
     () => clientCreateAttendanceRecord(payload)
   );
+  const statusLabel = ATTENDANCE_STATUS_META[rec.status]?.label ?? rec.status;
+  const timeInfo = [
+    rec.checkIn ? `Masuk ${rec.checkIn}` : '',
+    rec.checkOut ? `Pulang ${rec.checkOut}` : '',
+    rec.overtimeHours > 0 ? `Lembur ${rec.overtimeHours}j` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  emitAppNotification({
+    title: `Absensi ${statusLabel}: ${rec.employeeName}`,
+    message: `${rec.date}${rec.shiftName ? ` · Shift ${rec.shiftName}` : ''}${timeInfo ? ` · ${timeInfo}` : ''}`,
+    module: 'absensi',
+    severity:
+      rec.status === 'alpha'
+        ? 'danger'
+        : rec.status === 'terlambat'
+          ? 'warning'
+          : 'success',
+    actionType: 'create_attendance',
+    targetLabel: rec.employeeName,
+    targetNav: 'matriks',
+  });
+  return rec;
 }
 
 export async function updateAttendanceRecord(
@@ -123,7 +185,7 @@ export async function updateAttendanceRecord(
     latePermitApprovedBy?: string;
   }
 ): Promise<AttendanceRecord> {
-  return executeApiWithFallback(
+  const rec = await executeApiWithFallback(
     () =>
       fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {
         method: 'PUT',
@@ -132,6 +194,29 @@ export async function updateAttendanceRecord(
       }),
     () => clientUpdateAttendanceRecord(recordId, payload)
   );
+  const statusLabel = ATTENDANCE_STATUS_META[rec.status]?.label ?? rec.status;
+  const timeInfo = [
+    rec.checkIn ? `Masuk ${rec.checkIn}` : '',
+    rec.checkOut ? `Pulang ${rec.checkOut}` : '',
+    rec.overtimeHours > 0 ? `Lembur ${rec.overtimeHours}j` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  emitAppNotification({
+    title: `Perubahan Absensi: ${rec.employeeName}`,
+    message: `${rec.date} · Status ${statusLabel}${timeInfo ? ` · ${timeInfo}` : ''}`,
+    module: 'absensi',
+    severity:
+      rec.status === 'alpha'
+        ? 'danger'
+        : rec.status === 'terlambat'
+          ? 'warning'
+          : 'info',
+    actionType: 'update_attendance',
+    targetLabel: rec.employeeName,
+    targetNav: 'matriks',
+  });
+  return rec;
 }
 
 export async function deleteAttendanceRecord(recordId: string): Promise<void> {
@@ -145,12 +230,20 @@ export async function deleteAttendanceRecord(recordId: string): Promise<void> {
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Catatan Absensi Dihapus',
+    message: `Log kehadiran #${recordId} berhasil dihapus dari sistem.`,
+    module: 'absensi',
+    severity: 'warning',
+    actionType: 'delete_attendance',
+    targetNav: 'matriks',
+  });
 }
 
 export async function bulkMarkScheduledOffDays(
   date: string
 ): Promise<{ createdCount: number }> {
-  return executeApiWithFallback(
+  const res = await executeApiWithFallback(
     () =>
       fetch('/api/attendance/bulk-off-days', {
         method: 'POST',
@@ -159,6 +252,17 @@ export async function bulkMarkScheduledOffDays(
       }),
     () => clientBulkMarkScheduledOffDays(date)
   );
+  if (res.createdCount > 0) {
+    emitAppNotification({
+      title: 'Penandaan Libur Massal Selesai',
+      message: `${res.createdCount} karyawan sesuai jadwal libur otomatis ditandai Libur pada ${date}.`,
+      module: 'absensi',
+      severity: 'info',
+      actionType: 'bulk_mark_off_days',
+      targetNav: 'matriks',
+    });
+  }
+  return res;
 }
 
 export async function createLateSettlement(payload: {
@@ -172,7 +276,7 @@ export async function createLateSettlement(payload: {
   deductionAmount?: number;
   notes: string;
 }): Promise<LateSettlement> {
-  return executeApiWithFallback(
+  const created = await executeApiWithFallback(
     () =>
       fetch('/api/late-settlements', {
         method: 'POST',
@@ -181,6 +285,24 @@ export async function createLateSettlement(payload: {
       }),
     () => clientCreateLateSettlement(payload)
   );
+  const methodLabel =
+    created.method === 'potongan_gaji' ? 'Potongan Gaji' : 'Tambahan Jam Kerja';
+  emitAppNotification({
+    title: `Kompensasi Terlambat: ${created.employeeName}`,
+    message: `${created.date} · ${created.minutesSettled} menit via ${methodLabel}`,
+    module: 'absensi',
+    severity: created.method === 'potongan_gaji' ? 'warning' : 'success',
+    actionType: 'create_late_settlement',
+    ...(created.deductionAmount && created.deductionAmount > 0
+      ? {
+          amountValue: created.deductionAmount,
+          amountLabel: formatRupiahNotif(created.deductionAmount),
+        }
+      : {}),
+    targetLabel: created.employeeName,
+    targetNav: 'rekap',
+  });
+  return created;
 }
 
 export async function deleteLateSettlement(settlementId: string): Promise<void> {
@@ -194,6 +316,14 @@ export async function deleteLateSettlement(settlementId: string): Promise<void> 
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Kompensasi Terlambat Dihapus',
+    message: `Catatan penyelesaian keterlambatan #${settlementId} dihapus.`,
+    module: 'absensi',
+    severity: 'warning',
+    actionType: 'delete_late_settlement',
+    targetNav: 'rekap',
+  });
 }
 
 export async function updateAppSettings(payload: {
@@ -204,7 +334,7 @@ export async function updateAppSettings(payload: {
   companyProfile?: Partial<CompanyProfile>;
   syncEmployees?: boolean;
 }): Promise<AppSettings> {
-  return executeApiWithFallback(
+  const updated = await executeApiWithFallback(
     () =>
       fetch('/api/settings', {
         method: 'PUT',
@@ -213,6 +343,37 @@ export async function updateAppSettings(payload: {
       }),
     () => clientUpdateAppSettings(payload)
   );
+
+  if (payload.shifts) {
+    emitAppNotification({
+      title: 'Jadwal & Master Shift Diperbarui',
+      message: `${updated.shifts.length} konfigurasi shift untuk ${updated.companyName} telah disimpan.`,
+      module: 'jadwal',
+      severity: 'success',
+      actionType: 'update_shift_settings',
+      targetNav: 'jadwal-shift',
+    });
+  } else if (payload.companyProfile) {
+    emitAppNotification({
+      title: 'Profil Perusahaan Disimpan',
+      message: `Identitas resmi & struktur perusahaan ${updated.companyName} berhasil diperbarui.`,
+      module: 'sistem',
+      severity: 'success',
+      actionType: 'update_company_profile',
+      targetNav: 'profil-perusahaan',
+    });
+  } else {
+    emitAppNotification({
+      title: 'Pengaturan Sistem Disimpan',
+      message: `Konfigurasi operasional ${updated.companyName} telah diperbarui.`,
+      module: 'sistem',
+      severity: 'info',
+      actionType: 'update_app_settings',
+      targetNav: 'pengaturan',
+    });
+  }
+
+  return updated;
 }
 
 export async function downloadBackupJson(): Promise<void> {
@@ -239,12 +400,21 @@ export async function downloadBackupJson(): Promise<void> {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+
+  emitAppNotification({
+    title: 'Backup Database Diekspor',
+    message: `File karyapresensi-backup-${stamp}.json berhasil diunduh ke perangkat.`,
+    module: 'sistem',
+    severity: 'info',
+    actionType: 'download_backup',
+    targetNav: 'pengaturan',
+  });
 }
 
 export async function restoreDatabaseBackup(
   backupPayload: unknown
 ): Promise<AppDatabaseState> {
-  return executeApiWithFallback(
+  const restored = await executeApiWithFallback(
     () =>
       fetch('/api/restore', {
         method: 'POST',
@@ -253,6 +423,15 @@ export async function restoreDatabaseBackup(
       }),
     () => clientRestoreDatabaseBackup(backupPayload)
   );
+  emitAppNotification({
+    title: 'Restore Database Berhasil',
+    message: `${restored.employees.length} karyawan & ${restored.attendanceRecords.length} log absensi dipulihkan.`,
+    module: 'sistem',
+    severity: 'success',
+    actionType: 'restore_database',
+    targetNav: 'pengaturan',
+  });
+  return restored;
 }
 
 export async function resetApplicationData(
@@ -282,6 +461,15 @@ export async function resetApplicationData(
   } catch {
     // Non-blocking Firestore sync if not signed in or rules restrict optional cleanup
   }
+
+  emitAppNotification({
+    title: 'Reset Data Sistem Dijalankan',
+    message: result.message,
+    module: 'sistem',
+    severity: 'danger',
+    actionType: `reset_data_${payload.mode}`,
+    targetNav: 'pengaturan',
+  });
 
   return result;
 }

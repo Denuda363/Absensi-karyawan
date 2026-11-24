@@ -40,6 +40,12 @@ import { FinanceView } from './components/FinanceView';
 import { ShiftScheduleView } from './components/ShiftScheduleView';
 import { RealtimeClock } from './components/RealtimeClock';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallControls';
+import {
+  NotificationBellButton,
+  NotificationCenterDrawer,
+  NotificationToastStack,
+  useNotificationCenterState,
+} from './components/NotificationCenter';
 
 const PAGE_TITLES: Record<NavSection, { title: string; subtitle: string }> = {
   ringkasan: {
@@ -97,6 +103,14 @@ function AppWorkspace() {
 
   const [activeNav, setActiveNav] = useState<NavSection>('ringkasan');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [notificationOpen, setNotificationOpen] = useState<boolean>(false);
+  const {
+    notifications,
+    unreadCount,
+    prefs: notificationPrefs,
+    toasts: notificationToasts,
+    permission: deviceNotificationPermission,
+  } = useNotificationCenterState();
 
   // Mode Biasa (default) vs Mode Admin
   const [adminToken, setAdminToken] = useState<string | null>(null);
@@ -252,6 +266,15 @@ function AppWorkspace() {
             </div>
 
             <PWAInstallButton variant="header" />
+
+            <NotificationBellButton
+              unreadCount={unreadCount}
+              deviceReady={
+                deviceNotificationPermission === 'granted' &&
+                notificationPrefs.systemNotificationsEnabled
+              }
+              onClick={() => setNotificationOpen(true)}
+            />
 
             {isAdminMode ? (
               <button
@@ -591,6 +614,23 @@ function AppWorkspace() {
           </div>
         </div>
       )}
+
+      <NotificationToastStack
+        toasts={notificationToasts}
+        onOpenCenter={() => setNotificationOpen(true)}
+      />
+
+      <NotificationCenterDrawer
+        open={notificationOpen}
+        onClose={() => setNotificationOpen(false)}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        prefs={notificationPrefs}
+        permission={deviceNotificationPermission}
+        isAdminMode={isAdminMode}
+        onNavigate={handleGuardedNavigate}
+        onOpenAdminModeModal={handleOpenAdminModeModal}
+      />
     </div>
   );
 }

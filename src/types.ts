@@ -820,3 +820,37 @@ export interface ResetDataResult {
   financeAccounts?: FinanceAccount[];
   financeCategories?: FinanceCategory[];
 }
+
+export type NotificationModule =
+  | 'absensi'
+  | 'keuangan'
+  | 'gaji'
+  | 'jadwal'
+  | 'sdm'
+  | 'sistem';
+
+export type NotificationSeverity = 'success' | 'info' | 'warning' | 'danger';
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  module: NotificationModule;
+  severity: NotificationSeverity;
+  actionType: string;
+  amountValue?: number;
+  amountLabel?: string;
+  targetLabel?: string;
+  targetNav?: NavSection;
+  timestamp: string;
+  read: boolean;
+  systemDelivered?: boolean;
+}
+
+export interface NotificationPreferences {
+  systemNotificationsEnabled: boolean;
+  soundEnabled: boolean;
+  showToasts: boolean;
+  mutedModules: NotificationModule[];
+}
+

@@ -97,6 +97,42 @@ export function normalizeRoleMeta(position?: string, department?: string): RoleM
   return { key: upper, label: upper, order: 100, isLeader: false };
 }
 
+export interface EmployeePositionGroup {
+  key: string;
+  label: string;
+  isLeader: boolean;
+  employees: Employee[];
+}
+
+export function groupEmployeesByPosition(employees: Employee[]): EmployeePositionGroup[] {
+  const groupMap = new Map<
+    string,
+    { meta: RoleMeta; employees: Employee[] }
+  >();
+
+  for (const emp of employees) {
+    const meta = normalizeRoleMeta(emp.position, emp.department);
+    const existing = groupMap.get(meta.key);
+    if (existing) {
+      existing.employees.push(emp);
+    } else {
+      groupMap.set(meta.key, { meta, employees: [emp] });
+    }
+  }
+
+  return Array.from(groupMap.values())
+    .sort((a, b) => {
+      if (a.meta.order !== b.meta.order) return a.meta.order - b.meta.order;
+      return a.meta.label.localeCompare(b.meta.label, 'id');
+    })
+    .map(({ meta, employees: groupEmps }) => ({
+      key: meta.key,
+      label: meta.label,
+      isLeader: meta.isLeader,
+      employees: [...groupEmps].sort((a, b) => a.name.localeCompare(b.name, 'id')),
+    }));
+}
+
 function chunkNamesIntoRows(names: string[], maxPerRow = 2): string[] {
   if (names.length === 0) return [];
   const lines: string[] = [];

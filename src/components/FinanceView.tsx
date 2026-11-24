@@ -4277,12 +4277,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     Nominal (Rp)
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    min={1}
-                    step={1000}
-                    value={txAmount || ''}
-                    onChange={(e) => setTxAmount(Number(e.target.value))}
+                    value={txAmount > 0 ? String(txAmount) : ''}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      setTxAmount(digits ? Number(digits) : 0);
+                    }}
                     placeholder="0"
                     className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   />
@@ -4510,12 +4512,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     Nominal Dipindahkan (Rp)
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    min={1}
-                    step={1000}
-                    value={trAmount || ''}
-                    onChange={(e) => setTrAmount(Number(e.target.value))}
+                    value={trAmount > 0 ? String(trAmount) : ''}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      setTrAmount(digits ? Number(digits) : 0);
+                    }}
                     placeholder="0"
                     className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   />

@@ -11,6 +11,10 @@ import {
 } from '../types';
 import { executeApiWithFallback, HttpApiError } from './apiClient';
 import {
+  emitAppNotification,
+  formatRupiahNotif,
+} from './notificationCenterService';
+import {
   clientChangeAdminModePin,
   clientCreatePayrollAdjustment,
   clientCreateSalaryRaise,
@@ -52,7 +56,7 @@ async function runPayrollApi<T>(
 export async function unlockAdminModeWithPin(
   pin: string
 ): Promise<{ token: string; expiresAt: number }> {
-  return runPayrollApi(
+  const session = await runPayrollApi(
     () =>
       fetch('/api/admin-mode/unlock', {
         method: 'POST',
@@ -61,6 +65,14 @@ export async function unlockAdminModeWithPin(
       }),
     () => clientUnlockAdminModeWithPin(pin)
   );
+  emitAppNotification({
+    title: 'Mode Admin Diaktifkan',
+    message: 'Sesi otorisasi terbuka untuk Keuangan Perusahaan, Rekap Gaji, dan Pengaturan Sistem.',
+    module: 'sistem',
+    severity: 'info',
+    actionType: 'unlock_admin_mode',
+  });
+  return session;
 }
 
 export async function lockAdminModeSession(adminToken: string): Promise<void> {
@@ -80,6 +92,13 @@ export async function lockAdminModeSession(adminToken: string): Promise<void> {
   } catch {
     await clientLockAdminModeSession(adminToken);
   }
+  emitAppNotification({
+    title: 'Mode Admin Dikunci',
+    message: 'Sesi Mode Admin ditutup dan menu rahasia kembali terlindungi.',
+    module: 'sistem',
+    severity: 'info',
+    actionType: 'lock_admin_mode',
+  });
 }
 
 export async function changeAdminModePin(payload: {
@@ -98,12 +117,20 @@ export async function changeAdminModePin(payload: {
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'PIN Mode Admin Diperbarui',
+    message: 'PIN keamanan Mode Admin berhasil diganti dengan kombinasi baru.',
+    module: 'sistem',
+    severity: 'warning',
+    actionType: 'change_admin_pin',
+    targetNav: 'pengaturan',
+  });
 }
 
 export async function unlockPayrollWithPin(
   pin: string
 ): Promise<{ token: string; expiresAt: number }> {
-  return runPayrollApi(
+  const session = await runPayrollApi(
     () =>
       fetch('/api/payroll/unlock', {
         method: 'POST',
@@ -112,6 +139,15 @@ export async function unlockPayrollWithPin(
       }),
     () => clientUnlockPayrollWithPin(pin)
   );
+  emitAppNotification({
+    title: 'Akses Rekap Gaji Dibuka',
+    message: 'Otorisasi PIN Penggajian terverifikasi.',
+    module: 'gaji',
+    severity: 'info',
+    actionType: 'unlock_payroll',
+    targetNav: 'rekap-gaji',
+  });
+  return session;
 }
 
 export async function lockPayrollSession(token: string): Promise<void> {
@@ -131,6 +167,13 @@ export async function lockPayrollSession(token: string): Promise<void> {
   } catch {
     await clientLockPayrollSession(token);
   }
+  emitAppNotification({
+    title: 'Sesi Rekap Gaji Dikunci',
+    message: 'Data gaji kembali dikunci demi kerahasiaan.',
+    module: 'gaji',
+    severity: 'info',
+    actionType: 'lock_payroll',
+  });
 }
 
 export async function fetchPayrollState(token: string): Promise<PayrollDatabaseState> {
@@ -147,7 +190,7 @@ export async function updatePayrollSettings(
   token: string,
   payload: Partial<PayrollSettings>
 ): Promise<PayrollSettings> {
-  return runPayrollApi(
+  const updated = await runPayrollApi(
     () =>
       fetch('/api/payroll/settings', {
         method: 'PUT',
@@ -159,6 +202,15 @@ export async function updatePayrollSettings(
       }),
     () => clientUpdatePayrollSettings(token, payload)
   );
+  emitAppNotification({
+    title: 'Aturan Penggajian Diperbarui',
+    message: `Tarif lembur ${formatRupiahNotif(updated.defaultOvertimeHourlyRate)}/jam · Tanggal gajian tgl ${updated.paydayDayOfMonth}.`,
+    module: 'gaji',
+    severity: 'info',
+    actionType: 'update_payroll_settings',
+    targetNav: 'rekap-gaji',
+  });
+  return updated;
 }
 
 export async function saveEmployeeSalaryProfile(
@@ -166,7 +218,7 @@ export async function saveEmployeeSalaryProfile(
   employeeId: string,
   payload: Partial<Omit<EmployeeSalaryProfile, 'employeeId' | 'updatedAt'>>
 ): Promise<EmployeeSalaryProfile> {
-  return runPayrollApi(
+  const profile = await runPayrollApi(
     () =>
       fetch(`/api/payroll/profiles/${encodeURIComponent(employeeId)}`, {
         method: 'PUT',
@@ -178,6 +230,17 @@ export async function saveEmployeeSalaryProfile(
       }),
     () => clientSaveEmployeeSalaryProfile(token, employeeId, payload)
   );
+  emitAppNotification({
+    title: 'Profil Gaji Karyawan Disimpan',
+    message: `Karyawan #${employeeId} · Metode ${profile.paymentMethod === 'transfer' ? profile.bankName || 'Transfer' : 'Tunai'}`,
+    module: 'gaji',
+    severity: 'success',
+    actionType: 'save_salary_profile',
+    amountValue: profile.baseSalary,
+    amountLabel: formatRupiahNotif(profile.baseSalary),
+    targetNav: 'rekap-gaji',
+  });
+  return profile;
 }
 
 export async function createPayrollAdjustment(
@@ -192,7 +255,7 @@ export async function createPayrollAdjustment(
     notes: string;
   }
 ): Promise<PayrollAdjustment> {
-  return runPayrollApi(
+  const adj = await runPayrollApi(
     () =>
       fetch('/api/payroll/adjustments', {
         method: 'POST',
@@ -204,6 +267,25 @@ export async function createPayrollAdjustment(
       }),
     () => clientCreatePayrollAdjustment(token, payload)
   );
+  const typeLabel =
+    adj.type === 'bonus'
+      ? 'Bonus'
+      : adj.type === 'tunjangan'
+        ? 'Tunjangan'
+        : 'Potongan';
+  const sign = adj.type === 'potongan' ? '-' : '+';
+  emitAppNotification({
+    title: `${typeLabel} Gaji: ${adj.employeeName}`,
+    message: `${adj.title} · Periode ${adj.yearMonth} (${adj.date})`,
+    module: 'gaji',
+    severity: adj.type === 'potongan' ? 'warning' : 'success',
+    actionType: 'create_payroll_adjustment',
+    amountValue: adj.amount,
+    amountLabel: `${sign}${formatRupiahNotif(adj.amount)}`,
+    targetLabel: adj.employeeName,
+    targetNav: 'rekap-gaji',
+  });
+  return adj;
 }
 
 export async function deletePayrollAdjustment(
@@ -221,6 +303,14 @@ export async function deletePayrollAdjustment(
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Penyesuaian Gaji Dihapus',
+    message: `Komponen bonus/potongan #${adjustmentId} telah dihapus.`,
+    module: 'gaji',
+    severity: 'warning',
+    actionType: 'delete_payroll_adjustment',
+    targetNav: 'rekap-gaji',
+  });
 }
 
 export async function createSalaryRaise(
@@ -240,7 +330,7 @@ export async function createSalaryRaise(
     applyToProfile?: boolean;
   }
 ): Promise<SalaryRaiseRecord> {
-  return runPayrollApi(
+  const raise = await runPayrollApi(
     () =>
       fetch('/api/payroll/raises', {
         method: 'POST',
@@ -252,6 +342,18 @@ export async function createSalaryRaise(
       }),
     () => clientCreateSalaryRaise(token, payload)
   );
+  emitAppNotification({
+    title: `Kenaikan Gaji: ${raise.employeeName}`,
+    message: `Efektif ${raise.effectiveMonth} · ${raise.reason || 'Penyesuaian berkala'}`,
+    module: 'gaji',
+    severity: 'success',
+    actionType: 'create_salary_raise',
+    amountValue: raise.newBaseSalary,
+    amountLabel: formatRupiahNotif(raise.newBaseSalary),
+    targetLabel: raise.employeeName,
+    targetNav: 'rekap-gaji',
+  });
+  return raise;
 }
 
 export async function deleteSalaryRaise(
@@ -269,6 +371,14 @@ export async function deleteSalaryRaise(
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Riwayat Kenaikan Gaji Dihapus',
+    message: `Catatan kenaikan gaji #${raiseId} dihapus.`,
+    module: 'gaji',
+    severity: 'warning',
+    actionType: 'delete_salary_raise',
+    targetNav: 'rekap-gaji',
+  });
 }
 
 export async function updatePayrollMonthlyStatus(
@@ -279,7 +389,7 @@ export async function updatePayrollMonthlyStatus(
     status: PayrollRecordStatus;
   }
 ): Promise<PayrollMonthlyStatus> {
-  return runPayrollApi(
+  const updated = await runPayrollApi(
     () =>
       fetch('/api/payroll/status', {
         method: 'PUT',
@@ -291,6 +401,21 @@ export async function updatePayrollMonthlyStatus(
       }),
     () => clientUpdatePayrollMonthlyStatus(token, payload)
   );
+  const statusLabel =
+    updated.status === 'dibayar'
+      ? 'Dibayar'
+      : updated.status === 'disetujui'
+        ? 'Disetujui'
+        : 'Draft';
+  emitAppNotification({
+    title: `Status Gaji ${statusLabel}`,
+    message: `Slip periode ${updated.yearMonth} untuk karyawan #${updated.employeeId} diperbarui ke ${statusLabel}.`,
+    module: 'gaji',
+    severity: updated.status === 'dibayar' ? 'success' : 'info',
+    actionType: 'update_payroll_status',
+    targetNav: 'rekap-gaji',
+  });
+  return updated;
 }
 
 export async function downloadPayrollBackupJson(token: string): Promise<void> {
@@ -320,13 +445,22 @@ export async function downloadPayrollBackupJson(token: string): Promise<void> {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+
+  emitAppNotification({
+    title: 'Backup Penggajian Diekspor',
+    message: `File karyapresensi-gaji-rahasia-${stamp}.json berhasil diunduh.`,
+    module: 'gaji',
+    severity: 'info',
+    actionType: 'download_payroll_backup',
+    targetNav: 'rekap-gaji',
+  });
 }
 
 export async function restorePayrollBackup(
   token: string,
   backupPayload: unknown
 ): Promise<PayrollDatabaseState> {
-  return runPayrollApi(
+  const restored = await runPayrollApi(
     () =>
       fetch('/api/payroll/restore', {
         method: 'POST',
@@ -338,4 +472,13 @@ export async function restorePayrollBackup(
       }),
     () => clientRestorePayrollBackup(token, backupPayload)
   );
+  emitAppNotification({
+    title: 'Restore Data Penggajian Berhasil',
+    message: `${restored.profiles.length} profil gaji & ${restored.adjustments.length} penyesuaian dipulihkan.`,
+    module: 'gaji',
+    severity: 'success',
+    actionType: 'restore_payroll_backup',
+    targetNav: 'rekap-gaji',
+  });
+  return restored;
 }

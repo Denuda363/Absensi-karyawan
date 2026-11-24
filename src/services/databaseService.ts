@@ -6,6 +6,7 @@ import {
   SupabaseTestResult,
 } from '../types';
 import { executeApiWithFallback, HttpApiError } from './apiClient';
+import { emitAppNotification } from './notificationCenterService';
 import {
   clientAutoCreateMissingTables,
   clientChangeDatabasePin,
@@ -90,6 +91,14 @@ export async function changeDatabasePin(
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'PIN Database Diperbarui',
+    message: 'PIN otorisasi konfigurasi database telah diubah.',
+    module: 'sistem',
+    severity: 'warning',
+    actionType: 'change_database_pin',
+    targetNav: 'pengaturan',
+  });
 }
 
 export async function fetchDatabaseSchemaStatus(
@@ -107,7 +116,7 @@ export async function fetchDatabaseSchemaStatus(
 export async function autoCreateMissingTables(
   token: string
 ): Promise<DatabaseAutoInitResult> {
-  return runDatabaseApi(
+  const res = await runDatabaseApi(
     () =>
       fetch('/api/database/auto-init', {
         method: 'POST',
@@ -115,6 +124,15 @@ export async function autoCreateMissingTables(
       }),
     () => clientAutoCreateMissingTables(token)
   );
+  emitAppNotification({
+    title: 'Inisialisasi Tabel Database',
+    message: res.message,
+    module: 'sistem',
+    severity: res.requiresManualSql ? 'warning' : 'success',
+    actionType: 'auto_create_tables',
+    targetNav: 'pengaturan',
+  });
+  return res;
 }
 
 export interface SaveDatabaseConfigPayload
@@ -145,7 +163,7 @@ export async function saveDatabaseConfig(
   token: string,
   payload: SaveDatabaseConfigPayload
 ): Promise<DatabaseConnectionConfig> {
-  return runDatabaseApi(
+  const cfg = await runDatabaseApi(
     () =>
       fetch('/api/database/config', {
         method: 'PUT',
@@ -157,6 +175,15 @@ export async function saveDatabaseConfig(
       }),
     () => clientSaveDatabaseConfig(token, payload as Record<string, unknown>)
   );
+  emitAppNotification({
+    title: 'Konfigurasi Database Disimpan',
+    message: `Engine aktif: ${cfg.engine.toUpperCase()} (${cfg.databaseName || 'lokal'})`,
+    module: 'sistem',
+    severity: 'info',
+    actionType: 'save_database_config',
+    targetNav: 'pengaturan',
+  });
+  return cfg;
 }
 
 export async function testSupabaseConnection(
@@ -176,7 +203,7 @@ export async function syncSupabaseDatabase(
   token: string,
   direction: 'push' | 'pull'
 ): Promise<SupabaseSyncResult> {
-  return runDatabaseApi(
+  const res = await runDatabaseApi(
     () =>
       fetch('/api/database/supabase/sync', {
         method: 'POST',
@@ -188,4 +215,13 @@ export async function syncSupabaseDatabase(
       }),
     () => clientSyncSupabaseDatabase(token, direction)
   );
+  emitAppNotification({
+    title: `Sinkronisasi Supabase (${direction === 'push' ? 'Push' : 'Pull'})`,
+    message: res.message,
+    module: 'sistem',
+    severity: res.ok ? 'success' : 'warning',
+    actionType: `supabase_sync_${direction}`,
+    targetNav: 'pengaturan',
+  });
+  return res;
 }

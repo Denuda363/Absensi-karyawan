@@ -10,6 +10,10 @@ import {
 } from '../types';
 import { executeApiWithFallback, HttpApiError } from './apiClient';
 import {
+  emitAppNotification,
+  formatRupiahNotif,
+} from './notificationCenterService';
+import {
   clientCreateFinanceAccount,
   clientCreateFinanceCategory,
   clientCreateFinanceTransaction,
@@ -70,7 +74,7 @@ export async function createFinanceAccount(
     openingBalance?: number;
   }
 ): Promise<FinanceAccount> {
-  return runFinanceApi(
+  const created = await runFinanceApi(
     () =>
       fetch('/api/finance/accounts', {
         method: 'POST',
@@ -82,6 +86,22 @@ export async function createFinanceAccount(
       }),
     () => clientCreateFinanceAccount(adminToken, payload)
   );
+  emitAppNotification({
+    title: 'Akun Keuangan Dibuat',
+    message: `${created.name} (${created.kind === 'cash' ? 'Kas Tunai' : created.bankName || 'Rekening Bank'})`,
+    module: 'keuangan',
+    severity: 'success',
+    actionType: 'create_finance_account',
+    ...(created.openingBalance > 0
+      ? {
+          amountValue: created.openingBalance,
+          amountLabel: `Saldo Awal ${formatRupiahNotif(created.openingBalance)}`,
+        }
+      : {}),
+    targetLabel: created.name,
+    targetNav: 'keuangan',
+  });
+  return created;
 }
 
 export async function updateFinanceAccount(
@@ -95,7 +115,7 @@ export async function updateFinanceAccount(
     openingBalance: number;
   }>
 ): Promise<FinanceAccount> {
-  return runFinanceApi(
+  const updated = await runFinanceApi(
     () =>
       fetch(`/api/finance/accounts/${encodeURIComponent(accountId)}`, {
         method: 'PUT',
@@ -107,6 +127,18 @@ export async function updateFinanceAccount(
       }),
     () => clientUpdateFinanceAccount(adminToken, accountId, payload)
   );
+  emitAppNotification({
+    title: 'Akun Keuangan Diperbarui',
+    message: `${updated.name} · Saldo awal ${formatRupiahNotif(updated.openingBalance)}`,
+    module: 'keuangan',
+    severity: 'info',
+    actionType: 'update_finance_account',
+    amountValue: updated.openingBalance,
+    amountLabel: formatRupiahNotif(updated.openingBalance),
+    targetLabel: updated.name,
+    targetNav: 'keuangan',
+  });
+  return updated;
 }
 
 export async function deleteFinanceAccount(
@@ -124,6 +156,14 @@ export async function deleteFinanceAccount(
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Akun Keuangan Dihapus',
+    message: `Akun kas/rekening #${accountId} dihapus dari daftar aktif.`,
+    module: 'keuangan',
+    severity: 'warning',
+    actionType: 'delete_finance_account',
+    targetNav: 'keuangan',
+  });
 }
 
 export async function createFinanceTransfer(
@@ -137,7 +177,7 @@ export async function createFinanceTransfer(
     notes?: string;
   }
 ): Promise<FinanceTransfer> {
-  return runFinanceApi(
+  const transfer = await runFinanceApi(
     () =>
       fetch('/api/finance/transfers', {
         method: 'POST',
@@ -149,6 +189,17 @@ export async function createFinanceTransfer(
       }),
     () => clientCreateFinanceTransfer(adminToken, payload)
   );
+  emitAppNotification({
+    title: 'Transfer Saldo Internal',
+    message: `${transfer.fromAccountName} → ${transfer.toAccountName} (${transfer.date})`,
+    module: 'keuangan',
+    severity: 'info',
+    actionType: 'create_finance_transfer',
+    amountValue: transfer.amount,
+    amountLabel: formatRupiahNotif(transfer.amount),
+    targetNav: 'keuangan',
+  });
+  return transfer;
 }
 
 export async function deleteFinanceTransfer(
@@ -166,6 +217,14 @@ export async function deleteFinanceTransfer(
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Transfer Internal Dihapus',
+    message: `Mutasi transfer internal #${transferId} telah dibatalkan.`,
+    module: 'keuangan',
+    severity: 'warning',
+    actionType: 'delete_finance_transfer',
+    targetNav: 'keuangan',
+  });
 }
 
 export async function createFinanceCategory(
@@ -176,7 +235,7 @@ export async function createFinanceCategory(
     description?: string;
   }
 ): Promise<FinanceCategory> {
-  return runFinanceApi(
+  const created = await runFinanceApi(
     () =>
       fetch('/api/finance/categories', {
         method: 'POST',
@@ -188,6 +247,15 @@ export async function createFinanceCategory(
       }),
     () => clientCreateFinanceCategory(adminToken, payload)
   );
+  emitAppNotification({
+    title: 'Kategori Keuangan Ditambahkan',
+    message: `${created.name} (${created.type === 'pendapatan' ? 'Pendapatan' : 'Pengeluaran'})`,
+    module: 'keuangan',
+    severity: 'success',
+    actionType: 'create_finance_category',
+    targetNav: 'keuangan',
+  });
+  return created;
 }
 
 export async function updateFinanceCategory(
@@ -198,7 +266,7 @@ export async function updateFinanceCategory(
     description?: string;
   }
 ): Promise<FinanceCategory> {
-  return runFinanceApi(
+  const updated = await runFinanceApi(
     () =>
       fetch(`/api/finance/categories/${encodeURIComponent(categoryId)}`, {
         method: 'PUT',
@@ -210,6 +278,15 @@ export async function updateFinanceCategory(
       }),
     () => clientUpdateFinanceCategory(adminToken, categoryId, payload)
   );
+  emitAppNotification({
+    title: 'Kategori Keuangan Diperbarui',
+    message: `Kategori "${updated.name}" telah diperbarui.`,
+    module: 'keuangan',
+    severity: 'info',
+    actionType: 'update_finance_category',
+    targetNav: 'keuangan',
+  });
+  return updated;
 }
 
 export async function deleteFinanceCategory(
@@ -227,6 +304,14 @@ export async function deleteFinanceCategory(
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Kategori Keuangan Dihapus',
+    message: `Kategori #${categoryId} dihapus dari daftar kategori.`,
+    module: 'keuangan',
+    severity: 'warning',
+    actionType: 'delete_finance_category',
+    targetNav: 'keuangan',
+  });
 }
 
 export async function createFinanceTransaction(
@@ -245,7 +330,7 @@ export async function createFinanceTransaction(
     notes?: string;
   }
 ): Promise<FinanceTransaction> {
-  return runFinanceApi(
+  const tx = await runFinanceApi(
     () =>
       fetch('/api/finance/transactions', {
         method: 'POST',
@@ -257,6 +342,20 @@ export async function createFinanceTransaction(
       }),
     () => clientCreateFinanceTransaction(adminToken, payload)
   );
+  const isIncome = tx.type === 'pendapatan';
+  const sign = isIncome ? '+' : '-';
+  emitAppNotification({
+    title: isIncome ? 'Pendapatan Perusahaan Tercatat' : 'Pengeluaran Perusahaan Tercatat',
+    message: `${tx.title} · ${tx.categoryName}${tx.counterparty ? ` · ${tx.counterparty}` : ''} (${tx.date})`,
+    module: 'keuangan',
+    severity: isIncome ? 'success' : 'warning',
+    actionType: 'create_finance_transaction',
+    amountValue: tx.amount,
+    amountLabel: `${sign}${formatRupiahNotif(tx.amount)}`,
+    targetLabel: tx.categoryName,
+    targetNav: 'keuangan',
+  });
+  return tx;
 }
 
 export async function updateFinanceTransaction(
@@ -276,7 +375,7 @@ export async function updateFinanceTransaction(
     notes: string;
   }>
 ): Promise<FinanceTransaction> {
-  return runFinanceApi(
+  const tx = await runFinanceApi(
     () =>
       fetch(`/api/finance/transactions/${encodeURIComponent(txId)}`, {
         method: 'PUT',
@@ -288,6 +387,19 @@ export async function updateFinanceTransaction(
       }),
     () => clientUpdateFinanceTransaction(adminToken, txId, payload)
   );
+  const sign = tx.type === 'pendapatan' ? '+' : '-';
+  emitAppNotification({
+    title: 'Transaksi Keuangan Diperbarui',
+    message: `${tx.title} · ${tx.categoryName} (${tx.date})`,
+    module: 'keuangan',
+    severity: 'info',
+    actionType: 'update_finance_transaction',
+    amountValue: tx.amount,
+    amountLabel: `${sign}${formatRupiahNotif(tx.amount)}`,
+    targetLabel: tx.categoryName,
+    targetNav: 'keuangan',
+  });
+  return tx;
 }
 
 export async function deleteFinanceTransaction(
@@ -305,6 +417,14 @@ export async function deleteFinanceTransaction(
       return { ok: true };
     }
   );
+  emitAppNotification({
+    title: 'Transaksi Keuangan Dihapus',
+    message: `Entri transaksi keuangan #${txId} telah dihapus.`,
+    module: 'keuangan',
+    severity: 'warning',
+    actionType: 'delete_finance_transaction',
+    targetNav: 'keuangan',
+  });
 }
 
 export async function downloadFinanceBackupJson(adminToken: string): Promise<void> {
@@ -334,13 +454,22 @@ export async function downloadFinanceBackupJson(adminToken: string): Promise<voi
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+
+  emitAppNotification({
+    title: 'Backup Keuangan Diekspor',
+    message: `File karyapresensi-keuangan-${stamp}.json berhasil diunduh.`,
+    module: 'keuangan',
+    severity: 'info',
+    actionType: 'download_finance_backup',
+    targetNav: 'keuangan',
+  });
 }
 
 export async function restoreFinanceBackup(
   adminToken: string,
   backupPayload: unknown
 ): Promise<FinanceDatabaseState> {
-  return runFinanceApi(
+  const restored = await runFinanceApi(
     () =>
       fetch('/api/finance/restore', {
         method: 'POST',
@@ -352,4 +481,13 @@ export async function restoreFinanceBackup(
       }),
     () => clientRestoreFinanceBackup(adminToken, backupPayload)
   );
+  emitAppNotification({
+    title: 'Restore Data Keuangan Berhasil',
+    message: `${restored.transactions.length} transaksi & ${restored.accounts.length} akun dipulihkan.`,
+    module: 'keuangan',
+    severity: 'success',
+    actionType: 'restore_finance_backup',
+    targetNav: 'keuangan',
+  });
+  return restored;
 }
