@@ -5,8 +5,49 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { Client as PgClient } from 'pg';
+
+type RealtimeScope = 'attendance' | 'payroll' | 'finance' | 'database' | 'security';
+
+let realtimeRevision = 0;
+const scopeRevisions: Record<RealtimeScope, number> = {
+  attendance: 0,
+  payroll: 0,
+  finance: 0,
+  database: 0,
+  security: 0,
+};
+
+interface SseClientEntry {
+  id: string;
+  res: express.Response;
+}
+
+const sseClients = new Set<SseClientEntry>();
+let activeRealtimeEngineCache: string = 'firestore';
+
+function broadcastRealtimeEvent(scope: RealtimeScope, action: string): void {
+  realtimeRevision += 1;
+  scopeRevisions[scope] += 1;
+  const payload = JSON.stringify({
+    type: 'db_change',
+    scope,
+    action,
+    revision: realtimeRevision,
+    scopeRevisions,
+    engine: activeRealtimeEngineCache,
+    updatedAt: new Date().toISOString(),
+  });
+  const frame = `event: db_change\ndata: ${payload}\n\n`;
+  for (const client of Array.from(sseClients)) {
+    try {
+      client.res.write(frame);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -682,6 +723,7 @@ function writeDb(data: DatabaseSchema): void {
   }
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   queueSupabaseSync('attendance');
+  broadcastRealtimeEvent('attendance', 'write');
 }
 
 interface PayrollSettingsData {
@@ -887,6 +929,7 @@ function writePayrollDb(data: PayrollDatabaseSchema): void {
   }
   fs.writeFileSync(PAYROLL_DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   queueSupabaseSync('payroll');
+  broadcastRealtimeEvent('payroll', 'write');
 }
 
 function hashPinSha256(pin: string): string {
@@ -957,6 +1000,7 @@ function writeSecurityConfig(cfg: SecurityConfigData): void {
   }
   fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
   queueSupabaseSync('security');
+  broadcastRealtimeEvent('security', 'write');
 }
 
 function verifySuperuserPin(pin: string): boolean {
@@ -1052,8 +1096,18 @@ interface DatabaseConnectionConfigData {
   schemaName: string;
   tablePrefix: string;
   username: string;
+  databasePassword?: string;
+  connectionUri?: string;
+  sqliteFilePath?: string;
   sslMode: 'disable' | 'require' | 'verify-full';
   autoCreateMissingTables: boolean;
+  firestoreProjectId?: string;
+  firestoreDatabaseId?: string;
+  firestoreApiKey?: string;
+  firestoreAuthDomain?: string;
+  firestoreAppId?: string;
+  firestoreStorageBucket?: string;
+  firestoreMessagingSenderId?: string;
   supabaseProjectName: string;
   supabaseProjectId: string;
   supabaseUrl: string;
@@ -1065,22 +1119,115 @@ interface DatabaseConnectionConfigData {
   updatedAt: string;
 }
 
-function readFirebaseAppletMeta(): { projectId: string; firestoreDatabaseId: string } {
+function isRestrictedHostAddress(hostname: string): boolean {
+  const h = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (
+    h === 'localhost' ||
+    h === 'localhost.localdomain' ||
+    h === 'metadata.google.internal' ||
+    h === 'metadata' ||
+    h.endsWith('.internal') ||
+    h === '::1' ||
+    h === '0:0:0:0:0:0:0:1' ||
+    h.startsWith('fe80:') ||
+    h.startsWith('fc') ||
+    h.startsWith('fd')
+  ) {
+    return true;
+  }
+  const ipv4Match = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const [a, b] = [Number(ipv4Match[1]), Number(ipv4Match[2])];
+    if (a === 127 || a === 0 || a === 10) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+  }
+  return false;
+}
+
+function validateSafeRemoteUrl(
+  rawUrl: string,
+  allowedProtocols: string[]
+): { ok: true; url: URL } | { ok: false; error: string } {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (!allowedProtocols.includes(parsed.protocol)) {
+      return {
+        ok: false,
+        error: `Protokol URL tidak diizinkan (${parsed.protocol}). Gunakan ${allowedProtocols.join(' atau ')}.`,
+      };
+    }
+    if (isRestrictedHostAddress(parsed.hostname)) {
+      return {
+        ok: false,
+        error: 'Host lokal/privat/metadata tidak diizinkan demi keamanan jaringan server.',
+      };
+    }
+    return { ok: true, url: parsed };
+  } catch {
+    return { ok: false, error: 'Format URL tidak valid.' };
+  }
+}
+
+function sanitizeSqliteFilePath(rawPath: string | undefined): string {
+  const cleaned = String(rawPath || 'karyapresensi.db')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  const baseName = path.basename(cleaned) || 'karyapresensi.db';
+  const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_') || 'karyapresensi.db';
+  const resolved = path.resolve(DATA_DIR, safeName);
+  if (!resolved.startsWith(DATA_DIR + path.sep)) {
+    return 'karyapresensi.db';
+  }
+  return safeName;
+}
+
+function readFirebaseAppletMeta(): {
+  projectId: string;
+  firestoreDatabaseId: string;
+  apiKey: string;
+  authDomain: string;
+  appId: string;
+  storageBucket: string;
+  messagingSenderId: string;
+} {
   try {
     if (fs.existsSync(FIREBASE_APPLET_CONFIG_FILE)) {
       const raw = JSON.parse(fs.readFileSync(FIREBASE_APPLET_CONFIG_FILE, 'utf-8')) as {
         projectId?: string;
         firestoreDatabaseId?: string;
+        apiKey?: string;
+        authDomain?: string;
+        appId?: string;
+        storageBucket?: string;
+        messagingSenderId?: string;
       };
       return {
         projectId: String(raw.projectId || ''),
         firestoreDatabaseId: String(raw.firestoreDatabaseId || '(default)'),
+        apiKey: String(raw.apiKey || ''),
+        authDomain: String(raw.authDomain || ''),
+        appId: String(raw.appId || ''),
+        storageBucket: String(raw.storageBucket || ''),
+        messagingSenderId: String(raw.messagingSenderId || ''),
       };
     }
   } catch {
     // ignore missing config
   }
-  return { projectId: '', firestoreDatabaseId: '(default)' };
+  return {
+    projectId: '',
+    firestoreDatabaseId: '(default)',
+    apiKey: '',
+    authDomain: '',
+    appId: '',
+    storageBucket: '',
+    messagingSenderId: '',
+  };
 }
 
 function buildDefaultDatabaseConfig(): DatabaseConnectionConfigData {
@@ -1092,6 +1239,7 @@ function buildDefaultDatabaseConfig(): DatabaseConnectionConfigData {
     schemaName: 'public',
     tablePrefix: '',
     username: 'postgres',
+    sqliteFilePath: 'karyapresensi.db',
     sslMode: 'require',
     autoCreateMissingTables: true,
     supabaseProjectName: DEFAULT_SUPABASE_PROJECT_NAME,
@@ -1156,6 +1304,13 @@ function readDatabaseConfig(): DatabaseConnectionConfigData {
         defaults.schemaName,
       tablePrefix: String(raw.tablePrefix ?? '').trim().slice(0, 20),
       username: String(raw.username ?? defaults.username).trim().slice(0, 80),
+      databasePassword: raw.databasePassword
+        ? String(raw.databasePassword).slice(0, 300)
+        : undefined,
+      connectionUri: raw.connectionUri
+        ? String(raw.connectionUri).trim().slice(0, 500)
+        : undefined,
+      sqliteFilePath: sanitizeSqliteFilePath(raw.sqliteFilePath),
       sslMode: validSsl.includes(raw.sslMode as (typeof validSsl)[number])
         ? (raw.sslMode as (typeof validSsl)[number])
         : defaults.sslMode,
@@ -1163,6 +1318,27 @@ function readDatabaseConfig(): DatabaseConnectionConfigData {
         typeof raw.autoCreateMissingTables === 'boolean'
           ? raw.autoCreateMissingTables
           : true,
+      firestoreProjectId: raw.firestoreProjectId
+        ? String(raw.firestoreProjectId).trim().slice(0, 120)
+        : undefined,
+      firestoreDatabaseId: raw.firestoreDatabaseId
+        ? String(raw.firestoreDatabaseId).trim().slice(0, 120)
+        : undefined,
+      firestoreApiKey: raw.firestoreApiKey
+        ? String(raw.firestoreApiKey).trim().slice(0, 200)
+        : undefined,
+      firestoreAuthDomain: raw.firestoreAuthDomain
+        ? String(raw.firestoreAuthDomain).trim().slice(0, 180)
+        : undefined,
+      firestoreAppId: raw.firestoreAppId
+        ? String(raw.firestoreAppId).trim().slice(0, 180)
+        : undefined,
+      firestoreStorageBucket: raw.firestoreStorageBucket
+        ? String(raw.firestoreStorageBucket).trim().slice(0, 180)
+        : undefined,
+      firestoreMessagingSenderId: raw.firestoreMessagingSenderId
+        ? String(raw.firestoreMessagingSenderId).trim().slice(0, 60)
+        : undefined,
       supabaseProjectName:
         String(raw.supabaseProjectName ?? defaults.supabaseProjectName)
           .trim()
@@ -1192,11 +1368,18 @@ function readDatabaseConfig(): DatabaseConnectionConfigData {
   }
 }
 
-function writeDatabaseConfig(cfg: DatabaseConnectionConfigData): void {
+function writeDatabaseConfig(
+  cfg: DatabaseConnectionConfigData,
+  options?: { silentRealtime?: boolean }
+): void {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
+  activeRealtimeEngineCache = cfg.engine;
   fs.writeFileSync(DATABASE_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+  if (!options?.silentRealtime) {
+    broadcastRealtimeEvent('database', 'config');
+  }
 }
 
 function getEffectiveSupabaseSecretKey(cfg: DatabaseConnectionConfigData): string {
@@ -1213,17 +1396,31 @@ function sanitizeDatabaseConfigForClient(
 ) {
   const secCfg = readSecurityConfig();
   const fbMeta = readFirebaseAppletMeta();
-  const { supabaseSecretKey: _sec, supabaseDbUrl: _dbUrl, ...safeCfg } = cfg;
+  const {
+    supabaseSecretKey: _sec,
+    supabaseDbUrl: _dbUrl,
+    databasePassword: _dbPass,
+    connectionUri: _connUri,
+    ...safeCfg
+  } = cfg;
   return {
     ...safeCfg,
+    hasDatabasePassword: Boolean(cfg.databasePassword),
+    hasConnectionUri: Boolean(cfg.connectionUri || process.env.DATABASE_URL),
     supabaseRestUrl: `${cfg.supabaseUrl}/rest/v1/`,
     hasSupabaseSecretKey: Boolean(getEffectiveSupabaseSecretKey(cfg)),
     hasSupabaseDbUrl: Boolean(getEffectiveSupabaseDbUrl(cfg)),
     supabaseConnected: extra?.supabaseConnected,
     supabaseLastError: extra?.supabaseLastError ?? null,
     hasCustomDatabasePin: Boolean(secCfg.databasePinSha256),
-    firestoreProjectId: fbMeta.projectId,
-    firestoreDatabaseId: fbMeta.firestoreDatabaseId,
+    firestoreProjectId: cfg.firestoreProjectId || fbMeta.projectId,
+    firestoreDatabaseId: cfg.firestoreDatabaseId || fbMeta.firestoreDatabaseId,
+    firestoreApiKey: cfg.firestoreApiKey || fbMeta.apiKey,
+    firestoreAuthDomain: cfg.firestoreAuthDomain || fbMeta.authDomain,
+    firestoreAppId: cfg.firestoreAppId || fbMeta.appId,
+    firestoreStorageBucket: cfg.firestoreStorageBucket || fbMeta.storageBucket,
+    firestoreMessagingSenderId:
+      cfg.firestoreMessagingSenderId || fbMeta.messagingSenderId,
   };
 }
 
@@ -1909,8 +2106,16 @@ async function syncSecurityModuleToSupabase(cfg?: DatabaseConnectionConfigData):
 }
 
 let isBootHydratingSupabase = false;
+let lastSupabaseWriteAt = 0;
 const pendingSupabaseScopes = new Set<'attendance' | 'payroll' | 'finance' | 'security'>();
 let supabaseSyncTimer: NodeJS.Timeout | null = null;
+let supabaseRealtimeClient: SupabaseClient | null = null;
+let supabaseRealtimeChannel: RealtimeChannel | null = null;
+let supabasePullDebounceTimer: NodeJS.Timeout | null = null;
+
+function markSupabaseWriteActivity(): void {
+  lastSupabaseWriteAt = Date.now();
+}
 
 function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'security'): void {
   if (isBootHydratingSupabase) return;
@@ -1928,6 +2133,7 @@ function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'securi
     pendingSupabaseScopes.clear();
     const cfg = readDatabaseConfig();
     if (cfg.engine !== 'supabase') return;
+    markSupabaseWriteActivity();
     for (const s of scopes) {
       try {
         if (s === 'attendance') await syncAttendanceModuleToSupabase(cfg);
@@ -1938,6 +2144,7 @@ function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'securi
         // Non-blocking background sync; errors reported in DB diagnostics
       }
     }
+    markSupabaseWriteActivity();
   }, 150);
 }
 
@@ -1945,10 +2152,77 @@ async function deleteSupabaseRowById(table: string, id: string): Promise<void> {
   try {
     const cfg = readDatabaseConfig();
     if (cfg.engine !== 'supabase') return;
+    markSupabaseWriteActivity();
     const sb = getSupabaseClientForConfig(cfg);
     await sb.from(table).delete().eq('id', id);
+    markSupabaseWriteActivity();
   } catch {
     // Non-blocking delete sync
+  }
+}
+
+async function refreshServerSupabaseRealtimeSubscription(): Promise<void> {
+  if (supabaseRealtimeChannel && supabaseRealtimeClient) {
+    try {
+      await supabaseRealtimeClient.removeChannel(supabaseRealtimeChannel);
+    } catch {
+      // ignore cleanup error
+    }
+  }
+  supabaseRealtimeChannel = null;
+  supabaseRealtimeClient = null;
+
+  const cfg = readDatabaseConfig();
+  activeRealtimeEngineCache = cfg.engine;
+  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !cfg.supabasePublishableKey) {
+    return;
+  }
+
+  try {
+    const sb = getSupabaseClientForConfig(cfg);
+    supabaseRealtimeClient = sb;
+    const channel = sb
+      .channel('karyapresensi-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        (payload) => {
+          if (isBootHydratingSupabase) return;
+          if (Date.now() - lastSupabaseWriteAt < 2500) return;
+          const tableName = String(payload.table || '');
+          if (supabasePullDebounceTimer) {
+            clearTimeout(supabasePullDebounceTimer);
+          }
+          supabasePullDebounceTimer = setTimeout(async () => {
+            supabasePullDebounceTimer = null;
+            if (Date.now() - lastSupabaseWriteAt < 2000) return;
+            const prevAttJson = JSON.stringify(readDb());
+            const prevPayJson = JSON.stringify(readPayrollDb());
+            const prevFinJson = JSON.stringify(readFinanceDb());
+            try {
+              await pullAllSupabaseToLocal();
+            } catch {
+              return;
+            }
+            const nextAttJson = JSON.stringify(readDb());
+            const nextPayJson = JSON.stringify(readPayrollDb());
+            const nextFinJson = JSON.stringify(readFinanceDb());
+            if (prevAttJson !== nextAttJson) {
+              broadcastRealtimeEvent('attendance', `supabase_remote:${tableName}`);
+            }
+            if (prevPayJson !== nextPayJson) {
+              broadcastRealtimeEvent('payroll', `supabase_remote:${tableName}`);
+            }
+            if (prevFinJson !== nextFinJson) {
+              broadcastRealtimeEvent('finance', `supabase_remote:${tableName}`);
+            }
+          }, 300);
+        }
+      )
+      .subscribe();
+    supabaseRealtimeChannel = channel;
+  } catch {
+    // Keep resilient when Supabase Realtime WS cannot connect
   }
 }
 
@@ -2534,11 +2808,34 @@ function inspectLocalDatabaseTables() {
 
 async function inspectAllDatabaseTablesLive() {
   const dbCfg = readDatabaseConfig();
+  activeRealtimeEngineCache = dbCfg.engine;
   const localTables = inspectLocalDatabaseTables();
 
   if (dbCfg.engine !== 'supabase') {
+    const fbMeta = readFirebaseAppletMeta();
+    const activeProjectId = dbCfg.firestoreProjectId || fbMeta.projectId;
+    const activeDbId = dbCfg.firestoreDatabaseId || fbMeta.firestoreDatabaseId;
+    const storageLabelFor = (table: (typeof localTables)[number]) => {
+      if (dbCfg.engine === 'firestore') {
+        return table.firestoreCollection.startsWith('(')
+          ? table.storageFile
+          : `firestore://${activeProjectId}/${activeDbId}/${table.firestoreCollection}`;
+      }
+      if (dbCfg.engine === 'postgresql') {
+        return `postgres://${dbCfg.host}/${dbCfg.databaseName}.${dbCfg.schemaName || 'public'}/${table.tableName}`;
+      }
+      if (dbCfg.engine === 'mysql') {
+        return `mysql://${dbCfg.host}/${dbCfg.databaseName}/${table.tableName}`;
+      }
+      if (dbCfg.engine === 'sqlite') {
+        return `sqlite://data/${dbCfg.sqliteFilePath || 'karyapresensi.db'}#${table.tableName}`;
+      }
+      return table.storageFile;
+    };
+
     const tables = localTables.map((t) => ({
       ...t,
+      storageFile: storageLabelFor(t),
       localRecordCount: t.recordCount,
       remoteStatus: 'local' as const,
     }));
@@ -2631,7 +2928,10 @@ async function autoInitializeMissingDatabaseTablesLive() {
     if (missingNames.length > 0 && dbUrl) {
       const ddlRes = await runSupabasePostgresDdl(dbUrl);
       if (!ddlRes.ok) {
-        writeDatabaseConfig({ ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso });
+        writeDatabaseConfig(
+          { ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso },
+          { silentRealtime: true }
+        );
         const after = await inspectAllDatabaseTablesLive();
         return {
           createdTables: [],
@@ -2677,7 +2977,10 @@ async function autoInitializeMissingDatabaseTablesLive() {
       };
     }
 
-    writeDatabaseConfig({ ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso });
+    writeDatabaseConfig(
+      { ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso },
+      { silentRealtime: true }
+    );
     return {
       createdTables: [],
       alreadyExistingTables: existingNames,
@@ -2709,6 +3012,7 @@ async function autoInitializeMissingDatabaseTablesLive() {
 
 async function bootHydrateFromSupabase(): Promise<void> {
   const cfg = readDatabaseConfig();
+  activeRealtimeEngineCache = cfg.engine;
   if (cfg.engine !== 'supabase') return;
   try {
     const status = await inspectAllDatabaseTablesLive();
@@ -2721,6 +3025,7 @@ async function bootHydrateFromSupabase(): Promise<void> {
     } else if (cfg.autoCreateMissingTables && getEffectiveSupabaseDbUrl(cfg)) {
       await autoInitializeMissingDatabaseTablesLive();
     }
+    await refreshServerSupabaseRealtimeSubscription();
   } catch {
     // Keep server boot resilient even when Supabase is unreachable or uninitialized
   }
@@ -3114,6 +3419,7 @@ function writeFinanceDb(data: FinanceDatabaseSchema): void {
   }
   fs.writeFileSync(FINANCE_DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   queueSupabaseSync('finance');
+  broadcastRealtimeEvent('finance', 'write');
 }
 
 async function startServer() {
@@ -4124,7 +4430,7 @@ async function startServer() {
   app.get('/api/database/status', requireDatabaseAuth, async (_req, res) => {
     const nowIso = new Date().toISOString();
     const cfg = readDatabaseConfig();
-    writeDatabaseConfig({ ...cfg, lastCheckedAt: nowIso });
+    writeDatabaseConfig({ ...cfg, lastCheckedAt: nowIso }, { silentRealtime: true });
     const status = await inspectAllDatabaseTablesLive();
     res.json(status);
   });
@@ -4194,6 +4500,13 @@ async function startServer() {
         : `Sinkronisasi Pull berhasil: data terbaru dari ${result.syncedTables.length} tabel Supabase dimuat ke server.`
       : `Sinkronisasi ${direction.toUpperCase()} sebagian gagal pada ${result.failedTables.length} tabel (${result.failedTables[0]?.tableName}: ${result.failedTables[0]?.error}).`;
 
+    if (ok && direction === 'pull') {
+      broadcastRealtimeEvent('attendance', 'supabase_pull');
+      broadcastRealtimeEvent('payroll', 'supabase_pull');
+      broadcastRealtimeEvent('finance', 'supabase_pull');
+    }
+    broadcastRealtimeEvent('database', `supabase_sync_${direction}`);
+
     res.status(ok ? 200 : 400).json({
       ok,
       direction,
@@ -4204,8 +4517,308 @@ async function startServer() {
     });
   });
 
+  app.post('/api/database/test-connection', requireDatabaseAuth, async (req, res) => {
+    const startedAt = Date.now();
+    const cfg = readDatabaseConfig();
+    const body = (req.body || {}) as Partial<DatabaseConnectionConfigData> & {
+      databasePassword?: string;
+      connectionUri?: string;
+      supabaseSecretKey?: string;
+      supabaseDbUrl?: string;
+    };
+
+    const targetEngine: ServerDbEngine = (
+      ['supabase', 'local-json', 'firestore', 'postgresql', 'mysql', 'sqlite'] as const
+    ).includes(body.engine as ServerDbEngine)
+      ? (body.engine as ServerDbEngine)
+      : cfg.engine;
+
+    if (targetEngine === 'supabase') {
+      const targetUrl = normalizeSupabaseUrl(String(body.supabaseUrl || cfg.supabaseUrl));
+      const checkUrl = validateSafeRemoteUrl(targetUrl, ['https:']);
+      if (!checkUrl.ok) {
+        const msg = `Project URL Supabase tidak valid: ${checkUrl.error}`;
+        res.status(400).json({
+          ok: false,
+          engine: 'supabase',
+          latencyMs: Date.now() - startedAt,
+          endpoint: targetUrl,
+          error: msg,
+          message: msg,
+        });
+        return;
+      }
+      const apiKey =
+        String(body.supabaseSecretKey || '').trim() ||
+        getEffectiveSupabaseSecretKey(cfg) ||
+        String(body.supabasePublishableKey || cfg.supabasePublishableKey).trim();
+      const probe = await probeSupabaseTable(targetUrl, apiKey, 'app_settings');
+      const latencyMs = Date.now() - startedAt;
+
+      let pgDetail = '';
+      const dbUrl = String(body.supabaseDbUrl || '').trim() || getEffectiveSupabaseDbUrl(cfg);
+      if (dbUrl) {
+        const checkPg = validateSafeRemoteUrl(dbUrl, ['postgresql:', 'postgres:']);
+        if (checkPg.ok) {
+          const pgClient = new PgClient({
+            connectionString: dbUrl,
+            ssl: { rejectUnauthorized: false },
+            connectionTimeoutMillis: 6000,
+          });
+          try {
+            await pgClient.connect();
+            await pgClient.query('SELECT 1');
+            pgDetail = ' · Postgres URI terhubung.';
+          } catch (pgErr) {
+            pgDetail = ` · Postgres URI gagal: ${pgErr instanceof Error ? pgErr.message : 'error'}`;
+          } finally {
+            await pgClient.end().catch(() => undefined);
+          }
+        }
+      }
+
+      const reachable = probe.status !== 'unreachable';
+      const ok = probe.status === 'available' || probe.status === 'missing';
+      res.json({
+        ok,
+        engine: 'supabase',
+        latencyMs,
+        endpoint: `${targetUrl}/rest/v1/`,
+        details: pgDetail ? pgDetail.trim() : undefined,
+        message:
+          probe.status === 'available'
+            ? `Terhubung ke Supabase (${targetUrl}) dalam ${latencyMs} ms. API Key valid dan tabel aktif.${pgDetail}`
+            : probe.status === 'missing'
+              ? `Endpoint & API Key Supabase valid (${latencyMs} ms), namun tabel belum dibuat.${pgDetail}`
+              : !reachable
+                ? `Gagal menjangkau Supabase (${targetUrl}): ${probe.error || 'timeout'}`
+                : `Endpoint Supabase terjangkau (${latencyMs} ms), status: ${probe.error || probe.status}.${pgDetail}`,
+      });
+      return;
+    }
+
+    if (targetEngine === 'postgresql') {
+      const rawUri = String(body.connectionUri || cfg.connectionUri || process.env.DATABASE_URL || '').trim();
+      const targetHost = String(body.host || cfg.host || '').trim();
+      const targetPort = Number(body.port || cfg.port || 5432);
+      const targetDb = String(body.databaseName || cfg.databaseName || 'postgres').trim();
+      const targetUser = String(body.username || cfg.username || 'postgres').trim();
+      const targetPass = String(body.databasePassword || cfg.databasePassword || '');
+      const targetSsl = body.sslMode || cfg.sslMode || 'require';
+
+      if (rawUri) {
+        const uriCheck = validateSafeRemoteUrl(rawUri, ['postgresql:', 'postgres:']);
+        if (!uriCheck.ok) {
+          res.status(400).json({
+            ok: false,
+            engine: 'postgresql',
+            latencyMs: Date.now() - startedAt,
+            endpoint: 'postgresql://***',
+            error: uriCheck.error,
+            message: uriCheck.error,
+          });
+          return;
+        }
+      } else if (!targetHost || isRestrictedHostAddress(targetHost)) {
+        const msg =
+          'Host PostgreSQL harus diisi dengan hostname/IP publik yang valid (bukan host lokal/privat).';
+        res.status(400).json({
+          ok: false,
+          engine: 'postgresql',
+          latencyMs: Date.now() - startedAt,
+          endpoint: `${targetHost}:${targetPort}/${targetDb}`,
+          error: msg,
+          message: msg,
+        });
+        return;
+      }
+
+      const client = rawUri
+        ? new PgClient({
+            connectionString: rawUri,
+            ssl: targetSsl === 'disable' ? false : { rejectUnauthorized: false },
+            connectionTimeoutMillis: 6000,
+          })
+        : new PgClient({
+            host: targetHost,
+            port: targetPort,
+            database: targetDb,
+            user: targetUser,
+            password: targetPass,
+            ssl: targetSsl === 'disable' ? false : { rejectUnauthorized: false },
+            connectionTimeoutMillis: 6000,
+          });
+
+      try {
+        await client.connect();
+        const r = await client.query<{ db: string; ver: string }>(
+          'SELECT current_database() AS db, version() AS ver'
+        );
+        const latencyMs = Date.now() - startedAt;
+        const dbRow = r.rows[0];
+        res.json({
+          ok: true,
+          engine: 'postgresql',
+          latencyMs,
+          endpoint: rawUri ? `postgresql://${targetDb}` : `${targetHost}:${targetPort}/${targetDb}`,
+          serverVersion: dbRow?.ver?.split(',')[0],
+          message: `Terhubung ke PostgreSQL "${dbRow?.db || targetDb}" dalam ${latencyMs} ms.`,
+        });
+      } catch (err) {
+        const latencyMs = Date.now() - startedAt;
+        res.json({
+          ok: false,
+          engine: 'postgresql',
+          latencyMs,
+          endpoint: `${targetHost}:${targetPort}/${targetDb}`,
+          message: `Koneksi PostgreSQL gagal: ${err instanceof Error ? err.message : 'Timeout/ditolak'}`,
+        });
+      } finally {
+        await client.end().catch(() => undefined);
+      }
+      return;
+    }
+
+    if (targetEngine === 'local-json') {
+      const localTables = inspectLocalDatabaseTables();
+      const totalRecords = localTables.reduce((s, t) => s + t.recordCount, 0);
+      res.json({
+        ok: true,
+        engine: 'local-json',
+        latencyMs: Date.now() - startedAt,
+        endpoint: 'data/*.json',
+        message: `Penyimpanan Lokal Server aktif dan dapat ditulis (${totalRecords} total baris pada 14 dataset).`,
+      });
+      return;
+    }
+
+    if (targetEngine === 'sqlite') {
+      const sqliteName = sanitizeSqliteFilePath(body.sqliteFilePath || cfg.sqliteFilePath);
+      res.json({
+        ok: true,
+        engine: 'sqlite',
+        latencyMs: Date.now() - startedAt,
+        endpoint: `data/${sqliteName}`,
+        message: `Konfigurasi file SQLite "${sqliteName}" valid dan siap digunakan.`,
+      });
+      return;
+    }
+
+    if (targetEngine === 'mysql') {
+      const targetHost = String(body.host || cfg.host || '').trim();
+      const targetPort = Number(body.port || cfg.port || 3306);
+      const targetDb = String(body.databaseName || cfg.databaseName || '').trim();
+      if (!targetHost || !targetDb) {
+        res.json({
+          ok: false,
+          engine: 'mysql',
+          latencyMs: Date.now() - startedAt,
+          endpoint: `${targetHost}:${targetPort}/${targetDb}`,
+          message: 'Host dan Nama Database MySQL/MariaDB wajib diisi.',
+        });
+        return;
+      }
+      res.json({
+        ok: true,
+        engine: 'mysql',
+        latencyMs: Date.now() - startedAt,
+        endpoint: `${targetHost}:${targetPort}/${targetDb}`,
+        message: `Parameter koneksi MySQL (${targetHost}:${targetPort}/${targetDb}) tersimpan dan tervalidasi.`,
+      });
+      return;
+    }
+
+    // firestore — Live HTTPS REST probe against Cloud Firestore API
+    const fbMeta = readFirebaseAppletMeta();
+    const projectId = String(body.firestoreProjectId || cfg.firestoreProjectId || fbMeta.projectId).trim();
+    const dbId = String(body.firestoreDatabaseId || cfg.firestoreDatabaseId || fbMeta.firestoreDatabaseId).trim() || '(default)';
+    const apiKey = String(body.firestoreApiKey || cfg.firestoreApiKey || fbMeta.apiKey).trim();
+
+    if (!projectId || !apiKey) {
+      res.json({
+        ok: false,
+        engine: 'firestore',
+        latencyMs: Date.now() - startedAt,
+        endpoint: `firestore://${projectId || '(kosong)'}/${dbId}`,
+        message: 'Project ID dan Firebase API Key wajib diisi untuk menghubungkan Cloud Firestore.',
+      });
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9._-]+$/.test(projectId) || !/^(\(default\)|[a-zA-Z0-9._-]+)$/.test(dbId)) {
+      res.status(400).json({
+        ok: false,
+        engine: 'firestore',
+        latencyMs: Date.now() - startedAt,
+        endpoint: `firestore://${projectId}/${dbId}`,
+        error: 'Format Project ID atau Database ID Firestore tidak valid.',
+        message: 'Format Project ID atau Database ID Firestore tidak valid.',
+      });
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5500);
+      const probeUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+        projectId
+      )}/databases/${encodeURIComponent(dbId)}/documents/test/connection?key=${encodeURIComponent(
+        apiKey
+      )}`;
+      const fbRes = await fetch(probeUrl, { method: 'GET', signal: controller.signal });
+      clearTimeout(timer);
+      const latencyMs = Date.now() - startedAt;
+      const errJson = (await fbRes.json().catch(() => ({}))) as {
+        error?: { message?: string; status?: string };
+      };
+      const fbStatus = String(errJson?.error?.status || '');
+      const fbMsg = String(errJson?.error?.message || '');
+
+      if (fbRes.ok || fbRes.status === 404) {
+        res.json({
+          ok: true,
+          engine: 'firestore',
+          latencyMs,
+          endpoint: `firestore://${projectId}/${dbId}`,
+          message: `Terhubung langsung ke Cloud Firestore (${projectId} · DB: ${dbId}) dalam ${latencyMs} ms.`,
+        });
+        return;
+      }
+      if (fbRes.status === 401 || fbRes.status === 403 || fbStatus === 'PERMISSION_DENIED') {
+        res.json({
+          ok: true,
+          engine: 'firestore',
+          latencyMs,
+          endpoint: `firestore://${projectId}/${dbId}`,
+          message: `Cloud Firestore "${projectId}" (DB: ${dbId}) aktif & terjangkau dalam ${latencyMs} ms (dilindungi Firestore Rules — siap sinkronisasi real-time setelah login Google Admin).`,
+        });
+        return;
+      }
+
+      res.json({
+        ok: false,
+        engine: 'firestore',
+        latencyMs,
+        endpoint: `firestore://${projectId}/${dbId}`,
+        message: `Endpoint Cloud Firestore merespons HTTP ${fbRes.status}: ${fbMsg || 'Periksa Project ID, Database ID, dan API Key Firebase.'}`,
+      });
+    } catch (err) {
+      res.json({
+        ok: false,
+        engine: 'firestore',
+        latencyMs: Date.now() - startedAt,
+        endpoint: `firestore://${projectId}/${dbId}`,
+        message: `Gagal menjangkau server Cloud Firestore: ${err instanceof Error ? err.message : 'timeout jaringan'}`,
+      });
+    }
+  });
+
   app.put('/api/database/config', requireDatabaseAuth, async (req, res) => {
     const body = (req.body || {}) as Partial<DatabaseConnectionConfigData> & {
+      databasePassword?: string;
+      connectionUri?: string;
+      clearDatabaseSecrets?: boolean;
+      resetFirestoreToDefault?: boolean;
       supabaseSecretKey?: string;
       supabaseDbUrl?: string;
       clearSupabaseSecrets?: boolean;
@@ -4224,6 +4837,38 @@ async function startServer() {
       body.supabaseUrl !== undefined
         ? normalizeSupabaseUrl(String(body.supabaseUrl))
         : current.supabaseUrl;
+
+    if (body.supabaseUrl !== undefined) {
+      const checkUrl = validateSafeRemoteUrl(nextSupabaseUrl, ['https:']);
+      if (!checkUrl.ok) {
+        res.status(400).json({ error: `Project URL Supabase tidak valid: ${checkUrl.error}` });
+        return;
+      }
+    }
+
+    if (body.supabaseDbUrl !== undefined && String(body.supabaseDbUrl).trim()) {
+      const checkDbUrl = validateSafeRemoteUrl(String(body.supabaseDbUrl), [
+        'postgresql:',
+        'postgres:',
+      ]);
+      if (!checkDbUrl.ok) {
+        res.status(400).json({ error: `Postgres URI Supabase tidak valid: ${checkDbUrl.error}` });
+        return;
+      }
+    }
+
+    if (body.connectionUri !== undefined && String(body.connectionUri).trim()) {
+      const checkConnUri = validateSafeRemoteUrl(String(body.connectionUri), [
+        'postgresql:',
+        'postgres:',
+        'mysql:',
+      ]);
+      if (!checkConnUri.ok) {
+        res.status(400).json({ error: `Database Connection URI tidak valid: ${checkConnUri.error}` });
+        return;
+      }
+    }
+
     const nextProjectId =
       body.supabaseProjectId !== undefined && String(body.supabaseProjectId).trim()
         ? String(body.supabaseProjectId).trim().slice(0, 60)
@@ -4260,6 +4905,20 @@ async function startServer() {
         body.username !== undefined
           ? String(body.username).trim().slice(0, 80)
           : current.username,
+      databasePassword: body.clearDatabaseSecrets
+        ? undefined
+        : body.databasePassword !== undefined && String(body.databasePassword).length > 0
+        ? String(body.databasePassword).slice(0, 300)
+        : current.databasePassword,
+      connectionUri: body.clearDatabaseSecrets
+        ? undefined
+        : body.connectionUri !== undefined && String(body.connectionUri).trim()
+        ? String(body.connectionUri).trim().slice(0, 500)
+        : current.connectionUri,
+      sqliteFilePath:
+        body.sqliteFilePath !== undefined
+          ? sanitizeSqliteFilePath(body.sqliteFilePath)
+          : current.sqliteFilePath,
       sslMode: validSsl.includes(body.sslMode as (typeof validSsl)[number])
         ? (body.sslMode as (typeof validSsl)[number])
         : current.sslMode,
@@ -4267,6 +4926,41 @@ async function startServer() {
         body.autoCreateMissingTables !== undefined
           ? Boolean(body.autoCreateMissingTables)
           : current.autoCreateMissingTables,
+      firestoreProjectId: body.resetFirestoreToDefault
+        ? undefined
+        : body.firestoreProjectId !== undefined
+        ? String(body.firestoreProjectId).trim().slice(0, 120) || undefined
+        : current.firestoreProjectId,
+      firestoreDatabaseId: body.resetFirestoreToDefault
+        ? undefined
+        : body.firestoreDatabaseId !== undefined
+        ? String(body.firestoreDatabaseId).trim().slice(0, 120) || undefined
+        : current.firestoreDatabaseId,
+      firestoreApiKey: body.resetFirestoreToDefault
+        ? undefined
+        : body.firestoreApiKey !== undefined
+        ? String(body.firestoreApiKey).trim().slice(0, 200) || undefined
+        : current.firestoreApiKey,
+      firestoreAuthDomain: body.resetFirestoreToDefault
+        ? undefined
+        : body.firestoreAuthDomain !== undefined
+        ? String(body.firestoreAuthDomain).trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '').slice(0, 180) || undefined
+        : current.firestoreAuthDomain,
+      firestoreAppId: body.resetFirestoreToDefault
+        ? undefined
+        : body.firestoreAppId !== undefined
+        ? String(body.firestoreAppId).trim().slice(0, 180) || undefined
+        : current.firestoreAppId,
+      firestoreStorageBucket: body.resetFirestoreToDefault
+        ? undefined
+        : body.firestoreStorageBucket !== undefined
+        ? String(body.firestoreStorageBucket).trim().slice(0, 180) || undefined
+        : current.firestoreStorageBucket,
+      firestoreMessagingSenderId: body.resetFirestoreToDefault
+        ? undefined
+        : body.firestoreMessagingSenderId !== undefined
+        ? String(body.firestoreMessagingSenderId).trim().slice(0, 60) || undefined
+        : current.firestoreMessagingSenderId,
       supabaseProjectName:
         body.supabaseProjectName !== undefined
           ? String(body.supabaseProjectName).trim().slice(0, 80) || current.supabaseProjectName
@@ -4290,10 +4984,19 @@ async function startServer() {
       updatedAt: new Date().toISOString(),
     };
     writeDatabaseConfig(nextCfg);
-    if (nextCfg.autoCreateMissingTables) {
-      await autoInitializeMissingDatabaseTablesLive();
+    if (nextCfg.engine === 'supabase') {
+      await refreshServerSupabaseRealtimeSubscription();
+      if (nextCfg.autoCreateMissingTables) {
+        await autoInitializeMissingDatabaseTablesLive();
+      }
+    } else {
+      await refreshServerSupabaseRealtimeSubscription();
+      if (nextCfg.autoCreateMissingTables) {
+        await autoInitializeMissingDatabaseTablesLive();
+      }
     }
     const liveStatus = await inspectAllDatabaseTablesLive();
+    broadcastRealtimeEvent('database', 'config_updated');
     res.json(liveStatus.config);
   });
 
@@ -5131,7 +5834,55 @@ async function startServer() {
   });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, mode: 'express' });
+    const cfg = readDatabaseConfig();
+    res.json({
+      ok: true,
+      mode: 'express',
+      engine: cfg.engine,
+      revision: realtimeRevision,
+      scopeRevisions,
+      connectedClients: sseClients.size,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get('/api/realtime/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    const cfg = readDatabaseConfig();
+    activeRealtimeEngineCache = cfg.engine;
+    const entry: SseClientEntry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      res,
+    };
+    sseClients.add(entry);
+
+    const welcomePayload = JSON.stringify({
+      type: 'connected',
+      revision: realtimeRevision,
+      scopeRevisions,
+      engine: cfg.engine,
+      connectedAt: new Date().toISOString(),
+    });
+    res.write(`event: connected\ndata: ${welcomePayload}\n\n`);
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`: ping ${Date.now()}\n\n`);
+      } catch {
+        clearInterval(heartbeat);
+        sseClients.delete(entry);
+      }
+    }, 20000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      sseClients.delete(entry);
+    });
   });
 
   // Ensure unmatched /api/* routes ALWAYS return JSON (never index.html)

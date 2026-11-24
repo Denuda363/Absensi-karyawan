@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Link2,
   Lock,
   LogIn,
   LogOut,
@@ -30,6 +31,7 @@ import {
   AppSettings,
   AttendanceRecord,
   DatabaseConnectionConfig,
+  DatabaseConnectionTestResult,
   DatabaseEngineType,
   DatabaseSchemaStatusResponse,
   Employee,
@@ -44,7 +46,9 @@ import {
   fetchDatabaseSchemaStatus,
   lockDatabaseSession,
   saveDatabaseConfig,
+  SaveDatabaseConfigPayload,
   syncSupabaseDatabase,
+  testDatabaseConnection,
   testSupabaseConnection,
   unlockDatabaseWithPin,
 } from '../services/databaseService';
@@ -58,11 +62,13 @@ import {
   signOutFirebase,
   subscribeFirebaseAuth,
   testConnection,
+  testCustomFirebaseConnection,
 } from '../services/firebaseClient';
 import {
   generateDatabaseSetupScript,
   ScriptTargetEngine,
 } from '../utils/databaseScripts';
+import { subscribeRealtimeScopes } from '../services/realtimeService';
 
 interface DatabaseSettingsPanelProps {
   employees: Employee[];
@@ -125,6 +131,12 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
   const [cfgUsername, setCfgUsername] = useState<string>('postgres');
   const [cfgSslMode, setCfgSslMode] = useState<'disable' | 'require' | 'verify-full'>('require');
   const [cfgAutoCreate, setCfgAutoCreate] = useState<boolean>(true);
+  const [cfgDbPassword, setCfgDbPassword] = useState<string>('');
+  const [cfgConnectionUri, setCfgConnectionUri] = useState<string>('');
+  const [cfgSqliteFilePath, setCfgSqliteFilePath] = useState<string>('karyapresensi.sqlite');
+  const [showDbSecrets, setShowDbSecrets] = useState<boolean>(false);
+
+  // Supabase Form State
   const [cfgSupabaseProjectName, setCfgSupabaseProjectName] = useState<string>('Absensi');
   const [cfgSupabaseProjectId, setCfgSupabaseProjectId] = useState<string>('jeewhluiufosnourqvje');
   const [cfgSupabaseUrl, setCfgSupabaseUrl] = useState<string>(
@@ -135,8 +147,31 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
   );
   const [cfgSupabaseSecretKey, setCfgSupabaseSecretKey] = useState<string>('');
   const [cfgSupabaseDbUrl, setCfgSupabaseDbUrl] = useState<string>('');
+  const [showPublishableKey, setShowPublishableKey] = useState<boolean>(false);
   const [showSupabaseSecrets, setShowSupabaseSecrets] = useState<boolean>(false);
+
+  // Firebase / Firestore Form State
+  const [cfgFbProjectId, setCfgFbProjectId] = useState<string>(FIREBASE_APPLET_META.projectId);
+  const [cfgFbDatabaseId, setCfgFbDatabaseId] = useState<string>(
+    FIREBASE_APPLET_META.firestoreDatabaseId
+  );
+  const [cfgFbApiKey, setCfgFbApiKey] = useState<string>(FIREBASE_APPLET_META.apiKey);
+  const [cfgFbAuthDomain, setCfgFbAuthDomain] = useState<string>(FIREBASE_APPLET_META.authDomain);
+  const [cfgFbAppId, setCfgFbAppId] = useState<string>(FIREBASE_APPLET_META.appId);
+  const [cfgFbStorageBucket, setCfgFbStorageBucket] = useState<string>(
+    FIREBASE_APPLET_META.storageBucket
+  );
+  const [cfgFbMessagingSenderId, setCfgFbMessagingSenderId] = useState<string>(
+    FIREBASE_APPLET_META.messagingSenderId
+  );
+  const [showFbApiKey, setShowFbApiKey] = useState<boolean>(false);
+  const [showFbSnippetBox, setShowFbSnippetBox] = useState<boolean>(false);
+  const [fbJsonSnippet, setFbJsonSnippet] = useState<string>('');
+
   const [savingConfig, setSavingConfig] = useState<boolean>(false);
+  const [testingConnection, setTestingConnection] = useState<boolean>(false);
+  const [connectionTestResult, setConnectionTestResult] =
+    useState<DatabaseConnectionTestResult | null>(null);
 
   // Change Database PIN State
   const [curDbPin, setCurDbPin] = useState<string>('');
@@ -170,22 +205,36 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
     setCfgPrefix(cfg.tablePrefix);
     setCfgUsername(cfg.username);
     setCfgSslMode(cfg.sslMode);
+    setCfgSqliteFilePath(cfg.sqliteFilePath || 'karyapresensi.sqlite');
     setCfgAutoCreate(cfg.autoCreateMissingTables);
     setCfgSupabaseProjectName(cfg.supabaseProjectName || 'Absensi');
     setCfgSupabaseProjectId(cfg.supabaseProjectId || 'jeewhluiufosnourqvje');
     setCfgSupabaseUrl(cfg.supabaseUrl || 'https://jeewhluiufosnourqvje.supabase.co');
     setCfgSupabasePublishableKey(cfg.supabasePublishableKey || '');
+    setCfgFbProjectId(cfg.firestoreProjectId || FIREBASE_APPLET_META.projectId);
+    setCfgFbDatabaseId(cfg.firestoreDatabaseId || FIREBASE_APPLET_META.firestoreDatabaseId);
+    setCfgFbApiKey(cfg.firestoreApiKey || FIREBASE_APPLET_META.apiKey);
+    setCfgFbAuthDomain(cfg.firestoreAuthDomain || FIREBASE_APPLET_META.authDomain);
+    setCfgFbAppId(cfg.firestoreAppId ?? FIREBASE_APPLET_META.appId);
+    setCfgFbStorageBucket(cfg.firestoreStorageBucket ?? FIREBASE_APPLET_META.storageBucket);
+    setCfgFbMessagingSenderId(
+      cfg.firestoreMessagingSenderId ?? FIREBASE_APPLET_META.messagingSenderId
+    );
     setScriptSchemaName(cfg.schemaName || 'public');
     setScriptPrefix(cfg.tablePrefix || '');
   }, []);
 
   const loadSchemaStatus = useCallback(
-    async (token: string) => {
-      setLoadingStatus(true);
+    async (token: string, options?: { silent?: boolean; syncConfig?: boolean }) => {
+      if (!options?.silent) {
+        setLoadingStatus(true);
+      }
       try {
         const res = await fetchDatabaseSchemaStatus(token);
         setSchemaStatus(res);
-        syncFormFromConfig(res.config);
+        if (!options?.silent || options?.syncConfig) {
+          syncFormFromConfig(res.config);
+        }
         setRequiresManualSql(
           res.config.engine === 'supabase' &&
             res.summary.missingCount > 0 &&
@@ -198,12 +247,16 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
           setUnlockError(err.message);
           return;
         }
-        setNotice({
-          type: 'error',
-          text: err instanceof Error ? err.message : 'Gagal memeriksa status tabel database.',
-        });
+        if (!options?.silent) {
+          setNotice({
+            type: 'error',
+            text: err instanceof Error ? err.message : 'Gagal memeriksa status tabel database.',
+          });
+        }
       } finally {
-        setLoadingStatus(false);
+        if (!options?.silent) {
+          setLoadingStatus(false);
+        }
       }
     },
     [onDatabaseTokenChange, syncFormFromConfig]
@@ -214,6 +267,45 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
       void loadSchemaStatus(databaseToken);
     }
   }, [databaseToken, loadSchemaStatus]);
+
+  useEffect(() => {
+    if (!databaseToken) return;
+    const unsub = subscribeRealtimeScopes(
+      ['database', 'attendance', 'payroll', 'finance', 'security'],
+      (evt) => {
+        void loadSchemaStatus(databaseToken, {
+          silent: true,
+          syncConfig: evt.scope === 'database',
+        });
+      },
+      { debounceMs: 250, ignoreImmediateLocalEcho: true }
+    );
+    return () => unsub();
+  }, [databaseToken, loadSchemaStatus]);
+
+  useEffect(() => {
+    if (!databaseToken) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const conn = await testConnection();
+        if (!cancelled) {
+          setFbConnResult({ ok: conn.ok, message: conn.message });
+        }
+        if (fbUser && fbUser.emailVerified) {
+          const cols = await inspectFirestoreCollections();
+          if (!cancelled) {
+            setFbCollections(cols);
+          }
+        }
+      } catch {
+        // ignore background Firestore status probe errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [databaseToken, fbUser]);
 
   const handleUnlockDatabase = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -348,41 +440,174 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
     }
   };
 
-  const handleSaveDatabaseConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const buildConfigPayload = (
+    overrides: SaveDatabaseConfigPayload = {}
+  ): SaveDatabaseConfigPayload => ({
+    engine: cfgEngine,
+    host: cfgHost,
+    port: cfgPort,
+    databaseName: cfgDbName,
+    schemaName: cfgSchemaName,
+    tablePrefix: cfgPrefix,
+    username: cfgUsername,
+    sslMode: cfgSslMode,
+    sqliteFilePath: cfgSqliteFilePath,
+    autoCreateMissingTables: cfgAutoCreate,
+    supabaseProjectName: cfgSupabaseProjectName,
+    supabaseProjectId: cfgSupabaseProjectId,
+    supabaseUrl: cfgSupabaseUrl,
+    supabasePublishableKey: cfgSupabasePublishableKey,
+    firestoreProjectId: cfgFbProjectId,
+    firestoreDatabaseId: cfgFbDatabaseId,
+    firestoreApiKey: cfgFbApiKey,
+    firestoreAuthDomain: cfgFbAuthDomain,
+    firestoreAppId: cfgFbAppId,
+    firestoreStorageBucket: cfgFbStorageBucket,
+    firestoreMessagingSenderId: cfgFbMessagingSenderId,
+    ...(cfgSupabaseSecretKey.trim()
+      ? { supabaseSecretKey: cfgSupabaseSecretKey.trim() }
+      : {}),
+    ...(cfgSupabaseDbUrl.trim() ? { supabaseDbUrl: cfgSupabaseDbUrl.trim() } : {}),
+    ...(cfgDbPassword ? { databasePassword: cfgDbPassword } : {}),
+    ...(cfgConnectionUri.trim() ? { connectionUri: cfgConnectionUri.trim() } : {}),
+    ...overrides,
+  });
+
+  const handleSupabaseUrlInputChange = (nextUrl: string) => {
+    setCfgSupabaseUrl(nextUrl);
+    const match = nextUrl.trim().match(/^https?:\/\/([a-z0-9-]+)\.supabase\.co/i);
+    if (match?.[1]) {
+      setCfgSupabaseProjectId(match[1]);
+      setCfgHost(`db.${match[1]}.supabase.co`);
+    }
+  };
+
+  const handleApplyFirebaseSnippet = () => {
+    const raw = fbJsonSnippet.trim();
+    if (!raw) {
+      setNotice({ type: 'error', text: 'Tempel JSON atau objek firebaseConfig terlebih dahulu.' });
+      return;
+    }
+    const extractField = (key: string): string | null => {
+      const m = raw.match(new RegExp(`["']?${key}["']?\\s*:\\s*["']([^"']+)["']`, 'i'));
+      return m?.[1]?.trim() || null;
+    };
+    const nextProjectId = extractField('projectId');
+    const nextApiKey = extractField('apiKey');
+    const nextAuthDomain = extractField('authDomain');
+    const nextAppId = extractField('appId');
+    const nextBucket = extractField('storageBucket');
+    const nextSender = extractField('messagingSenderId');
+    const nextDbId = extractField('firestoreDatabaseId');
+
+    if (!nextProjectId && !nextApiKey) {
+      setNotice({
+        type: 'error',
+        text: 'Format firebaseConfig tidak dikenali. Pastikan minimal memuat projectId dan apiKey.',
+      });
+      return;
+    }
+
+    if (nextProjectId) setCfgFbProjectId(nextProjectId);
+    if (nextApiKey) setCfgFbApiKey(nextApiKey);
+    if (nextAuthDomain) setCfgFbAuthDomain(nextAuthDomain);
+    if (nextAppId) setCfgFbAppId(nextAppId);
+    if (nextBucket) setCfgFbStorageBucket(nextBucket);
+    if (nextSender) setCfgFbMessagingSenderId(nextSender);
+    if (nextDbId) setCfgFbDatabaseId(nextDbId);
+
+    setShowFbSnippetBox(false);
+    setFbJsonSnippet('');
+    setNotice({
+      type: 'success',
+      text: `Parameter Firebase (${nextProjectId || 'custom'}) berhasil diisikan ke formulir. Klik "Uji Koneksi" atau "Simpan Pengaturan".`,
+    });
+  };
+
+  const executeLiveConnectionTest = async (
+    token: string,
+    payload: SaveDatabaseConfigPayload
+  ): Promise<DatabaseConnectionTestResult> => {
+    const serverRes = await testDatabaseConnection(token, payload);
+    if (payload.engine === 'firestore') {
+      const browserProbe = await testCustomFirebaseConnection({
+        projectId: String(payload.firestoreProjectId || FIREBASE_APPLET_META.projectId),
+        firestoreDatabaseId: String(
+          payload.firestoreDatabaseId || FIREBASE_APPLET_META.firestoreDatabaseId
+        ),
+        apiKey: String(payload.firestoreApiKey || FIREBASE_APPLET_META.apiKey),
+        authDomain: String(payload.firestoreAuthDomain || FIREBASE_APPLET_META.authDomain),
+        appId: String(payload.firestoreAppId || ''),
+        storageBucket: String(payload.firestoreStorageBucket || ''),
+        messagingSenderId: String(payload.firestoreMessagingSenderId || ''),
+      });
+      return {
+        ...serverRes,
+        ok: browserProbe.ok,
+        latencyMs: browserProbe.latencyMs,
+        message: browserProbe.message,
+      };
+    }
+    return serverRes;
+  };
+
+  const handleTestCurrentConnection = async () => {
     if (!databaseToken) return;
-    setSavingConfig(true);
+    setTestingConnection(true);
     setNotice(null);
     try {
-      const updated = await saveDatabaseConfig(databaseToken, {
-        engine: cfgEngine,
-        host: cfgHost,
-        port: cfgPort,
-        databaseName: cfgDbName,
-        schemaName: cfgSchemaName,
-        tablePrefix: cfgPrefix,
-        username: cfgUsername,
-        sslMode: cfgSslMode,
-        autoCreateMissingTables: cfgAutoCreate,
-        supabaseProjectName: cfgSupabaseProjectName,
-        supabaseProjectId: cfgSupabaseProjectId,
-        supabaseUrl: cfgSupabaseUrl,
-        supabasePublishableKey: cfgSupabasePublishableKey,
-        ...(cfgSupabaseSecretKey.trim()
-          ? { supabaseSecretKey: cfgSupabaseSecretKey.trim() }
-          : {}),
-        ...(cfgSupabaseDbUrl.trim() ? { supabaseDbUrl: cfgSupabaseDbUrl.trim() } : {}),
+      const payload = buildConfigPayload();
+      const res = await executeLiveConnectionTest(databaseToken, payload);
+      setConnectionTestResult(res);
+      setNotice({
+        type: res.ok ? 'success' : 'error',
+        text: res.message,
       });
+    } catch (err) {
+      if (err instanceof DatabaseUnauthorizedError) {
+        onDatabaseTokenChange(null);
+        setUnlockError(err.message);
+        return;
+      }
+      setNotice({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal menguji koneksi database.',
+      });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const saveDatabaseConfigCore = async (alsoTestConnection: boolean) => {
+    if (!databaseToken) return;
+    setSavingConfig(true);
+    if (alsoTestConnection) setTestingConnection(true);
+    setNotice(null);
+    try {
+      const payload = buildConfigPayload();
+      const updated = await saveDatabaseConfig(databaseToken, payload);
       setCfgSupabaseSecretKey('');
       setCfgSupabaseDbUrl('');
+      setCfgDbPassword('');
+      setCfgConnectionUri('');
       syncFormFromConfig(updated);
       await loadSchemaStatus(databaseToken);
-      setNotice({
-        type: 'success',
-        text: cfgAutoCreate
-          ? 'Konfigurasi database disimpan & pemeriksaan tabel otomatis telah dijalankan.'
-          : 'Konfigurasi koneksi database berhasil disimpan.',
-      });
+
+      if (alsoTestConnection) {
+        const testRes = await executeLiveConnectionTest(databaseToken, buildConfigPayload());
+        setConnectionTestResult(testRes);
+        setNotice({
+          type: testRes.ok ? 'success' : 'error',
+          text: `Konfigurasi disimpan. ${testRes.message}`,
+        });
+      } else {
+        setNotice({
+          type: 'success',
+          text: cfgAutoCreate
+            ? 'Konfigurasi database disimpan & pemeriksaan tabel otomatis telah dijalankan.'
+            : 'Konfigurasi koneksi database berhasil disimpan.',
+        });
+      }
     } catch (err) {
       if (err instanceof DatabaseUnauthorizedError) {
         onDatabaseTokenChange(null);
@@ -395,7 +620,13 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
       });
     } finally {
       setSavingConfig(false);
+      setTestingConnection(false);
     }
+  };
+
+  const handleSaveDatabaseConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveDatabaseConfigCore(false);
   };
 
   const handleClearSupabaseSecrets = async () => {
@@ -412,7 +643,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
       await loadSchemaStatus(databaseToken);
       setNotice({
         type: 'success',
-        text: 'Secret Key dan Postgres URI yang tersimpan di server telah dihapus.',
+        text: 'Secret Key dan Postgres URI Supabase yang tersimpan di server telah dihapus.',
       });
     } catch (err) {
       if (err instanceof DatabaseUnauthorizedError) {
@@ -423,6 +654,66 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
       setNotice({
         type: 'error',
         text: err instanceof Error ? err.message : 'Gagal menghapus kredensial server.',
+      });
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleClearDatabaseSecrets = async () => {
+    if (!databaseToken) return;
+    setSavingConfig(true);
+    setNotice(null);
+    try {
+      const updated = await saveDatabaseConfig(databaseToken, {
+        clearDatabaseSecrets: true,
+      });
+      setCfgDbPassword('');
+      setCfgConnectionUri('');
+      syncFormFromConfig(updated);
+      await loadSchemaStatus(databaseToken);
+      setNotice({
+        type: 'success',
+        text: 'Password & Connection URI database yang tersimpan di server telah dihapus.',
+      });
+    } catch (err) {
+      if (err instanceof DatabaseUnauthorizedError) {
+        onDatabaseTokenChange(null);
+        setUnlockError(err.message);
+        return;
+      }
+      setNotice({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal menghapus kredensial database.',
+      });
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleResetFirestoreToDefault = async () => {
+    if (!databaseToken) return;
+    setSavingConfig(true);
+    setNotice(null);
+    try {
+      const updated = await saveDatabaseConfig(databaseToken, {
+        resetFirestoreToDefault: true,
+      });
+      syncFormFromConfig(updated);
+      await loadSchemaStatus(databaseToken);
+      setNotice({
+        type: 'success',
+        text: 'Koneksi Cloud Firestore dikembalikan ke konfigurasi bawaan applet.',
+      });
+    } catch (err) {
+      if (err instanceof DatabaseUnauthorizedError) {
+        onDatabaseTokenChange(null);
+        setUnlockError(err.message);
+        return;
+      }
+      setNotice({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal mereset konfigurasi Firestore.',
       });
     } finally {
       setSavingConfig(false);
@@ -772,7 +1063,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
           }`}
         >
           <Server className="w-3.5 h-3.5" />
-          <span>Koneksi &amp; PIN Database</span>
+          <span>Koneksi Database (URL, API Key &amp; PIN)</span>
         </button>
       </div>
 
@@ -839,6 +1130,43 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                   {summary?.totalRecords ?? 0}
                 </div>
               </div>
+            </div>
+
+            {/* Active Connection Summary Strip */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <Link2 className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-900">
+                      Koneksi Database Aktif:
+                    </span>
+                    <span className="px-2 py-0.5 text-[10px] font-mono font-semibold uppercase rounded bg-blue-50 text-blue-800 border border-blue-200">
+                      {schemaStatus?.config.engine || cfgEngine}
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-600 truncate mt-0.5">
+                    {schemaStatus?.config.engine === 'supabase'
+                      ? `${schemaStatus.config.supabaseUrl || cfgSupabaseUrl} · Project ID: ${schemaStatus.config.supabaseProjectId || cfgSupabaseProjectId}`
+                      : schemaStatus?.config.engine === 'firestore'
+                      ? `firestore://${schemaStatus.config.firestoreProjectId || cfgFbProjectId}/${schemaStatus.config.firestoreDatabaseId || cfgFbDatabaseId}`
+                      : schemaStatus?.config.engine === 'sqlite'
+                      ? `sqlite://data/${schemaStatus.config.sqliteFilePath || cfgSqliteFilePath}`
+                      : schemaStatus?.config.engine === 'local-json'
+                      ? 'Penyimpanan Lokal Server (data/*.json)'
+                      : `${schemaStatus?.config.host || cfgHost}:${schemaStatus?.config.port || cfgPort}/${schemaStatus?.config.databaseName || cfgDbName}`}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setInnerTab('config')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-800 bg-white border border-blue-200 hover:bg-blue-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Server className="w-3.5 h-3.5" />
+                <span>Atur Koneksi (URL &amp; API Key)</span>
+              </button>
             </div>
 
             {/* Action Buttons */}
@@ -927,6 +1255,18 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCfgEngine('supabase');
+                      setInnerTab('config');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>Atur URL &amp; API Key</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleTestSupabase}
@@ -1042,16 +1382,31 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                   <Cloud className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
                   <div>
                     <div className="text-xs font-bold text-slate-900">
-                      Cloud Firestore ({FIREBASE_APPLET_META.firestoreDatabaseId})
+                      Cloud Firestore ({schemaStatus?.config.firestoreDatabaseId || FIREBASE_APPLET_META.firestoreDatabaseId})
                     </div>
                     <div className="text-[11px] text-slate-600">
-                      Project: <span className="font-mono">{FIREBASE_APPLET_META.projectId}</span>
+                      Project:{' '}
+                      <span className="font-mono">
+                        {schemaStatus?.config.firestoreProjectId || FIREBASE_APPLET_META.projectId}
+                      </span>
                       {fbUser?.email ? ` · Login: ${fbUser.email}` : ' · Belum login Google Admin'}
                     </div>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCfgEngine('firestore');
+                      setInnerTab('config');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>Atur Koneksi Firebase</span>
+                  </button>
+
                   {!fbUser ? (
                     <button
                       type="button"
@@ -1326,19 +1681,25 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
           <div className="space-y-6">
             <form
               onSubmit={handleSaveDatabaseConfig}
-              className="p-5 rounded-xl border border-slate-200 space-y-4"
+              className="p-5 rounded-xl border border-slate-200 space-y-5"
             >
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Konfigurasi Driver &amp; Parameter Database
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Atur target database perusahaan dan aktifkan pembuatan tabel otomatis ketika ada tabel yang belum tersedia.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Atur Koneksi Database (Project URL, API Key, Host &amp; URI)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Pilih engine database lalu lengkapi Project URL, API Key, Host, atau Connection URI yang dibutuhkan untuk menghubungkan aplikasi ke database.
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-semibold uppercase rounded-md bg-slate-100 text-slate-700 border border-slate-200 shrink-0">
+                  {cfgEngine}
+                </span>
               </div>
 
+              {/* Engine & Prefix Selector */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-medium text-slate-700 mb-1">
                     Engine Database Aktif
                   </label>
@@ -1347,6 +1708,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                     onChange={(e) => {
                       const val = e.target.value as DatabaseEngineType;
                       setCfgEngine(val);
+                      setConnectionTestResult(null);
                       if (val === 'supabase') {
                         setCfgPort(5432);
                         setCfgDbName('postgres');
@@ -1358,123 +1720,85 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                           );
                         }
                       }
-                      if (val === 'postgresql') setCfgPort(5432);
+                      if (val === 'postgresql') {
+                        setCfgPort(5432);
+                        if (!cfgSchemaName) setCfgSchemaName('public');
+                      }
                       if (val === 'mysql') setCfgPort(3306);
                     }}
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white"
                   >
-                    <option value="supabase">Supabase Cloud Database (PostgreSQL + REST)</option>
-                    <option value="local-json">Penyimpanan Lokal Server</option>
-                    <option value="firestore">Cloud Firestore ({FIREBASE_APPLET_META.firestoreDatabaseId})</option>
-                    <option value="postgresql">PostgreSQL</option>
-                    <option value="mysql">MySQL / MariaDB</option>
-                    <option value="sqlite">SQLite</option>
+                    <option value="supabase">Supabase Cloud Database (Project URL &amp; API Key)</option>
+                    <option value="firestore">Cloud Firestore / Firebase (Project ID &amp; API Key)</option>
+                    <option value="postgresql">PostgreSQL (Host / Connection URI)</option>
+                    <option value="mysql">MySQL / MariaDB (Host &amp; Database)</option>
+                    <option value="sqlite">SQLite (File Database Lokal Server)</option>
+                    <option value="local-json">Penyimpanan Lokal Server (JSON)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Host / Endpoint Server
+                    Prefix Nama Tabel (Opsional)
                   </label>
                   <input
                     type="text"
-                    value={cfgHost}
-                    onChange={(e) => setCfgHost(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
+                    value={cfgPrefix}
+                    onChange={(e) => setCfgPrefix(e.target.value)}
+                    placeholder="Contoh: kp_ (kosongkan jika standar)"
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Port</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={cfgPort}
-                    onChange={(e) => setCfgPort(Number(e.target.value) || 5432)}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Nama Database
-                  </label>
-                  <input
-                    type="text"
-                    value={cfgDbName}
-                    onChange={(e) => setCfgDbName(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Nama Schema
-                  </label>
-                  <input
-                    type="text"
-                    value={cfgSchemaName}
-                    onChange={(e) => setCfgSchemaName(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Username &amp; SSL
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={cfgUsername}
-                      onChange={(e) => setCfgUsername(e.target.value)}
-                      placeholder="postgres"
-                      className="w-full px-2.5 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                    />
-                    <select
-                      value={cfgSslMode}
-                      onChange={(e) =>
-                        setCfgSslMode(e.target.value as 'disable' | 'require' | 'verify-full')
-                      }
-                      className="w-full px-2 py-2 text-xs border border-slate-200 rounded-lg bg-white"
-                    >
-                      <option value="disable">SSL: Disable</option>
-                      <option value="require">SSL: Require</option>
-                      <option value="verify-full">SSL: Verify Full</option>
-                    </select>
-                  </div>
                 </div>
               </div>
 
+              {/* ENGINE PANEL 1: SUPABASE */}
               {cfgEngine === 'supabase' && (
-                <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-200 space-y-4">
+                <div className="p-4 rounded-xl bg-emerald-50/40 border border-emerald-200 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div>
                       <h4 className="text-xs font-bold text-slate-900">
-                        Parameter Koneksi Supabase Cloud
+                        Koneksi Supabase Cloud (Project URL, API Key &amp; Postgres URI)
                       </h4>
                       <p className="text-[11px] text-slate-600">
-                        Hubungkan langsung dengan REST API &amp; PostgreSQL Supabase. Secret Key &amp; Postgres URI bersifat opsional dan disimpan aman di sisi server.
+                        Mengisi Project URL akan otomatis mengisi Project ID &amp; Host. Secret Key &amp; Postgres URI disimpan aman hanya di server.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowSupabaseSecrets((prev) => !prev)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer shrink-0"
-                    >
-                      {showSupabaseSecrets ? (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5" />
-                          <span>Sembunyikan Secret</span>
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Tampilkan Secret</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowPublishableKey((prev) => !prev)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                      >
+                        {showPublishableKey ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>Sembunyikan API Key</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Tampilkan API Key</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowSupabaseSecrets((prev) => !prev)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                      >
+                        {showSupabaseSecrets ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>Sembunyikan Secret</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Tampilkan Secret</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1509,20 +1833,21 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                       <input
                         type="url"
                         value={cfgSupabaseUrl}
-                        onChange={(e) => setCfgSupabaseUrl(e.target.value)}
+                        onChange={(e) => handleSupabaseUrlInputChange(e.target.value)}
                         placeholder="https://jeewhluiufosnourqvje.supabase.co"
                         className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
                       />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Publishable API Key
+                        Publishable / Anon API Key
                       </label>
                       <input
-                        type="text"
+                        type={showPublishableKey ? 'text' : 'password'}
+                        autoComplete="off"
                         value={cfgSupabasePublishableKey}
                         onChange={(e) => setCfgSupabasePublishableKey(e.target.value)}
-                        placeholder="sb_publishable_..."
+                        placeholder="sb_publishable_... / eyJhbGci..."
                         className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
                       />
                     </div>
@@ -1580,6 +1905,72 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                     </div>
                   </div>
 
+                  {/* Direct Postgres host/port/schema details */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-emerald-200/70">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        Host PostgreSQL
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgHost}
+                        onChange={(e) => setCfgHost(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        Port
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={cfgPort}
+                        onChange={(e) => setCfgPort(Number(e.target.value) || 5432)}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        Database
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgDbName}
+                        onChange={(e) => setCfgDbName(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        Schema
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgSchemaName}
+                        onChange={(e) => setCfgSchemaName(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        SSL Mode
+                      </label>
+                      <select
+                        value={cfgSslMode}
+                        onChange={(e) =>
+                          setCfgSslMode(e.target.value as 'disable' | 'require' | 'verify-full')
+                        }
+                        className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                      >
+                        <option value="disable">Disable</option>
+                        <option value="require">Require</option>
+                        <option value="verify-full">Verify Full</option>
+                      </select>
+                    </div>
+                  </div>
+
                   {(schemaStatus?.config.hasSupabaseSecretKey ||
                     schemaStatus?.config.hasSupabaseDbUrl) && (
                     <div className="flex justify-end">
@@ -1590,10 +1981,405 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-red-700 bg-white border border-red-200 hover:bg-red-50 rounded-lg cursor-pointer"
                       >
                         <RotateCcw className="w-3 h-3" />
-                        <span>Hapus Secret / URI Tersimpan</span>
+                        <span>Hapus Secret / URI Supabase Tersimpan</span>
                       </button>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* ENGINE PANEL 2: CLOUD FIRESTORE / FIREBASE */}
+              {cfgEngine === 'firestore' && (
+                <div className="p-4 rounded-xl bg-blue-50/40 border border-blue-200 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">
+                        Koneksi Firebase / Cloud Firestore
+                      </h4>
+                      <p className="text-[11px] text-slate-600">
+                        Masukkan Project ID, Firestore Database ID, Web API Key, dan Auth Domain, atau tempel langsung snippet <code className="font-mono">firebaseConfig</code> dari Firebase Console.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowFbApiKey((prev) => !prev)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                      >
+                        {showFbApiKey ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>Sembunyikan API Key</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Tampilkan API Key</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowFbSnippetBox((prev) => !prev)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-800 bg-white border border-blue-200 hover:bg-blue-50 rounded-lg cursor-pointer"
+                      >
+                        <Code2 className="w-3.5 h-3.5" />
+                        <span>Tempel JSON firebaseConfig</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {showFbSnippetBox && (
+                    <div className="p-3 rounded-lg bg-white border border-blue-200 space-y-2">
+                      <label className="block text-[11px] font-semibold text-slate-700">
+                        Tempel potongan kode <code className="font-mono">firebaseConfig</code> dari Firebase Console:
+                      </label>
+                      <textarea
+                        rows={4}
+                        value={fbJsonSnippet}
+                        onChange={(e) => setFbJsonSnippet(e.target.value)}
+                        placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "my-project.firebaseapp.com",\n  "projectId": "my-project",\n  "storageBucket": "my-project.appspot.com",\n  "messagingSenderId": "1234567890",\n  "appId": "1:1234567890:web:abc"\n}`}
+                        className="w-full px-3 py-2 text-[11px] font-mono border border-slate-200 rounded-lg bg-slate-50"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowFbSnippetBox(false)}
+                          className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleApplyFirebaseSnippet}
+                          className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer"
+                        >
+                          Isi Otomatis dari Snippet
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Firebase Project ID
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgFbProjectId}
+                        onChange={(e) => setCfgFbProjectId(e.target.value)}
+                        placeholder={FIREBASE_APPLET_META.projectId}
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Firestore Database ID
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgFbDatabaseId}
+                        onChange={(e) => setCfgFbDatabaseId(e.target.value)}
+                        placeholder="(default) atau ID database Firestore"
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Firebase Web API Key
+                      </label>
+                      <input
+                        type={showFbApiKey ? 'text' : 'password'}
+                        autoComplete="off"
+                        value={cfgFbApiKey}
+                        onChange={(e) => setCfgFbApiKey(e.target.value)}
+                        placeholder="AIzaSy..."
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Auth Domain / Project URL
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgFbAuthDomain}
+                        onChange={(e) => setCfgFbAuthDomain(e.target.value)}
+                        placeholder="project-id.firebaseapp.com"
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Firebase App ID
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgFbAppId}
+                        onChange={(e) => setCfgFbAppId(e.target.value)}
+                        placeholder="1:...:web:..."
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          Storage Bucket
+                        </label>
+                        <input
+                          type="text"
+                          value={cfgFbStorageBucket}
+                          onChange={(e) => setCfgFbStorageBucket(e.target.value)}
+                          placeholder="*.appspot.com"
+                          className="w-full px-2.5 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          Sender ID
+                        </label>
+                        <input
+                          type="text"
+                          value={cfgFbMessagingSenderId}
+                          onChange={(e) => setCfgFbMessagingSenderId(e.target.value)}
+                          placeholder="000000000"
+                          className="w-full px-2.5 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      disabled={savingConfig}
+                      onClick={handleResetFirestoreToDefault}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Gunakan Bawaan Applet</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ENGINE PANEL 3: POSTGRESQL / MYSQL / MARIADB */}
+              {(cfgEngine === 'postgresql' || cfgEngine === 'mysql') && (
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">
+                        Parameter Koneksi {cfgEngine === 'postgresql' ? 'PostgreSQL' : 'MySQL / MariaDB'}
+                      </h4>
+                      <p className="text-[11px] text-slate-600">
+                        Isi Connection String URI atau lengkapi Host, Port, Nama Database, Username, dan Password. Password &amp; URI disimpan hanya di server.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowDbSecrets((prev) => !prev)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer shrink-0"
+                    >
+                      {showDbSecrets ? (
+                        <>
+                          <EyeOff className="w-3.5 h-3.5" />
+                          <span>Sembunyikan Kredensial</span>
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Tampilkan Kredensial</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="text-xs font-medium text-slate-700">
+                        Connection String / Database URI (Opsional Server-Only)
+                      </label>
+                      {schemaStatus?.config.hasConnectionUri && (
+                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                          Tersimpan
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type={showDbSecrets ? 'text' : 'password'}
+                      autoComplete="off"
+                      value={cfgConnectionUri}
+                      onChange={(e) => setCfgConnectionUri(e.target.value)}
+                      placeholder={
+                        schemaStatus?.config.hasConnectionUri
+                          ? 'Connection URI tersimpan di server (kosongkan jika tidak ubah)'
+                          : cfgEngine === 'postgresql'
+                          ? 'postgresql://user:password@db.example.com:5432/karyapresensi?sslmode=require'
+                          : 'mysql://user:password@db.example.com:3306/karyapresensi'
+                      }
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Host / Endpoint Server
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgHost}
+                        onChange={(e) => setCfgHost(e.target.value)}
+                        placeholder="db.perusahaan.com"
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Port</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={cfgPort}
+                        onChange={(e) =>
+                          setCfgPort(Number(e.target.value) || (cfgEngine === 'mysql' ? 3306 : 5432))
+                        }
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Nama Database
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgDbName}
+                        onChange={(e) => setCfgDbName(e.target.value)}
+                        placeholder="karyapresensi_db"
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgUsername}
+                        onChange={(e) => setCfgUsername(e.target.value)}
+                        placeholder={cfgEngine === 'mysql' ? 'root' : 'postgres'}
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <label className="text-xs font-medium text-slate-700">
+                          Password Database (Server-Only)
+                        </label>
+                        {schemaStatus?.config.hasDatabasePassword && (
+                          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                            Tersimpan
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type={showDbSecrets ? 'text' : 'password'}
+                        autoComplete="off"
+                        value={cfgDbPassword}
+                        onChange={(e) => setCfgDbPassword(e.target.value)}
+                        placeholder={
+                          schemaStatus?.config.hasDatabasePassword
+                            ? 'Password tersimpan (kosongkan jika tidak ubah)'
+                            : 'Masukkan password database'
+                        }
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {cfgEngine === 'postgresql' && (
+                        <div>
+                          <label className="block text-xs font-medium text-slate-700 mb-1">
+                            Schema
+                          </label>
+                          <input
+                            type="text"
+                            value={cfgSchemaName}
+                            onChange={(e) => setCfgSchemaName(e.target.value)}
+                            placeholder="public"
+                            className="w-full px-2.5 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                          />
+                        </div>
+                      )}
+                      <div className={cfgEngine === 'postgresql' ? '' : 'col-span-2'}>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          SSL Mode
+                        </label>
+                        <select
+                          value={cfgSslMode}
+                          onChange={(e) =>
+                            setCfgSslMode(e.target.value as 'disable' | 'require' | 'verify-full')
+                          }
+                          className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white"
+                        >
+                          <option value="disable">SSL: Disable</option>
+                          <option value="require">SSL: Require</option>
+                          <option value="verify-full">SSL: Verify Full</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {(schemaStatus?.config.hasDatabasePassword ||
+                    schemaStatus?.config.hasConnectionUri) && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        disabled={savingConfig}
+                        onClick={handleClearDatabaseSecrets}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-red-700 bg-white border border-red-200 hover:bg-red-50 rounded-lg cursor-pointer"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Hapus Password / URI Tersimpan</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ENGINE PANEL 4: SQLITE */}
+              {cfgEngine === 'sqlite' && (
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-900">
+                    Lokasi File Database SQLite 3
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Nama File SQLite (disimpan di folder <code className="font-mono">data/</code>)
+                      </label>
+                      <input
+                        type="text"
+                        value={cfgSqliteFilePath}
+                        onChange={(e) => setCfgSqliteFilePath(e.target.value)}
+                        placeholder="karyapresensi.sqlite"
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div className="flex items-end text-[11px] text-slate-500 pb-1">
+                      Path efektif server:{' '}
+                      <span className="font-mono font-semibold text-slate-800 ml-1">
+                        data/{cfgSqliteFilePath || 'karyapresensi.sqlite'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ENGINE PANEL 5: LOCAL JSON */}
+              {cfgEngine === 'local-json' && (
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
+                  <strong className="text-slate-900">Penyimpanan Lokal Server:</strong> Data disimpan langsung ke file JSON terstruktur di folder <code className="font-mono">data/</code> tanpa memerlukan Project URL atau API Key eksternal.
                 </div>
               )}
 
@@ -1612,16 +2398,74 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                 </span>
               </label>
 
-              <div className="flex justify-end">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={testingConnection || savingConfig}
+                  onClick={handleTestCurrentConnection}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg disabled:opacity-50 cursor-pointer"
+                >
+                  <Plug className="w-3.5 h-3.5" />
+                  <span>{testingConnection ? 'Menguji Koneksi...' : 'Uji Koneksi'}</span>
+                </button>
+
                 <button
                   type="submit"
-                  disabled={savingConfig}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg disabled:opacity-50 cursor-pointer"
+                  disabled={savingConfig || testingConnection}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg disabled:opacity-50 cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>{savingConfig ? 'Menyimpan...' : 'Simpan Pengaturan Database'}</span>
+                  <span>{savingConfig ? 'Menyimpan...' : 'Simpan Pengaturan'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={savingConfig || testingConnection}
+                  onClick={() => void saveDatabaseConfigCore(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg disabled:opacity-50 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>
+                    {savingConfig || testingConnection
+                      ? 'Menyimpan & Menguji...'
+                      : 'Simpan & Uji Koneksi'}
+                  </span>
                 </button>
               </div>
+
+              {connectionTestResult && (
+                <div
+                  className={`p-3.5 rounded-lg border text-xs space-y-1 ${
+                    connectionTestResult.ok
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : 'bg-red-50 border-red-200 text-red-900'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      {connectionTestResult.ok ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-red-700 shrink-0" />
+                      )}
+                      <span>
+                        {connectionTestResult.ok ? 'Koneksi Berhasil' : 'Koneksi Gagal'} ·{' '}
+                        {connectionTestResult.engine.toUpperCase()}
+                      </span>
+                    </span>
+                    <span className="font-mono text-[11px] tabular-nums">
+                      Latensi: {connectionTestResult.latencyMs} ms
+                    </span>
+                  </div>
+                  <div>{connectionTestResult.message}</div>
+                  <div className="font-mono text-[11px] opacity-80 break-all">
+                    Endpoint: {connectionTestResult.endpoint}
+                    {connectionTestResult.serverVersion
+                      ? ` · ${connectionTestResult.serverVersion}`
+                      : ''}
+                  </div>
+                </div>
+              )}
             </form>
 
             {/* Change Database PIN Form */}

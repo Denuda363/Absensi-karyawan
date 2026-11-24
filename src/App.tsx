@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { User } from 'firebase/auth';
 import {
   AlertCircle,
   Clock,
@@ -27,6 +28,14 @@ import {
   lockAdminModeSession,
   unlockAdminModeWithPin,
 } from './services/payrollService';
+import {
+  notifyScopeRefresh,
+  subscribeRealtimeScopes,
+} from './services/realtimeService';
+import {
+  subscribeFirebaseAuth,
+  subscribeFirestoreRealtime,
+} from './services/firebaseClient';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { OverviewView } from './components/OverviewView';
@@ -121,9 +130,13 @@ function AppWorkspace() {
   const [unlockingAdmin, setUnlockingAdmin] = useState<boolean>(false);
   const [adminPinError, setAdminPinError] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
+  const [fbUser, setFbUser] = useState<User | null>(null);
+
+  const loadData = useCallback(async (options?: { silent?: boolean }) => {
     try {
-      setLoadError(null);
+      if (!options?.silent) {
+        setLoadError(null);
+      }
       const state = await fetchDatabaseState();
       setEmployees(state.employees);
       setAttendanceRecords(state.attendanceRecords);
@@ -131,18 +144,87 @@ function AppWorkspace() {
       if (state.settings) {
         setSettings(state.settings);
       }
+      setLoadError(null);
     } catch (err) {
-      setLoadError(
-        err instanceof Error ? err.message : 'Gagal memuat data absensi dari server.'
-      );
+      if (!options?.silent) {
+        setLoadError(
+          err instanceof Error ? err.message : 'Gagal memuat data absensi dari server.'
+        );
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const unsub = subscribeRealtimeScopes(
+      ['attendance'],
+      () => {
+        void loadData({ silent: true });
+      },
+      { ignoreImmediateLocalEcho: true }
+    );
+    return () => unsub();
+  }, [loadData]);
+
+  useEffect(() => {
+    const unsub = subscribeFirebaseAuth((user) => {
+      setFbUser(user);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (!fbUser || !fbUser.emailVerified) return;
+    const unsub = subscribeFirestoreRealtime({
+      onAppSettings: (remoteSettings, { isInitial }) => {
+        if (isInitial) return;
+        setSettings((prev) => ({
+          ...prev,
+          ...remoteSettings,
+          shifts:
+            remoteSettings.shifts && remoteSettings.shifts.length > 0
+              ? remoteSettings.shifts
+              : prev.shifts,
+        }));
+        notifyScopeRefresh('database', 'firestore');
+      },
+      onEmployees: (remoteEmployees, { isInitial }) => {
+        if (isInitial) return;
+        setEmployees(
+          [...remoteEmployees].sort((a, b) =>
+            a.employeeCode.localeCompare(b.employeeCode)
+          )
+        );
+        notifyScopeRefresh('database', 'firestore');
+      },
+      onAttendance: (remoteRecords, { isInitial }) => {
+        if (isInitial) return;
+        setAttendanceRecords(remoteRecords);
+        notifyScopeRefresh('database', 'firestore');
+      },
+      onLateSettlements: (remoteSettlements, { isInitial }) => {
+        if (isInitial) return;
+        setLateSettlements(remoteSettlements);
+        notifyScopeRefresh('database', 'firestore');
+      },
+      onPayrollChanged: ({ isInitial }) => {
+        if (isInitial) return;
+        notifyScopeRefresh('payroll', 'firestore');
+        notifyScopeRefresh('database', 'firestore');
+      },
+      onFinanceChanged: ({ isInitial }) => {
+        if (isInitial) return;
+        notifyScopeRefresh('finance', 'firestore');
+        notifyScopeRefresh('database', 'firestore');
+      },
+    });
+    return () => unsub();
+  }, [fbUser]);
 
   const unloggedTodayCount = useMemo(() => {
     const today = getTodayDateStr();
@@ -326,7 +408,7 @@ function AppWorkspace() {
               <span>{loadError}</span>
               <button
                 type="button"
-                onClick={loadData}
+                onClick={() => void loadData()}
                 className="px-3 py-1.5 text-xs font-semibold bg-white border border-red-200 rounded-lg hover:bg-red-100 cursor-pointer"
               >
                 Coba Lagi

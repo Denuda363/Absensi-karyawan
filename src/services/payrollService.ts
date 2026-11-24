@@ -11,6 +11,16 @@ import {
 } from '../types';
 import { executeApiWithFallback, HttpApiError } from './apiClient';
 import {
+  deletePayrollAdjustmentFromFirestore,
+  deletePayrollRaiseFromFirestore,
+  syncPayrollSettingsToFirestore,
+  upsertPayrollAdjustmentToFirestore,
+  upsertPayrollProfileToFirestore,
+  upsertPayrollRaiseToFirestore,
+  upsertPayrollStatusToFirestore,
+} from './firebaseClient';
+import { notifyLocalScopeMutation } from './realtimeService';
+import {
   emitAppNotification,
   formatRupiahNotif,
 } from './notificationCenterService';
@@ -117,6 +127,7 @@ export async function changeAdminModePin(payload: {
       return { ok: true };
     }
   );
+  notifyLocalScopeMutation('security', 'change_admin_pin');
   emitAppNotification({
     title: 'PIN Mode Admin Diperbarui',
     message: 'PIN keamanan Mode Admin berhasil diganti dengan kombinasi baru.',
@@ -202,6 +213,8 @@ export async function updatePayrollSettings(
       }),
     () => clientUpdatePayrollSettings(token, payload)
   );
+  notifyLocalScopeMutation('payroll', 'update_payroll_settings');
+  void syncPayrollSettingsToFirestore(updated).catch(() => undefined);
   emitAppNotification({
     title: 'Aturan Penggajian Diperbarui',
     message: `Tarif lembur ${formatRupiahNotif(updated.defaultOvertimeHourlyRate)}/jam · Tanggal gajian tgl ${updated.paydayDayOfMonth}.`,
@@ -230,6 +243,8 @@ export async function saveEmployeeSalaryProfile(
       }),
     () => clientSaveEmployeeSalaryProfile(token, employeeId, payload)
   );
+  notifyLocalScopeMutation('payroll', 'save_salary_profile');
+  void upsertPayrollProfileToFirestore(profile).catch(() => undefined);
   emitAppNotification({
     title: 'Profil Gaji Karyawan Disimpan',
     message: `Karyawan #${employeeId} · Metode ${profile.paymentMethod === 'transfer' ? profile.bankName || 'Transfer' : 'Tunai'}`,
@@ -267,6 +282,8 @@ export async function createPayrollAdjustment(
       }),
     () => clientCreatePayrollAdjustment(token, payload)
   );
+  notifyLocalScopeMutation('payroll', 'create_payroll_adjustment');
+  void upsertPayrollAdjustmentToFirestore(adj).catch(() => undefined);
   const typeLabel =
     adj.type === 'bonus'
       ? 'Bonus'
@@ -303,6 +320,8 @@ export async function deletePayrollAdjustment(
       return { ok: true };
     }
   );
+  notifyLocalScopeMutation('payroll', 'delete_payroll_adjustment');
+  void deletePayrollAdjustmentFromFirestore(adjustmentId).catch(() => undefined);
   emitAppNotification({
     title: 'Penyesuaian Gaji Dihapus',
     message: `Komponen bonus/potongan #${adjustmentId} telah dihapus.`,
@@ -342,6 +361,18 @@ export async function createSalaryRaise(
       }),
     () => clientCreateSalaryRaise(token, payload)
   );
+  notifyLocalScopeMutation('payroll', 'create_salary_raise');
+  void upsertPayrollRaiseToFirestore(raise).catch(() => undefined);
+  if (raise.appliedToProfile) {
+    void fetchPayrollState(token)
+      .then((st) => {
+        const updatedProf = st.profiles.find((p) => p.employeeId === raise.employeeId);
+        if (updatedProf) {
+          return upsertPayrollProfileToFirestore(updatedProf);
+        }
+      })
+      .catch(() => undefined);
+  }
   emitAppNotification({
     title: `Kenaikan Gaji: ${raise.employeeName}`,
     message: `Efektif ${raise.effectiveMonth} · ${raise.reason || 'Penyesuaian berkala'}`,
@@ -371,6 +402,8 @@ export async function deleteSalaryRaise(
       return { ok: true };
     }
   );
+  notifyLocalScopeMutation('payroll', 'delete_salary_raise');
+  void deletePayrollRaiseFromFirestore(raiseId).catch(() => undefined);
   emitAppNotification({
     title: 'Riwayat Kenaikan Gaji Dihapus',
     message: `Catatan kenaikan gaji #${raiseId} dihapus.`,
@@ -401,6 +434,8 @@ export async function updatePayrollMonthlyStatus(
       }),
     () => clientUpdatePayrollMonthlyStatus(token, payload)
   );
+  notifyLocalScopeMutation('payroll', 'update_payroll_status');
+  void upsertPayrollStatusToFirestore(updated).catch(() => undefined);
   const statusLabel =
     updated.status === 'dibayar'
       ? 'Dibayar'
@@ -472,6 +507,22 @@ export async function restorePayrollBackup(
       }),
     () => clientRestorePayrollBackup(token, backupPayload)
   );
+  notifyLocalScopeMutation('payroll', 'restore_payroll_backup');
+  void (async () => {
+    await syncPayrollSettingsToFirestore(restored.settings).catch(() => undefined);
+    for (const p of restored.profiles) {
+      await upsertPayrollProfileToFirestore(p).catch(() => undefined);
+    }
+    for (const a of restored.adjustments) {
+      await upsertPayrollAdjustmentToFirestore(a).catch(() => undefined);
+    }
+    for (const r of restored.salaryRaises) {
+      await upsertPayrollRaiseToFirestore(r).catch(() => undefined);
+    }
+    for (const s of restored.statuses) {
+      await upsertPayrollStatusToFirestore(s).catch(() => undefined);
+    }
+  })();
   emitAppNotification({
     title: 'Restore Data Penggajian Berhasil',
     message: `${restored.profiles.length} profil gaji & ${restored.adjustments.length} penyesuaian dipulihkan.`,

@@ -723,10 +723,18 @@ export interface DatabaseConnectionConfig {
   tablePrefix: string;
   username: string;
   sslMode: 'disable' | 'require' | 'verify-full';
+  sqliteFilePath?: string;
+  hasDatabasePassword?: boolean;
+  hasConnectionUri?: boolean;
   autoCreateMissingTables: boolean;
   hasCustomDatabasePin: boolean;
   firestoreProjectId: string;
   firestoreDatabaseId: string;
+  firestoreApiKey?: string;
+  firestoreAuthDomain?: string;
+  firestoreAppId?: string;
+  firestoreStorageBucket?: string;
+  firestoreMessagingSenderId?: string;
   supabaseProjectName?: string;
   supabaseProjectId?: string;
   supabaseUrl?: string;
@@ -739,6 +747,17 @@ export interface DatabaseConnectionConfig {
   lastCheckedAt: string | null;
   lastAutoInitAt: string | null;
   updatedAt: string;
+}
+
+export interface DatabaseConnectionTestResult {
+  ok: boolean;
+  engine: DatabaseEngineType;
+  latencyMs: number;
+  endpoint: string;
+  serverVersion?: string;
+  details?: string;
+  message: string;
+  status?: DatabaseSchemaStatusResponse;
 }
 
 export interface DatabaseTableStatus {

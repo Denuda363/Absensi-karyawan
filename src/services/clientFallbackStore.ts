@@ -7,6 +7,7 @@ import {
   CompanyProfile,
   DatabaseAutoInitResult,
   DatabaseConnectionConfig,
+  DatabaseConnectionTestResult,
   DatabaseSchemaStatusResponse,
   DatabaseTableStatus,
   Employee,
@@ -37,7 +38,7 @@ import {
   SupabaseTestResult,
   unpackShiftFromNotes,
 } from '../types';
-import { FIREBASE_APPLET_META } from './firebaseClient';
+import { FIREBASE_APPLET_META, testCustomFirebaseConnection } from './firebaseClient';
 import { HttpApiError } from './apiClient';
 
 export interface ClientAppDatabaseState {
@@ -1004,6 +1005,15 @@ function buildDefaultFinanceDb(): FinanceDatabaseState {
   return { accounts, categories, transactions, transfers: [] };
 }
 
+function sanitizeClientSqlitePath(rawPath: unknown): string {
+  const base = String(rawPath || 'karyapresensi.sqlite')
+    .trim()
+    .split(/[\\/]/)
+    .pop() || 'karyapresensi.sqlite';
+  const cleaned = base.replace(/[^a-zA-Z0-9_.-]/g, '').replace(/^\.+/, '').slice(0, 64);
+  return cleaned || 'karyapresensi.sqlite';
+}
+
 function buildDefaultDatabaseConfig(): DatabaseConnectionConfig {
   return {
     engine: 'supabase',
@@ -1014,10 +1024,18 @@ function buildDefaultDatabaseConfig(): DatabaseConnectionConfig {
     tablePrefix: '',
     username: 'postgres',
     sslMode: 'require',
+    sqliteFilePath: 'karyapresensi.sqlite',
+    hasDatabasePassword: false,
+    hasConnectionUri: false,
     autoCreateMissingTables: true,
     hasCustomDatabasePin: false,
     firestoreProjectId: FIREBASE_APPLET_META.projectId,
     firestoreDatabaseId: FIREBASE_APPLET_META.firestoreDatabaseId,
+    firestoreApiKey: FIREBASE_APPLET_META.apiKey,
+    firestoreAuthDomain: FIREBASE_APPLET_META.authDomain,
+    firestoreAppId: FIREBASE_APPLET_META.appId,
+    firestoreStorageBucket: FIREBASE_APPLET_META.storageBucket,
+    firestoreMessagingSenderId: FIREBASE_APPLET_META.messagingSenderId,
     supabaseProjectName: DEFAULT_SUPABASE_PROJECT_NAME,
     supabaseProjectId: DEFAULT_SUPABASE_PROJECT_ID,
     supabaseUrl: DEFAULT_SUPABASE_URL,
@@ -1043,11 +1061,18 @@ function readDbConfig(): DatabaseConnectionConfig {
     return {
       ...def,
       ...parsed,
+      sqliteFilePath: sanitizeClientSqlitePath(parsed.sqliteFilePath || def.sqliteFilePath),
       supabaseUrl: (parsed.supabaseUrl || def.supabaseUrl || '').replace(/\/+$/, '').replace(/\/rest\/v1$/i, ''),
       supabaseRestUrl: `${(parsed.supabaseUrl || def.supabaseUrl || '').replace(/\/+$/, '').replace(/\/rest\/v1$/i, '')}/rest/v1/`,
       supabasePublishableKey: parsed.supabasePublishableKey || def.supabasePublishableKey,
-      firestoreProjectId: FIREBASE_APPLET_META.projectId,
-      firestoreDatabaseId: FIREBASE_APPLET_META.firestoreDatabaseId,
+      firestoreProjectId: parsed.firestoreProjectId || def.firestoreProjectId,
+      firestoreDatabaseId: parsed.firestoreDatabaseId || def.firestoreDatabaseId,
+      firestoreApiKey: parsed.firestoreApiKey || def.firestoreApiKey,
+      firestoreAuthDomain: parsed.firestoreAuthDomain || def.firestoreAuthDomain,
+      firestoreAppId: parsed.firestoreAppId || def.firestoreAppId,
+      firestoreStorageBucket: parsed.firestoreStorageBucket || def.firestoreStorageBucket,
+      firestoreMessagingSenderId:
+        parsed.firestoreMessagingSenderId || def.firestoreMessagingSenderId,
     };
   } catch {
     return def;
@@ -3972,6 +3997,8 @@ export async function clientSaveDatabaseConfig(
       ? match?.[1] || current.supabaseProjectId || DEFAULT_SUPABASE_PROJECT_ID
       : current.supabaseProjectId || DEFAULT_SUPABASE_PROJECT_ID;
 
+  const resetFirestore = Boolean(payload.resetFirestoreToDefault);
+
   const nextCfg: DatabaseConnectionConfig = {
     ...current,
     engine: (payload.engine as DatabaseConnectionConfig['engine']) || current.engine,
@@ -3992,10 +4019,50 @@ export async function clientSaveDatabaseConfig(
     username:
       typeof payload.username === 'string' ? payload.username.trim() : current.username,
     sslMode: (payload.sslMode as DatabaseConnectionConfig['sslMode']) || current.sslMode,
+    sqliteFilePath:
+      payload.sqliteFilePath !== undefined
+        ? sanitizeClientSqlitePath(payload.sqliteFilePath)
+        : current.sqliteFilePath,
     autoCreateMissingTables:
       typeof payload.autoCreateMissingTables === 'boolean'
         ? payload.autoCreateMissingTables
         : current.autoCreateMissingTables,
+    firestoreProjectId: resetFirestore
+      ? FIREBASE_APPLET_META.projectId
+      : typeof payload.firestoreProjectId === 'string'
+      ? payload.firestoreProjectId.trim() || FIREBASE_APPLET_META.projectId
+      : current.firestoreProjectId,
+    firestoreDatabaseId: resetFirestore
+      ? FIREBASE_APPLET_META.firestoreDatabaseId
+      : typeof payload.firestoreDatabaseId === 'string'
+      ? payload.firestoreDatabaseId.trim() || FIREBASE_APPLET_META.firestoreDatabaseId
+      : current.firestoreDatabaseId,
+    firestoreApiKey: resetFirestore
+      ? FIREBASE_APPLET_META.apiKey
+      : typeof payload.firestoreApiKey === 'string'
+      ? payload.firestoreApiKey.trim() || FIREBASE_APPLET_META.apiKey
+      : current.firestoreApiKey,
+    firestoreAuthDomain: resetFirestore
+      ? FIREBASE_APPLET_META.authDomain
+      : typeof payload.firestoreAuthDomain === 'string'
+      ? payload.firestoreAuthDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '') ||
+        FIREBASE_APPLET_META.authDomain
+      : current.firestoreAuthDomain,
+    firestoreAppId: resetFirestore
+      ? FIREBASE_APPLET_META.appId
+      : typeof payload.firestoreAppId === 'string'
+      ? payload.firestoreAppId.trim()
+      : current.firestoreAppId,
+    firestoreStorageBucket: resetFirestore
+      ? FIREBASE_APPLET_META.storageBucket
+      : typeof payload.firestoreStorageBucket === 'string'
+      ? payload.firestoreStorageBucket.trim()
+      : current.firestoreStorageBucket,
+    firestoreMessagingSenderId: resetFirestore
+      ? FIREBASE_APPLET_META.messagingSenderId
+      : typeof payload.firestoreMessagingSenderId === 'string'
+      ? payload.firestoreMessagingSenderId.trim()
+      : current.firestoreMessagingSenderId,
     supabaseProjectName:
       typeof payload.supabaseProjectName === 'string'
         ? payload.supabaseProjectName.trim() || current.supabaseProjectName
@@ -4012,6 +4079,118 @@ export async function clientSaveDatabaseConfig(
   writeDbConfig(nextCfg);
   const live = await inspectDatabaseTablesClient();
   return live.config;
+}
+
+export async function clientTestDatabaseConnection(
+  token: string,
+  payload: Record<string, unknown> = {}
+): Promise<DatabaseConnectionTestResult> {
+  assertDatabaseSession(token);
+  const startedAt = Date.now();
+  const cfg = readDbConfig();
+  const engine =
+    (payload.engine as DatabaseConnectionConfig['engine']) || cfg.engine;
+
+  if (engine === 'supabase') {
+    const targetUrl = (
+      typeof payload.supabaseUrl === 'string' && payload.supabaseUrl.trim()
+        ? payload.supabaseUrl.trim()
+        : cfg.supabaseUrl || DEFAULT_SUPABASE_URL
+    )
+      .replace(/\/+$/, '')
+      .replace(/\/rest\/v1$/i, '');
+    const apiKey =
+      (typeof payload.supabasePublishableKey === 'string' && payload.supabasePublishableKey.trim()) ||
+      cfg.supabasePublishableKey ||
+      DEFAULT_SUPABASE_PUBLISHABLE_KEY;
+    const probe = await probeSupabaseTableBrowser(targetUrl, apiKey, 'app_settings');
+    const latencyMs = Date.now() - startedAt;
+    const ok = probe.status === 'available' || probe.status === 'missing';
+    return {
+      ok,
+      engine: 'supabase',
+      latencyMs,
+      endpoint: `${targetUrl}/rest/v1/`,
+      message:
+        probe.status === 'available'
+          ? `Terhubung ke Supabase (${targetUrl}) dalam ${latencyMs} ms. API Key valid dan tabel aktif.`
+          : probe.status === 'missing'
+            ? `Endpoint & API Key Supabase valid (${latencyMs} ms), namun tabel belum dibuat.`
+            : `Gagal menjangkau Supabase (${targetUrl}): ${probe.error || probe.status}`,
+    };
+  }
+
+  if (engine === 'firestore') {
+    const projectId = String(
+      payload.firestoreProjectId || cfg.firestoreProjectId || FIREBASE_APPLET_META.projectId
+    ).trim();
+    const databaseId = String(
+      payload.firestoreDatabaseId ||
+        cfg.firestoreDatabaseId ||
+        FIREBASE_APPLET_META.firestoreDatabaseId
+    ).trim();
+    const apiKey = String(
+      payload.firestoreApiKey || cfg.firestoreApiKey || FIREBASE_APPLET_META.apiKey
+    ).trim();
+    const probe = await testCustomFirebaseConnection({
+      projectId,
+      firestoreDatabaseId: databaseId,
+      apiKey,
+      authDomain: String(
+        payload.firestoreAuthDomain || cfg.firestoreAuthDomain || FIREBASE_APPLET_META.authDomain
+      ).trim(),
+      appId: String(payload.firestoreAppId || cfg.firestoreAppId || '').trim(),
+      storageBucket: String(
+        payload.firestoreStorageBucket || cfg.firestoreStorageBucket || ''
+      ).trim(),
+      messagingSenderId: String(
+        payload.firestoreMessagingSenderId || cfg.firestoreMessagingSenderId || ''
+      ).trim(),
+    });
+    return {
+      ok: probe.ok,
+      engine: 'firestore',
+      latencyMs: probe.latencyMs,
+      endpoint: `firestore://${projectId}/${databaseId}`,
+      message: probe.message,
+    };
+  }
+
+  if (engine === 'local-json') {
+    const total = CLIENT_REQUIRED_TABLES.reduce((s, t) => s + t.getLocalCount(), 0);
+    return {
+      ok: true,
+      engine: 'local-json',
+      latencyMs: Date.now() - startedAt,
+      endpoint: 'localStorage://karyapresensi',
+      message: `Penyimpanan Lokal aktif (${total} total baris pada 14 dataset).`,
+    };
+  }
+
+  if (engine === 'sqlite') {
+    const name = sanitizeClientSqlitePath(payload.sqliteFilePath || cfg.sqliteFilePath);
+    return {
+      ok: true,
+      engine: 'sqlite',
+      latencyMs: Date.now() - startedAt,
+      endpoint: `data/${name}`,
+      message: `Konfigurasi file SQLite "${name}" valid.`,
+    };
+  }
+
+  const host = String(payload.host || cfg.host || '').trim();
+  const port = Number(payload.port || cfg.port || (engine === 'mysql' ? 3306 : 5432));
+  const dbName = String(payload.databaseName || cfg.databaseName || '').trim();
+  return {
+    ok: Boolean(host && dbName),
+    engine,
+    latencyMs: Date.now() - startedAt,
+    endpoint: `${host}:${port}/${dbName}`,
+    message:
+      host && dbName
+        ? `Parameter ${engine.toUpperCase()} (${host}:${port}/${dbName}) tervalidasi.`
+        : `Host dan Nama Database ${engine.toUpperCase()} wajib diisi.`,
+  };
 }
 
 export async function clientTestSupabaseConnection(

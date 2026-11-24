@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
@@ -17,10 +17,12 @@ import {
   getDocs,
   getFirestore,
   limit,
+  onSnapshot,
   query,
   serverTimestamp,
   setDoc,
   Timestamp,
+  Unsubscribe,
   writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -53,6 +55,10 @@ export const FIREBASE_APPLET_META = {
   projectId: firebaseConfig.projectId,
   firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
   authDomain: firebaseConfig.authDomain,
+  apiKey: firebaseConfig.apiKey,
+  appId: firebaseConfig.appId,
+  storageBucket: firebaseConfig.storageBucket,
+  messagingSenderId: firebaseConfig.messagingSenderId,
 };
 
 export const BOOTSTRAPPED_ADMIN_EMAIL = 'assyfachanel99@gmail.com';
@@ -113,19 +119,22 @@ export function handleFirestoreError(
 
 export async function testConnection(): Promise<{
   ok: boolean;
+  reachable: boolean;
   offline: boolean;
   exists: boolean;
+  requiresAuth?: boolean;
   message: string;
 }> {
   try {
     const snap = await getDocFromServer(doc(db, 'test', 'connection'));
     return {
       ok: true,
+      reachable: true,
       offline: false,
       exists: snap.exists(),
       message: snap.exists()
         ? 'Koneksi Cloud Firestore aktif dan dokumen uji tersedia.'
-        : 'Koneksi Cloud Firestore aktif (dokumen uji siap dibuat).',
+        : 'Koneksi Cloud Firestore aktif (siap digunakan secara real-time).',
     };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -133,16 +142,114 @@ export async function testConnection(): Promise<{
       console.error('Please check your Firebase configuration.');
       return {
         ok: false,
+        reachable: false,
         offline: true,
         exists: false,
         message: 'Klien Firestore sedang offline. Periksa konfigurasi Firebase atau jaringan.',
       };
     }
+    const isPermission =
+      msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient');
+    if (isPermission && !auth.currentUser) {
+      return {
+        ok: true,
+        reachable: true,
+        offline: false,
+        exists: false,
+        requiresAuth: true,
+        message:
+          'Cloud Firestore online & terjangkau. Masuk dengan Google Admin untuk mengaktifkan sinkronisasi real-time lintas perangkat.',
+      };
+    }
     return {
       ok: false,
+      reachable: !msg.toLowerCase().includes('unavailable'),
       offline: false,
       exists: false,
       message: msg,
+    };
+  }
+}
+
+export async function testCustomFirebaseConnection(customCfg: {
+  projectId: string;
+  firestoreDatabaseId?: string;
+  apiKey: string;
+  authDomain?: string;
+  appId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+}): Promise<{
+  ok: boolean;
+  latencyMs: number;
+  message: string;
+}> {
+  const startedAt = Date.now();
+  const projectId = customCfg.projectId.trim();
+  const apiKey = customCfg.apiKey.trim();
+  const databaseId = (customCfg.firestoreDatabaseId || '(default)').trim() || '(default)';
+
+  if (!projectId || !apiKey) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      message: 'Project ID dan Firebase API Key wajib diisi untuk menguji koneksi Cloud Firestore.',
+    };
+  }
+
+  const isDefaultTarget =
+    projectId === firebaseConfig.projectId &&
+    databaseId === firebaseConfig.firestoreDatabaseId &&
+    apiKey === firebaseConfig.apiKey;
+
+  if (isDefaultTarget) {
+    const res = await testConnection();
+    return {
+      ok: res.ok,
+      latencyMs: Date.now() - startedAt,
+      message: res.message,
+    };
+  }
+
+  try {
+    const probeName = 'karyapresensi-probe';
+    const existing = getApps().find((a) => a.name === probeName);
+    const probeApp =
+      existing ||
+      initializeApp(
+        {
+          projectId,
+          apiKey,
+          authDomain:
+            customCfg.authDomain?.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '') ||
+            `${projectId}.firebaseapp.com`,
+          appId: customCfg.appId?.trim() || undefined,
+          storageBucket: customCfg.storageBucket?.trim() || undefined,
+          messagingSenderId: customCfg.messagingSenderId?.trim() || undefined,
+        },
+        probeName
+      );
+    const probeDb = getFirestore(probeApp, databaseId);
+    const snap = await getDocFromServer(doc(probeDb, 'test', 'connection'));
+    return {
+      ok: true,
+      latencyMs: Date.now() - startedAt,
+      message: snap.exists()
+        ? `Terhubung ke Cloud Firestore (${projectId} / ${databaseId}) dan dokumen uji ditemukan.`
+        : `Endpoint Cloud Firestore (${projectId} / ${databaseId}) terjangkau dan siap digunakan.`,
+    };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const isPermission =
+      msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient');
+    return {
+      ok: isPermission,
+      latencyMs: Date.now() - startedAt,
+      message: isPermission
+        ? `Proyek Firebase "${projectId}" (${databaseId}) terjangkau oleh jaringan (memerlukan login/izin Firestore Rules untuk baca dokumen).`
+        : msg.includes('offline')
+          ? `Tidak dapat terhubung ke Firestore (${projectId}): periksa API Key, Project ID, dan Database ID.`
+          : msg,
     };
   }
 }
@@ -1674,4 +1781,260 @@ export async function resetFirestoreData(
   }
 
   return { synced: true, deletedDocs };
+}
+
+// ============================================================================
+// REAL-TIME FIRESTORE ONSNAPSHOT SUBSCRIPTIONS (VERIFIED ADMIN ONLY)
+// ============================================================================
+
+export interface FirestoreRealtimeSnapshotHandlers {
+  onAppSettings?: (settings: Partial<AppSettings>, meta: { isInitial: boolean }) => void;
+  onEmployees?: (employees: Employee[], meta: { isInitial: boolean }) => void;
+  onAttendance?: (records: AttendanceRecord[], meta: { isInitial: boolean }) => void;
+  onLateSettlements?: (settlements: LateSettlement[], meta: { isInitial: boolean }) => void;
+  onPayrollChanged?: (meta: { isInitial: boolean }) => void;
+  onFinanceChanged?: (meta: { isInitial: boolean }) => void;
+}
+
+async function isVerifiedFirebaseAdmin(): Promise<boolean> {
+  const user = getVerifiedCurrentUser();
+  if (!user) return false;
+  if (
+    user.email &&
+    user.email.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()
+  ) {
+    return true;
+  }
+  const path = `users/${user.uid}`;
+  try {
+    const snap = await getDoc(doc(db, 'users', user.uid));
+    return snap.exists() && snap.data()?.role === 'admin';
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
+export function subscribeFirestoreRealtime(
+  handlers: FirestoreRealtimeSnapshotHandlers
+): () => void {
+  let cancelled = false;
+  const unsubs: Unsubscribe[] = [];
+
+  void (async () => {
+    let isAdmin = false;
+    try {
+      isAdmin = await isVerifiedFirebaseAdmin();
+    } catch {
+      return;
+    }
+    if (!isAdmin || cancelled) return;
+
+    if (handlers.onAppSettings) {
+      let initialized = false;
+      const path = 'appSettings/primary';
+      const unsub = onSnapshot(
+        doc(db, 'appSettings', 'primary'),
+        (snap) => {
+          const isInitial = !initialized;
+          initialized = true;
+          if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+          const d = snap.data();
+          handlers.onAppSettings?.(
+            {
+              companyName: String(d.companyName || 'KARYAPRESENSI'),
+              companySubtitle: String(d.companySubtitle || 'HRIS PERUSAHAAN'),
+              lateDeductionPerMinute: Number(d.lateDeductionPerMinute || 1000),
+              shifts: Array.isArray(d.shifts) ? (d.shifts as ShiftConfig[]) : [],
+              companyProfile: d.companyProfile
+                ? (d.companyProfile as CompanyProfile)
+                : undefined,
+            },
+            { isInitial }
+          );
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, path);
+        }
+      );
+      unsubs.push(unsub);
+    }
+
+    if (handlers.onEmployees) {
+      let initialized = false;
+      const path = 'employees';
+      const unsub = onSnapshot(
+        collection(db, path),
+        (snap) => {
+          const isInitial = !initialized;
+          initialized = true;
+          if (snap.metadata.hasPendingWrites) return;
+          const list: Employee[] = snap.docs.map((d) => {
+            const x = d.data();
+            return {
+              id: String(x.id || d.id),
+              employeeCode: String(x.employeeCode || 'EMP001'),
+              name: String(x.name || ''),
+              department: String(x.department || ''),
+              position: String(x.position || ''),
+              shiftName: String(x.shiftName || 'Reguler'),
+              shiftStart: String(x.shiftStart || '08:00'),
+              shiftEnd: String(x.shiftEnd || '17:00'),
+              offDays: Array.isArray(x.offDays) ? x.offDays.map(Number) : [],
+              customOffDates: Array.isArray(x.customOffDates)
+                ? x.customOffDates.map(String)
+                : [],
+              active: x.active !== false,
+              createdAt: timestampToIso(x.createdAt),
+              updatedAt: timestampToIso(x.updatedAt),
+            };
+          });
+          handlers.onEmployees?.(list, { isInitial });
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, path);
+        }
+      );
+      unsubs.push(unsub);
+    }
+
+    if (handlers.onAttendance) {
+      let initialized = false;
+      const path = 'attendance';
+      const unsub = onSnapshot(
+        collection(db, path),
+        (snap) => {
+          const isInitial = !initialized;
+          initialized = true;
+          if (snap.metadata.hasPendingWrites) return;
+          const list: AttendanceRecord[] = snap.docs.map((d) => {
+            const x = d.data();
+            const unpacked = unpackShiftFromNotes(String(x.notes || ''));
+            return {
+              id: String(x.id || d.id),
+              employeeId: String(x.employeeId || ''),
+              employeeName: String(x.employeeName || ''),
+              date: String(x.date || ''),
+              status: x.status,
+              ...(unpacked.shiftName ? { shiftName: unpacked.shiftName } : {}),
+              checkIn: String(x.checkIn || ''),
+              checkOut: String(x.checkOut || ''),
+              overtimeHours: Number(x.overtimeHours || 0),
+              notes: unpacked.notes,
+              latePermitReason: x.latePermitReason ? String(x.latePermitReason) : undefined,
+              latePermitEstimatedArrival: x.latePermitEstimatedArrival
+                ? String(x.latePermitEstimatedArrival)
+                : undefined,
+              latePermitApprovedBy: x.latePermitApprovedBy
+                ? String(x.latePermitApprovedBy)
+                : undefined,
+              recordedBy: String(x.recordedBy || 'Admin HR'),
+              createdAt: timestampToIso(x.createdAt),
+              updatedAt: timestampToIso(x.updatedAt),
+            };
+          });
+          handlers.onAttendance?.(list, { isInitial });
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, path);
+        }
+      );
+      unsubs.push(unsub);
+    }
+
+    if (handlers.onLateSettlements) {
+      let initialized = false;
+      const path = 'lateSettlements';
+      const unsub = onSnapshot(
+        collection(db, path),
+        (snap) => {
+          const isInitial = !initialized;
+          initialized = true;
+          if (snap.metadata.hasPendingWrites) return;
+          const list: LateSettlement[] = snap.docs.map((d) => {
+            const x = d.data();
+            return {
+              id: String(x.id || d.id),
+              employeeId: String(x.employeeId || ''),
+              employeeName: String(x.employeeName || ''),
+              yearMonth: String(x.yearMonth || ''),
+              date: String(x.date || ''),
+              method: x.method,
+              minutesSettled: Number(x.minutesSettled || 0),
+              extraWorkStart: x.extraWorkStart ? String(x.extraWorkStart) : undefined,
+              extraWorkEnd: x.extraWorkEnd ? String(x.extraWorkEnd) : undefined,
+              deductionAmount: x.deductionAmount ? Number(x.deductionAmount) : undefined,
+              notes: String(x.notes || ''),
+              recordedBy: String(x.recordedBy || 'Admin HR'),
+              createdAt: timestampToIso(x.createdAt),
+            };
+          });
+          handlers.onLateSettlements?.(list, { isInitial });
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, path);
+        }
+      );
+      unsubs.push(unsub);
+    }
+
+    if (handlers.onPayrollChanged) {
+      for (const path of [
+        'payrollSettings',
+        'payrollProfiles',
+        'payrollAdjustments',
+        'payrollRaises',
+        'payrollStatuses',
+      ]) {
+        let initialized = false;
+        const unsub = onSnapshot(
+          collection(db, path),
+          (snap) => {
+            const isInitial = !initialized;
+            initialized = true;
+            if (snap.metadata.hasPendingWrites) return;
+            handlers.onPayrollChanged?.({ isInitial });
+          },
+          (error) => {
+            handleFirestoreError(error, OperationType.GET, path);
+          }
+        );
+        unsubs.push(unsub);
+      }
+    }
+
+    if (handlers.onFinanceChanged) {
+      for (const path of [
+        'financeAccounts',
+        'financeCategories',
+        'financeTransactions',
+        'financeTransfers',
+      ]) {
+        let initialized = false;
+        const unsub = onSnapshot(
+          collection(db, path),
+          (snap) => {
+            const isInitial = !initialized;
+            initialized = true;
+            if (snap.metadata.hasPendingWrites) return;
+            handlers.onFinanceChanged?.({ isInitial });
+          },
+          (error) => {
+            handleFirestoreError(error, OperationType.GET, path);
+          }
+        );
+        unsubs.push(unsub);
+      }
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+    for (const u of unsubs) {
+      try {
+        u();
+      } catch {
+        // ignore unsubscribe cleanup errors
+      }
+    }
+  };
 }

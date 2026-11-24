@@ -61,6 +61,7 @@ import {
   updateFinanceCategory,
   updateFinanceTransaction,
 } from '../services/financeService';
+import { subscribeRealtimeScopes } from '../services/realtimeService';
 import { formatRupiah } from '../utils/payrollCalculator';
 import { exportFinanceToExcel } from '../utils/excelFinanceExport';
 
@@ -225,21 +226,44 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     [onExitAdminMode]
   );
 
-  const loadFinanceData = useCallback(async () => {
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const data = await fetchFinanceState(adminToken);
-      setFinanceData(data);
-    } catch (err) {
-      handleApiError(err, 'Gagal memuat data keuangan perusahaan.');
-    } finally {
-      setLoading(false);
-    }
-  }, [adminToken, handleApiError]);
+  const loadFinanceData = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!options?.silent) {
+        setLoading(true);
+        setErrorMessage(null);
+      }
+      try {
+        const data = await fetchFinanceState(adminToken);
+        setFinanceData(data);
+        if (options?.silent) {
+          setErrorMessage(null);
+        }
+      } catch (err) {
+        if (err instanceof AdminModeUnauthorizedError || !options?.silent) {
+          handleApiError(err, 'Gagal memuat data keuangan perusahaan.');
+        }
+      } finally {
+        if (!options?.silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [adminToken, handleApiError]
+  );
 
   useEffect(() => {
-    loadFinanceData();
+    void loadFinanceData();
+  }, [loadFinanceData]);
+
+  useEffect(() => {
+    const unsub = subscribeRealtimeScopes(
+      ['finance'],
+      () => {
+        void loadFinanceData({ silent: true });
+      },
+      { ignoreImmediateLocalEcho: true }
+    );
+    return () => unsub();
   }, [loadFinanceData]);
 
   const accounts = useMemo(() => financeData?.accounts ?? [], [financeData]);

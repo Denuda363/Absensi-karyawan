@@ -1,12 +1,14 @@
 import {
   DatabaseAutoInitResult,
   DatabaseConnectionConfig,
+  DatabaseConnectionTestResult,
   DatabaseSchemaStatusResponse,
   SupabaseSyncResult,
   SupabaseTestResult,
 } from '../types';
 import { executeApiWithFallback, HttpApiError } from './apiClient';
 import { emitAppNotification } from './notificationCenterService';
+import { notifyLocalScopeMutation } from './realtimeService';
 import {
   clientAutoCreateMissingTables,
   clientChangeDatabasePin,
@@ -14,6 +16,7 @@ import {
   clientLockDatabaseSession,
   clientSaveDatabaseConfig,
   clientSyncSupabaseDatabase,
+  clientTestDatabaseConnection,
   clientTestSupabaseConnection,
   clientUnlockDatabaseWithPin,
 } from './clientFallbackStore';
@@ -91,6 +94,7 @@ export async function changeDatabasePin(
       return { ok: true };
     }
   );
+  notifyLocalScopeMutation('security', 'change_database_pin');
   emitAppNotification({
     title: 'PIN Database Diperbarui',
     message: 'PIN otorisasi konfigurasi database telah diubah.',
@@ -124,6 +128,7 @@ export async function autoCreateMissingTables(
       }),
     () => clientAutoCreateMissingTables(token)
   );
+  notifyLocalScopeMutation('database', 'auto_create_tables');
   emitAppNotification({
     title: 'Inisialisasi Tabel Database',
     message: res.message,
@@ -147,16 +152,57 @@ export interface SaveDatabaseConfigPayload
       | 'tablePrefix'
       | 'username'
       | 'sslMode'
+      | 'sqliteFilePath'
       | 'autoCreateMissingTables'
+      | 'firestoreProjectId'
+      | 'firestoreDatabaseId'
+      | 'firestoreApiKey'
+      | 'firestoreAuthDomain'
+      | 'firestoreAppId'
+      | 'firestoreStorageBucket'
+      | 'firestoreMessagingSenderId'
       | 'supabaseProjectName'
       | 'supabaseProjectId'
       | 'supabaseUrl'
       | 'supabasePublishableKey'
     >
   > {
+  databasePassword?: string;
+  connectionUri?: string;
+  clearDatabaseSecrets?: boolean;
+  resetFirestoreToDefault?: boolean;
   supabaseSecretKey?: string;
   supabaseDbUrl?: string;
   clearSupabaseSecrets?: boolean;
+}
+
+export type TestDatabaseConnectionPayload = SaveDatabaseConfigPayload;
+
+export async function testDatabaseConnection(
+  token: string,
+  payload: TestDatabaseConnectionPayload = {}
+): Promise<DatabaseConnectionTestResult> {
+  const res = await runDatabaseApi(
+    () =>
+      fetch('/api/database/test-connection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Database-Token': token,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientTestDatabaseConnection(token, payload as Record<string, unknown>)
+  );
+  emitAppNotification({
+    title: `Uji Koneksi ${res.engine.toUpperCase()}`,
+    message: res.message,
+    module: 'sistem',
+    severity: res.ok ? 'success' : 'warning',
+    actionType: 'test_database_connection',
+    targetNav: 'pengaturan',
+  });
+  return res;
 }
 
 export async function saveDatabaseConfig(
@@ -175,9 +221,10 @@ export async function saveDatabaseConfig(
       }),
     () => clientSaveDatabaseConfig(token, payload as Record<string, unknown>)
   );
+  notifyLocalScopeMutation('database', 'save_database_config');
   emitAppNotification({
     title: 'Konfigurasi Database Disimpan',
-    message: `Engine aktif: ${cfg.engine.toUpperCase()} (${cfg.databaseName || 'lokal'})`,
+    message: `Engine aktif: ${cfg.engine.toUpperCase()} (${cfg.databaseName || cfg.firestoreProjectId || 'lokal'})`,
     module: 'sistem',
     severity: 'info',
     actionType: 'save_database_config',
@@ -215,6 +262,12 @@ export async function syncSupabaseDatabase(
       }),
     () => clientSyncSupabaseDatabase(token, direction)
   );
+  if (res.ok && direction === 'pull') {
+    notifyLocalScopeMutation('attendance', 'supabase_pull');
+    notifyLocalScopeMutation('payroll', 'supabase_pull');
+    notifyLocalScopeMutation('finance', 'supabase_pull');
+  }
+  notifyLocalScopeMutation('database', `supabase_sync_${direction}`);
   emitAppNotification({
     title: `Sinkronisasi Supabase (${direction === 'push' ? 'Push' : 'Pull'})`,
     message: res.message,

@@ -6,9 +6,14 @@
   "schemaName": "firestore",
   "tablePrefix": "",
   "username": "firebase-auth",
+  "sqliteFilePath": "karyapresensi.db",
   "sslMode": "require",
   "autoCreateMissingTables": true,
-  "lastCheckedAt": null,
+  "supabaseProjectName": "Absensi",
+  "supabaseProjectId": "jeewhluiufosnourqvje",
+  "supabaseUrl": "https://jeewhluiufosnourqvje.supabase.co",
+  "supabasePublishableKey": "sb_publishable_y7OmGDoZSCuffUn6uJIwZQ_xXszVLT7",
+  "lastCheckedAt": "2026-11-24T09:07:39.506Z",
   "lastAutoInitAt": null,
   "updatedAt": "2026-11-22T10:30:00.000Z"
 }

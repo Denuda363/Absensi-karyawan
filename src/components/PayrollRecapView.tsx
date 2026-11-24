@@ -54,6 +54,7 @@ import {
   updatePayrollMonthlyStatus,
   updatePayrollSettings,
 } from '../services/payrollService';
+import { subscribeRealtimeScopes } from '../services/realtimeService';
 import {
   calculateEmployeePayroll,
   EmployeePayrollCalculation,
@@ -219,9 +220,11 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
   }, []);
 
   const loadPayrollData = useCallback(
-    async (token: string) => {
-      setLoadingPayroll(true);
-      setErrorMessage(null);
+    async (token: string, options?: { silent?: boolean }) => {
+      if (!options?.silent) {
+        setLoadingPayroll(true);
+        setErrorMessage(null);
+      }
       try {
         const data = await fetchPayrollState(token);
         setPayrollData({
@@ -232,17 +235,33 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       } catch (err) {
         if (err instanceof PayrollUnauthorizedError) {
           await handleForceLock(err.message);
-        } else {
+        } else if (!options?.silent) {
           setErrorMessage(
             err instanceof Error ? err.message : 'Gagal memuat data rekap gaji.'
           );
         }
       } finally {
-        setLoadingPayroll(false);
+        if (!options?.silent) {
+          setLoadingPayroll(false);
+        }
       }
     },
     [handleForceLock]
   );
+
+  useEffect(() => {
+    if (!payrollToken) return;
+    const unsub = subscribeRealtimeScopes(
+      ['payroll'],
+      () => {
+        if (tokenRef.current) {
+          void loadPayrollData(tokenRef.current, { silent: true });
+        }
+      },
+      { ignoreImmediateLocalEcho: true }
+    );
+    return () => unsub();
+  }, [payrollToken, loadPayrollData]);
 
   const handleUnlockSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

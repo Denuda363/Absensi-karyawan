@@ -12,7 +12,18 @@ import {
   ShiftConfig,
 } from '../types';
 import { executeApiWithFallback } from './apiClient';
-import { resetFirestoreData } from './firebaseClient';
+import {
+  deleteAttendanceFirestore,
+  deleteEmployeeFirestore,
+  deleteLateSettlementFirestore,
+  pushAllLocalStateToFirestore,
+  resetFirestoreData,
+  syncAppSettingsToFirestore,
+  upsertAttendanceFirestore,
+  upsertEmployeeFirestore,
+  upsertLateSettlementFirestore,
+} from './firebaseClient';
+import { notifyLocalScopeMutation } from './realtimeService';
 import {
   emitAppNotification,
   formatRupiahNotif,
@@ -60,6 +71,8 @@ export async function createEmployee(
       }),
     () => clientCreateEmployee(payload)
   );
+  notifyLocalScopeMutation('attendance', 'create_employee');
+  void upsertEmployeeFirestore(created).catch(() => undefined);
   emitAppNotification({
     title: 'Karyawan Baru Ditambahkan',
     message: `${created.name} (${created.position} · ${created.department}) · Shift ${created.shiftName}`,
@@ -85,6 +98,8 @@ export async function updateEmployee(
       }),
     () => clientUpdateEmployee(employeeId, payload)
   );
+  notifyLocalScopeMutation('attendance', 'update_employee');
+  void upsertEmployeeFirestore(updated).catch(() => undefined);
   const isScheduleOnly =
     ('offDays' in payload || 'customOffDates' in payload) &&
     !('name' in payload) &&
@@ -114,6 +129,8 @@ export async function deleteEmployee(employeeId: string): Promise<void> {
       return { ok: true };
     }
   );
+  notifyLocalScopeMutation('attendance', 'delete_employee');
+  void deleteEmployeeFirestore(employeeId).catch(() => undefined);
   emitAppNotification({
     title: 'Data Karyawan Dihapus',
     message: `Profil karyawan dengan ID ${employeeId} telah dihapus dari daftar aktif.`,
@@ -146,6 +163,8 @@ export async function createAttendanceRecord(payload: {
       }),
     () => clientCreateAttendanceRecord(payload)
   );
+  notifyLocalScopeMutation('attendance', 'create_attendance');
+  void upsertAttendanceFirestore(rec).catch(() => undefined);
   const statusLabel = ATTENDANCE_STATUS_META[rec.status]?.label ?? rec.status;
   const timeInfo = [
     rec.checkIn ? `Masuk ${rec.checkIn}` : '',
@@ -194,6 +213,8 @@ export async function updateAttendanceRecord(
       }),
     () => clientUpdateAttendanceRecord(recordId, payload)
   );
+  notifyLocalScopeMutation('attendance', 'update_attendance');
+  void upsertAttendanceFirestore(rec).catch(() => undefined);
   const statusLabel = ATTENDANCE_STATUS_META[rec.status]?.label ?? rec.status;
   const timeInfo = [
     rec.checkIn ? `Masuk ${rec.checkIn}` : '',
@@ -230,6 +251,8 @@ export async function deleteAttendanceRecord(recordId: string): Promise<void> {
       return { ok: true };
     }
   );
+  notifyLocalScopeMutation('attendance', 'delete_attendance');
+  void deleteAttendanceFirestore(recordId).catch(() => undefined);
   emitAppNotification({
     title: 'Catatan Absensi Dihapus',
     message: `Log kehadiran #${recordId} berhasil dihapus dari sistem.`,
@@ -252,7 +275,18 @@ export async function bulkMarkScheduledOffDays(
       }),
     () => clientBulkMarkScheduledOffDays(date)
   );
+  notifyLocalScopeMutation('attendance', 'bulk_mark_off_days');
   if (res.createdCount > 0) {
+    void fetchDatabaseState()
+      .then((st) =>
+        pushAllLocalStateToFirestore({
+          settings: st.settings,
+          employees: st.employees,
+          attendanceRecords: st.attendanceRecords,
+          lateSettlements: st.lateSettlements,
+        })
+      )
+      .catch(() => undefined);
     emitAppNotification({
       title: 'Penandaan Libur Massal Selesai',
       message: `${res.createdCount} karyawan sesuai jadwal libur otomatis ditandai Libur pada ${date}.`,
@@ -285,6 +319,8 @@ export async function createLateSettlement(payload: {
       }),
     () => clientCreateLateSettlement(payload)
   );
+  notifyLocalScopeMutation('attendance', 'create_late_settlement');
+  void upsertLateSettlementFirestore(created).catch(() => undefined);
   const methodLabel =
     created.method === 'potongan_gaji' ? 'Potongan Gaji' : 'Tambahan Jam Kerja';
   emitAppNotification({
@@ -316,6 +352,8 @@ export async function deleteLateSettlement(settlementId: string): Promise<void> 
       return { ok: true };
     }
   );
+  notifyLocalScopeMutation('attendance', 'delete_late_settlement');
+  void deleteLateSettlementFirestore(settlementId).catch(() => undefined);
   emitAppNotification({
     title: 'Kompensasi Terlambat Dihapus',
     message: `Catatan penyelesaian keterlambatan #${settlementId} dihapus.`,
@@ -343,6 +381,20 @@ export async function updateAppSettings(payload: {
       }),
     () => clientUpdateAppSettings(payload)
   );
+  notifyLocalScopeMutation('attendance', 'update_settings');
+  void syncAppSettingsToFirestore(updated).catch(() => undefined);
+  if (payload.syncEmployees) {
+    void fetchDatabaseState()
+      .then((st) =>
+        pushAllLocalStateToFirestore({
+          settings: st.settings,
+          employees: st.employees,
+          attendanceRecords: st.attendanceRecords,
+          lateSettlements: st.lateSettlements,
+        })
+      )
+      .catch(() => undefined);
+  }
 
   if (payload.shifts) {
     emitAppNotification({
@@ -423,6 +475,14 @@ export async function restoreDatabaseBackup(
       }),
     () => clientRestoreDatabaseBackup(backupPayload)
   );
+  notifyLocalScopeMutation('attendance', 'restore_database');
+  void pushAllLocalStateToFirestore({
+    settings: restored.settings,
+    employees: restored.employees,
+    attendanceRecords: restored.attendanceRecords,
+    lateSettlements: restored.lateSettlements,
+    forceOverwrite: true,
+  }).catch(() => undefined);
   emitAppNotification({
     title: 'Restore Database Berhasil',
     message: `${restored.employees.length} karyawan & ${restored.attendanceRecords.length} log absensi dipulihkan.`,
@@ -450,6 +510,12 @@ export async function resetApplicationData(
       }),
     () => clientResetApplicationData(adminToken, payload)
   );
+
+  notifyLocalScopeMutation('attendance', 'reset_data');
+  if (payload.mode !== 'attendance') {
+    notifyLocalScopeMutation('payroll', 'reset_data');
+    notifyLocalScopeMutation('finance', 'reset_data');
+  }
 
   try {
     await resetFirestoreData(payload.mode, {
