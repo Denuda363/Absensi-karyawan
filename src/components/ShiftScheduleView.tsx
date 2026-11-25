@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   AlertCircle,
+  ArrowLeft,
   Calendar,
   CalendarOff,
   CheckCircle2,
@@ -9,6 +10,8 @@ import {
   Copy,
   Download,
   Edit3,
+  Eye,
+  FileSpreadsheet,
   Layers,
   Moon,
   Plus,
@@ -51,7 +54,7 @@ interface ShiftScheduleViewProps {
   onNavigate?: (nav: NavSection) => void;
 }
 
-type ShiftSubTab = 'harian' | 'roster' | 'mingguan';
+type ShiftSubTab = 'harian' | 'roster' | 'mingguan' | 'preview';
 
 interface ShiftVisualStyle {
   badgeBg: string;
@@ -162,6 +165,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   }, [today]);
 
   const [subTab, setSubTab] = useState<ShiftSubTab>('harian');
+  const [previewFormat, setPreviewFormat] = useState<'cetak' | 'karyawan'>('cetak');
   const [selectedWeekdayFilter, setSelectedWeekdayFilter] = useState<'ALL' | number>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
@@ -302,6 +306,54 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       days: targetDays,
     });
   }, [shifts, activeEmployees, visibleWeekdays, printOverrideDayIndex]);
+
+  const previewQaStats = useMemo(() => {
+    let totalAssignedSlots = 0;
+    let totalOffSlots = 0;
+    const unscheduledItems: { dayLabel: string; employeeNames: string[] }[] = [];
+
+    for (const day of visibleWeekdays) {
+      const assignedIds = new Set<string>();
+      for (const s of shifts) {
+        const { members } = getShiftMembersForWeekday(s, day.index, activeEmployees);
+        members.forEach((m) => {
+          if (!m.offDays.includes(day.index)) {
+            assignedIds.add(m.id);
+          }
+        });
+      }
+      totalAssignedSlots += assignedIds.size;
+      const offEmps = activeEmployees.filter((e) => e.offDays.includes(day.index));
+      totalOffSlots += offEmps.length;
+      const unscheduled = activeEmployees
+        .filter((e) => !e.offDays.includes(day.index) && !assignedIds.has(e.id))
+        .map((e) => e.name);
+      if (unscheduled.length > 0) {
+        unscheduledItems.push({ dayLabel: day.label, employeeNames: unscheduled });
+      }
+    }
+
+    return {
+      dayCount: visibleWeekdays.length,
+      totalAssignedSlots,
+      totalOffSlots,
+      unscheduledItems,
+      totalUnscheduledSlots: unscheduledItems.reduce(
+        (acc, item) => acc + item.employeeNames.length,
+        0
+      ),
+    };
+  }, [visibleWeekdays, shifts, activeEmployees]);
+
+  const openPreviewForDay = (dayIndex?: number) => {
+    if (typeof dayIndex === 'number') {
+      setSelectedWeekdayFilter(dayIndex);
+    }
+    setSubTab('preview');
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const showToast = (msg: string) => {
     setErrorMessage(null);
@@ -897,42 +949,54 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-xs space-y-3.5 sm:space-y-4 no-print">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           {/* Sub-Tabs */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full">
+          <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 bg-slate-100 p-1 rounded-lg w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setSubTab('harian')}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 subTab === 'harian'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Jadwal Harian</span>
+              <Calendar className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Jadwal Harian</span>
             </button>
             <button
               type="button"
               onClick={() => setSubTab('roster')}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 subTab === 'roster'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Users className="w-3.5 h-3.5" />
-              <span>Jenis Shift &amp; Ringkasan</span>
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Jenis Shift</span>
             </button>
             <button
               type="button"
               onClick={() => setSubTab('mingguan')}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 subTab === 'mingguan'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Matriks Mingguan</span>
+              <Layers className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Matriks Mingguan</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubTab('preview')}
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                subTab === 'preview'
+                  ? 'bg-blue-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Preview Jadwal</span>
             </button>
           </div>
 
@@ -963,6 +1027,23 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 </option>
               ))}
             </select>
+
+            <button
+              type="button"
+              onClick={() => openPreviewForDay()}
+              className={`px-3.5 py-2.5 sm:py-2 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[40px] border ${
+                subTab === 'preview'
+                  ? 'bg-blue-50 text-blue-800 border-blue-300'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>
+                {selectedWeekdayFilter === 'ALL'
+                  ? 'Preview'
+                  : `Preview (${HARI_MAP[selectedWeekdayFilter]?.short})`}
+              </span>
+            </button>
 
             <button
               type="button"
@@ -1239,13 +1320,22 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                       )}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5 no-print">
+                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 w-full sm:w-auto no-print">
+                      <button
+                        type="button"
+                        onClick={() => openPreviewForDay(day.index)}
+                        title={`Preview jadwal siap cetak hari ${day.label}`}
+                        className="px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview</span>
+                      </button>
                       <button
                         type="button"
                         disabled={exportingExcel || loading}
                         onClick={() => handleExportExcel(day.index)}
                         title={`Ekspor Excel jadwal hari ${day.label}`}
-                        className="px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50 rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Excel</span>
@@ -1254,7 +1344,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                         type="button"
                         onClick={() => handlePrintSchedule(day.index)}
                         title={`Cetak jadwal hari ${day.label}`}
-                        className="px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Printer className="w-3.5 h-3.5" />
                         <span>Cetak</span>
@@ -1262,10 +1352,10 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                       <button
                         type="button"
                         onClick={() => openCopyDayModal(day.index)}
-                        className="px-3 py-2 sm:py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-2.5 sm:px-3 py-2 sm:py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Copy className="w-3.5 h-3.5" />
-                        <span>Salin Jadwal {day.short}</span>
+                        <span className="truncate">Salin {day.short}</span>
                       </button>
                     </div>
                   </div>
@@ -1600,78 +1690,160 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 Tidak ada karyawan yang cocok dengan filter pencarian.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[820px]">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
-                      <th className="py-2.5 px-4 w-56">Karyawan &amp; Jabatan</th>
-                      {HARI_WEEKDAYS.map((day) => (
-                        <th key={day.index} className="py-2.5 px-2 text-center">
-                          {day.short}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs">
-                    {groupEmployeesByPosition(filteredEmployees).map((posGroup) => (
-                      <React.Fragment key={posGroup.key}>
-                        <tr>
-                          <td
-                            colSpan={8}
-                            className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider border-y border-slate-200/80 ${
-                              posGroup.isLeader
-                                ? 'bg-amber-50 text-amber-900'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {posGroup.label} ({posGroup.employees.length})
-                          </td>
-                        </tr>
+              <>
+                {/* Mobile Card List (< md) */}
+                <div className="md:hidden divide-y divide-slate-200">
+                  {groupEmployeesByPosition(filteredEmployees).map((posGroup) => (
+                    <div key={posGroup.key}>
+                      <div
+                        className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider border-b border-slate-200/80 ${
+                          posGroup.isLeader
+                            ? 'bg-amber-50 text-amber-900'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {posGroup.label} ({posGroup.employees.length})
+                      </div>
+                      <div className="divide-y divide-slate-100">
                         {posGroup.employees.map((emp) => (
-                          <tr key={emp.id} className="hover:bg-slate-50/70">
-                            <td className="py-2.5 px-4">
-                              <div className="font-semibold text-slate-900">{emp.name}</div>
-                              <div className="text-[11px] text-slate-500">
-                                <span className="font-mono">{emp.employeeCode}</span> · {emp.position || emp.department}
+                          <div key={emp.id} className="p-3.5 space-y-2.5">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-900">
+                                {emp.name}
                               </div>
-                            </td>
-                            {HARI_WEEKDAYS.map((day) => {
-                              const isOff = emp.offDays.includes(day.index);
-                              const scheduled = getEmployeeScheduledShiftsForWeekday(
-                                emp.id,
-                                day.index,
-                                shifts
-                              )[0];
-                              return (
-                                <td key={day.index} className="py-2 px-1.5 text-center">
-                                  {isOff ? (
-                                    <span className="inline-block px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-800 font-semibold text-[10px]">
-                                      Libur
-                                    </span>
-                                  ) : scheduled ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => openDailyMemberModal(scheduled, day.index)}
-                                      title={`${scheduled.name} (${scheduled.startTime}–${scheduled.endTime})`}
-                                      className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-900 font-semibold text-[10px] hover:bg-blue-100 cursor-pointer"
-                                    >
+                              <div className="text-[11px] text-slate-500">
+                                <span className="font-mono">{emp.employeeCode}</span> ·{' '}
+                                {emp.position || emp.department}
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1">
+                              {HARI_WEEKDAYS.map((day) => {
+                                const isOff = emp.offDays.includes(day.index);
+                                const scheduled = getEmployeeScheduledShiftsForWeekday(
+                                  emp.id,
+                                  day.index,
+                                  shifts
+                                )[0];
+                                return isOff ? (
+                                  <div
+                                    key={day.index}
+                                    className="py-1.5 px-0.5 rounded-md bg-rose-50 border border-rose-200 text-center"
+                                  >
+                                    <div className="text-[9px] text-rose-700 font-semibold">
+                                      {day.short}
+                                    </div>
+                                    <div className="text-[9px] font-bold text-rose-800 mt-0.5">
+                                      OFF
+                                    </div>
+                                  </div>
+                                ) : scheduled ? (
+                                  <button
+                                    key={day.index}
+                                    type="button"
+                                    onClick={() => openDailyMemberModal(scheduled, day.index)}
+                                    className="py-1.5 px-0.5 rounded-md bg-blue-50 border border-blue-200 text-center cursor-pointer active:bg-blue-100"
+                                  >
+                                    <div className="text-[9px] text-blue-700 font-semibold">
+                                      {day.short}
+                                    </div>
+                                    <div className="text-[9px] font-bold text-blue-900 mt-0.5 truncate">
                                       {scheduled.name.replace(/^shift\s+/i, '')}
-                                    </button>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-400 italic">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
+                                    </div>
+                                  </button>
+                                ) : (
+                                  <div
+                                    key={day.index}
+                                    className="py-1.5 px-0.5 rounded-md bg-slate-50 border border-slate-200 text-center"
+                                  >
+                                    <div className="text-[9px] text-slate-400 font-semibold">
+                                      {day.short}
+                                    </div>
+                                    <div className="text-[9px] text-slate-400 mt-0.5">—</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
                         ))}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[820px]">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
+                        <th className="py-2.5 px-4 w-56">Karyawan &amp; Jabatan</th>
+                        {HARI_WEEKDAYS.map((day) => (
+                          <th key={day.index} className="py-2.5 px-2 text-center">
+                            {day.short}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {groupEmployeesByPosition(filteredEmployees).map((posGroup) => (
+                        <React.Fragment key={posGroup.key}>
+                          <tr>
+                            <td
+                              colSpan={8}
+                              className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider border-y border-slate-200/80 ${
+                                posGroup.isLeader
+                                  ? 'bg-amber-50 text-amber-900'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {posGroup.label} ({posGroup.employees.length})
+                            </td>
+                          </tr>
+                          {posGroup.employees.map((emp) => (
+                            <tr key={emp.id} className="hover:bg-slate-50/70">
+                              <td className="py-2.5 px-4">
+                                <div className="font-semibold text-slate-900">{emp.name}</div>
+                                <div className="text-[11px] text-slate-500">
+                                  <span className="font-mono">{emp.employeeCode}</span> · {emp.position || emp.department}
+                                </div>
+                              </td>
+                              {HARI_WEEKDAYS.map((day) => {
+                                const isOff = emp.offDays.includes(day.index);
+                                const scheduled = getEmployeeScheduledShiftsForWeekday(
+                                  emp.id,
+                                  day.index,
+                                  shifts
+                                )[0];
+                                return (
+                                  <td key={day.index} className="py-2 px-1.5 text-center">
+                                    {isOff ? (
+                                      <span className="inline-block px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-800 font-semibold text-[10px]">
+                                        Libur
+                                      </span>
+                                    ) : scheduled ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => openDailyMemberModal(scheduled, day.index)}
+                                        title={`${scheduled.name} (${scheduled.startTime}–${scheduled.endTime})`}
+                                        className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-900 font-semibold text-[10px] hover:bg-blue-100 cursor-pointer"
+                                      >
+                                        {scheduled.name.replace(/^shift\s+/i, '')}
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 italic">
+                                        —
+                                      </span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -1694,11 +1866,104 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
             </span>
           </div>
 
-          <div className="md:hidden px-4 py-2 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 font-medium no-print">
-            Geser kiri/kanan untuk melihat semua hari (Senin–Minggu) →
+          {/* Mobile Shift-Day Cards (< md) */}
+          <div className="md:hidden divide-y divide-slate-200">
+            {visibleShiftSummaries.map(({ shift, style }) => (
+              <div key={shift.id} className="p-3.5 space-y-2.5">
+                <div className={`px-3 py-2 rounded-lg border ${style.headerBg} ${style.badgeBorder}`}>
+                  <div className="font-display text-sm font-bold text-slate-900">
+                    {shift.name}
+                  </div>
+                  <div className="font-mono text-[11px] text-slate-600">
+                    {shift.startTime} – {shift.endTime}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {HARI_WEEKDAYS.map((day) => {
+                    const isTodayCol = day.index === todayWeekday;
+                    const filteredIds = new Set(filteredEmployees.map((e) => e.id));
+                    const { members } = getShiftMembersForWeekday(
+                      shift,
+                      day.index,
+                      activeEmployees
+                    );
+                    const workingToday = members.filter((e) => filteredIds.has(e.id));
+                    return (
+                      <button
+                        key={day.index}
+                        type="button"
+                        onClick={() => openDailyMemberModal(shift, day.index)}
+                        className={`w-full text-left p-2.5 rounded-lg border transition-colors cursor-pointer ${
+                          isTodayCol
+                            ? 'bg-blue-50/70 border-blue-300'
+                            : 'bg-slate-50/70 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
+                            <span>{day.label}</span>
+                            {isTodayCol && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-700 text-white font-bold">
+                                Hari Ini
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-500">
+                            {workingToday.length} org · Ketuk atur
+                          </span>
+                        </div>
+                        {workingToday.length === 0 ? (
+                          <div className="text-[11px] italic text-slate-400">Belum diatur</div>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {workingToday.map((emp) => (
+                              <span
+                                key={emp.id}
+                                className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[11px] font-medium text-slate-800"
+                              >
+                                {emp.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            {/* Weekly Off-day summary card on mobile */}
+            <div className="p-3.5 space-y-2 bg-amber-50/40">
+              <div className="font-display text-sm font-bold text-amber-950">
+                Libur Mingguan per Hari
+              </div>
+              <div className="grid grid-cols-1 gap-1.5">
+                {HARI_WEEKDAYS.map((day) => {
+                  const offEmployees = filteredEmployees.filter((emp) =>
+                    emp.offDays.includes(day.index)
+                  );
+                  return (
+                    <div
+                      key={day.index}
+                      className="p-2 rounded-lg bg-white border border-amber-200 flex items-start justify-between gap-2 text-xs"
+                    >
+                      <span className="font-semibold text-amber-950 shrink-0 w-16">
+                        {day.label}
+                      </span>
+                      <div className="flex-1 text-right text-[11px] text-amber-900">
+                        {offEmployees.length === 0
+                          ? '—'
+                          : offEmployees.map((e) => e.name).join(', ')}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full border-collapse min-w-[980px]">
               <thead>
                 <tr className="bg-slate-900 text-white text-xs">
@@ -1828,6 +2093,562 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: Preview Jadwal Siap Cetak & Ringkasan Karyawan */}
+      {subTab === 'preview' && (
+        <div className="space-y-4 sm:space-y-5 no-print">
+          {/* Preview Controls Header */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3.5">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Eye className="w-4 h-4 text-blue-700" />
+                  <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                    Preview Jadwal Shift
+                  </h3>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
+                    {selectedWeekdayFilter === 'ALL'
+                      ? 'Senin – Minggu (7 Hari)'
+                      : `Hari ${HARI_MAP[selectedWeekdayFilter]?.label}`}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Pratinjau langsung hasil akhir tabel jadwal sebelum dicetak atau diekspor ke Excel.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto">
+                {/* Format Toggle */}
+                <div className="col-span-2 sm:col-span-1 grid grid-cols-2 sm:inline-flex items-center bg-slate-100 p-1 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewFormat('cetak')}
+                    className={`px-3 py-2 sm:py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      previewFormat === 'cetak'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Format Cetak / Excel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewFormat('karyawan')}
+                    className={`px-3 py-2 sm:py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      previewFormat === 'karyawan'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Per Karyawan
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSubTab('harian')}
+                  className="px-3 py-2.5 sm:py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Edit Jadwal</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={exportingExcel || loading}
+                  onClick={() => handleExportExcel()}
+                  className="px-3 py-2.5 sm:py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Ekspor Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePrintSchedule()}
+                  className="col-span-2 sm:col-span-1 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Cetak Sekarang</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Day Filter Bar inside Preview */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedWeekdayFilter('ALL')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    selectedWeekdayFilter === 'ALL'
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Semua Hari
+                </button>
+                {HARI_WEEKDAYS.map((day) => {
+                  const isActive = selectedWeekdayFilter === day.index;
+                  const isToday = day.index === todayWeekday;
+                  return (
+                    <button
+                      key={day.index}
+                      type="button"
+                      onClick={() => setSelectedWeekdayFilter(day.index)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                        isActive
+                          ? 'bg-blue-700 text-white border-blue-700'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>{day.label}</span>
+                      {isToday && (
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'bg-blue-50 text-blue-700'
+                          }`}
+                        >
+                          Hari Ini
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
+                <span>
+                  Terjadwal:{' '}
+                  <strong className="font-mono text-emerald-700">
+                    {previewQaStats.totalAssignedSlots}
+                  </strong>{' '}
+                  slot kerja
+                </span>
+                <span>•</span>
+                <span>
+                  Libur:{' '}
+                  <strong className="font-mono text-rose-700">
+                    {previewQaStats.totalOffSlots}
+                  </strong>{' '}
+                  slot OFF
+                </span>
+                {previewQaStats.totalUnscheduledSlots > 0 && (
+                  <>
+                    <span>•</span>
+                    <span className="font-semibold text-amber-700">
+                      {previewQaStats.totalUnscheduledSlots} slot belum masuk shift
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {previewQaStats.unscheduledItems.length > 0 && (
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Catatan Pra-Cetak:</span> Beberapa karyawan aktif tidak libur namun belum masuk shift pada:{' '}
+                    <span className="font-semibold">
+                      {previewQaStats.unscheduledItems
+                        .map((item) => `${item.dayLabel} (${item.employeeNames.length} org)`)
+                        .join(', ')}
+                    </span>
+                    .
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSubTab('harian')}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 rounded-md shrink-0 cursor-pointer self-start sm:self-auto"
+                >
+                  Lengkapi Sekarang →
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Paper Sheet Preview Container */}
+          <div className="bg-white rounded-xl border border-slate-300 shadow-sm p-2.5 sm:p-6 space-y-4 sm:space-y-5">
+            {/* Official Document Header */}
+            <div className="border-b-2 border-slate-900 pb-3.5 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                  {settings.companyName} · {settings.companySubtitle}
+                </div>
+                <h4 className="font-display text-base sm:text-lg font-extrabold text-slate-900 uppercase tracking-wide mt-0.5">
+                  Jadwal Shift Karyawan
+                </h4>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Cakupan:{' '}
+                  <strong className="text-slate-900">
+                    {selectedWeekdayFilter === 'ALL'
+                      ? 'Mingguan (Senin – Minggu)'
+                      : `Hari ${HARI_MAP[selectedWeekdayFilter]?.label}`}
+                  </strong>{' '}
+                  · {shifts.length} Shift Aktif · {activeEmployees.length} Karyawan Aktif
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                {shifts.map((s) => (
+                  <span
+                    key={s.id}
+                    className="px-2 py-1 rounded bg-slate-100 border border-slate-200 font-mono text-slate-800 font-semibold"
+                  >
+                    {s.name}: {s.startTime}–{s.endTime}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {previewFormat === 'cetak' ? (
+              <div className="space-y-6">
+                {buildDailyScheduleBlocks({
+                  shifts,
+                  employees: activeEmployees,
+                  days: visibleWeekdays,
+                }).map((block) => {
+                  const colCount = Math.max(1, block.shiftHeaders.length);
+                  const offText = `OFF : ${block.offNames.length > 0 ? block.offNames.join(', ') : '-'}`;
+                  const q = searchQuery.trim().toLowerCase();
+
+                  return (
+                    <div key={block.dayIndex} className="space-y-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-500">
+                        <span className="font-semibold text-slate-700">
+                          Lembar Hari {HARI_MAP[block.dayIndex]?.label}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleExportExcel(block.dayIndex)}
+                            className="text-emerald-700 hover:underline font-semibold cursor-pointer"
+                          >
+                            Ekspor Hari Ini
+                          </button>
+                          <span>·</span>
+                          <button
+                            type="button"
+                            onClick={() => handlePrintSchedule(block.dayIndex)}
+                            className="text-blue-700 hover:underline font-semibold cursor-pointer"
+                          >
+                            Cetak Hari Ini
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="w-full">
+                        <table className="w-full border-collapse border sm:border-2 border-black text-black font-sans table-fixed">
+                          <thead>
+                            <tr>
+                              <th
+                                colSpan={colCount}
+                                className="bg-[#00B0F0] text-black font-bold text-center text-[11px] sm:text-[13px] py-1 sm:py-1.5 px-1.5 sm:px-2 border-b sm:border-b-2 border-black uppercase tracking-wide"
+                              >
+                                {block.dayLabel}
+                              </th>
+                            </tr>
+                            <tr>
+                              {block.shiftHeaders.map((header, idx) => {
+                                const headerMatch = header.match(/^(.+?)\s+(\(.+\))$/);
+                                return (
+                                  <th
+                                    key={idx}
+                                    className="bg-white text-black font-bold text-center text-[9px] sm:text-[11px] leading-tight py-1 sm:py-1.5 px-1 sm:px-2 border-b sm:border-b-2 border-black border-r sm:border-r-2 last:border-r-0 break-words"
+                                  >
+                                    {headerMatch ? (
+                                      <>
+                                        <span>{headerMatch[1]}</span>{' '}
+                                        <span className="block sm:inline font-semibold sm:font-bold text-[8px] sm:text-[11px]">
+                                          {headerMatch[2]}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      header
+                                    )}
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {block.roleGroups.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={colCount}
+                                  className="bg-white text-center text-[10px] sm:text-[11px] py-4 px-2 border-b border-black text-slate-500"
+                                >
+                                  Belum ada data karyawan aktif.
+                                </td>
+                              </tr>
+                            ) : (
+                              block.roleGroups.map((group) => (
+                                <React.Fragment key={group.key}>
+                                  <tr>
+                                    <td
+                                      colSpan={colCount}
+                                      className={`${
+                                        group.isLeader ? 'bg-[#FFC000]' : 'bg-[#FFFF00]'
+                                      } text-black font-bold text-center text-[9px] sm:text-[11px] py-0.5 sm:py-1 px-1.5 sm:px-2 border-t sm:border-t-2 border-b border-black uppercase`}
+                                    >
+                                      {group.label}
+                                    </td>
+                                  </tr>
+                                  {group.rows.map((rRow, rIdx) => (
+                                    <tr key={rIdx}>
+                                      {rRow.cells.map((cellVal, cIdx) => {
+                                        const isSearchMatch =
+                                          Boolean(q) && cellVal.toLowerCase().includes(q);
+                                        return (
+                                          <td
+                                            key={cIdx}
+                                            className={`${
+                                              isSearchMatch
+                                                ? 'bg-sky-100 font-bold'
+                                                : 'bg-white font-normal'
+                                            } text-black text-left text-[9px] sm:text-[11px] leading-tight py-1 sm:py-1.5 px-1 sm:px-2.5 border-t border-b border-black border-r sm:border-r-2 last:border-r-0 h-6 sm:h-7 align-middle break-words`}
+                                          >
+                                            {cellVal}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  ))}
+                                </React.Fragment>
+                              ))
+                            )}
+                          </tbody>
+                          <tfoot>
+                            <tr>
+                              <td
+                                colSpan={colCount}
+                                className="bg-[#FF0000] text-white font-bold text-left text-[9px] sm:text-[11px] leading-snug py-1 sm:py-1.5 px-1.5 sm:px-2.5 border-t sm:border-t-2 border-black uppercase break-words"
+                              >
+                                {offText}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Preview Format Ringkas per Karyawan */
+              <>
+                {/* Mobile Cards (< md) */}
+                <div className="md:hidden divide-y divide-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+                  {filteredEmployees.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-500">
+                      Tidak ada karyawan yang cocok dengan filter aktif.
+                    </div>
+                  ) : (
+                    groupEmployeesByPosition(filteredEmployees).map((posGroup) => (
+                      <div key={posGroup.key}>
+                        <div
+                          className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b border-slate-300 ${
+                            posGroup.isLeader
+                              ? 'bg-[#FFC000] text-black'
+                              : 'bg-[#FFFF00] text-black'
+                          }`}
+                        >
+                          {posGroup.label} ({posGroup.employees.length})
+                        </div>
+                        <div className="divide-y divide-slate-200">
+                          {posGroup.employees.map((emp) => {
+                            let workCount = 0;
+                            let offCount = 0;
+                            const cells = visibleWeekdays.map((day) => {
+                              const isOff = emp.offDays.includes(day.index);
+                              const scheduled = getEmployeeScheduledShiftsForWeekday(
+                                emp.id,
+                                day.index,
+                                shifts
+                              )[0];
+                              if (isOff) offCount += 1;
+                              else if (scheduled) workCount += 1;
+                              return { day, isOff, scheduled };
+                            });
+                            return (
+                              <div key={emp.id} className="p-3 space-y-2">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-bold text-slate-900 truncate">
+                                      {emp.name}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500">
+                                      {emp.employeeCode} · {emp.position || emp.department}
+                                    </div>
+                                  </div>
+                                  <div className="font-mono text-[11px] shrink-0">
+                                    <span className="font-bold text-emerald-700">{workCount}M</span>
+                                    <span className="text-slate-400"> / </span>
+                                    <span className="font-bold text-rose-700">{offCount}L</span>
+                                  </div>
+                                </div>
+                                <div
+                                  className={`grid ${
+                                    visibleWeekdays.length === 1 ? 'grid-cols-1' : 'grid-cols-7'
+                                  } gap-1`}
+                                >
+                                  {cells.map(({ day, isOff, scheduled }) => (
+                                    <div
+                                      key={day.index}
+                                      className={`py-1 px-0.5 rounded text-center border text-[9px] ${
+                                        isOff
+                                          ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                                          : scheduled
+                                            ? 'bg-blue-50 text-blue-900 border-blue-200 font-semibold'
+                                            : 'bg-slate-50 text-slate-400 border-slate-200'
+                                      }`}
+                                    >
+                                      <div>{day.short}</div>
+                                      <div className="truncate mt-0.5">
+                                        {isOff
+                                          ? 'OFF'
+                                          : scheduled
+                                            ? scheduled.name.replace(/^shift\s+/i, '')
+                                            : '—'}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Desktop Table (>= md) */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full min-w-[780px] border-collapse border border-slate-300 text-xs">
+                    <thead>
+                      <tr className="bg-slate-900 text-white">
+                        <th className="py-2.5 px-3 text-left font-semibold border-r border-slate-700 w-10">
+                          No
+                        </th>
+                        <th className="py-2.5 px-3 text-left font-semibold border-r border-slate-700 w-56">
+                          Nama Karyawan &amp; Jabatan
+                        </th>
+                        {visibleWeekdays.map((day) => (
+                          <th
+                            key={day.index}
+                            className="py-2.5 px-2 text-center font-semibold border-r border-slate-700"
+                          >
+                            {day.label}
+                          </th>
+                        ))}
+                        <th className="py-2.5 px-3 text-center font-semibold w-24">
+                          Masuk / Off
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {filteredEmployees.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={visibleWeekdays.length + 3}
+                            className="py-8 text-center text-slate-500"
+                          >
+                            Tidak ada karyawan yang cocok dengan filter aktif.
+                          </td>
+                        </tr>
+                      ) : (
+                        groupEmployeesByPosition(filteredEmployees).map((posGroup) => (
+                          <React.Fragment key={posGroup.key}>
+                            <tr>
+                              <td
+                                colSpan={visibleWeekdays.length + 3}
+                                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-y border-slate-300 ${
+                                  posGroup.isLeader
+                                    ? 'bg-[#FFC000] text-black'
+                                    : 'bg-[#FFFF00] text-black'
+                                }`}
+                              >
+                                {posGroup.label} ({posGroup.employees.length})
+                              </td>
+                            </tr>
+                            {posGroup.employees.map((emp, idx) => {
+                              let workCount = 0;
+                              let offCount = 0;
+                              return (
+                                <tr key={emp.id} className="hover:bg-slate-50/70">
+                                  <td className="py-2 px-3 font-mono text-[11px] text-slate-500 border-r border-slate-200 text-center">
+                                    {idx + 1}
+                                  </td>
+                                  <td className="py-2 px-3 border-r border-slate-200">
+                                    <div className="font-semibold text-slate-900">{emp.name}</div>
+                                    <div className="text-[10px] text-slate-500">
+                                      {emp.employeeCode} · {emp.position || emp.department}
+                                    </div>
+                                  </td>
+                                  {visibleWeekdays.map((day) => {
+                                    const isOff = emp.offDays.includes(day.index);
+                                    const scheduled = getEmployeeScheduledShiftsForWeekday(
+                                      emp.id,
+                                      day.index,
+                                      shifts
+                                    )[0];
+                                    if (isOff) offCount += 1;
+                                    else if (scheduled) workCount += 1;
+
+                                    const styleIdx = scheduled
+                                      ? shifts.findIndex((s) => s.id === scheduled.id)
+                                      : 0;
+                                    const shiftStyle = scheduled
+                                      ? getShiftVisualStyle(scheduled.name, Math.max(0, styleIdx))
+                                      : null;
+
+                                    return (
+                                      <td
+                                        key={day.index}
+                                        className="py-2 px-1.5 text-center border-r border-slate-200"
+                                      >
+                                        {isOff ? (
+                                          <span className="inline-block px-2 py-0.5 rounded bg-rose-600 text-white font-bold text-[10px]">
+                                            OFF
+                                          </span>
+                                        ) : scheduled && shiftStyle ? (
+                                          <div
+                                            className={`inline-flex flex-col items-center px-2 py-0.5 rounded border text-[10px] font-semibold ${shiftStyle.badgeBg} ${shiftStyle.badgeText} ${shiftStyle.badgeBorder}`}
+                                          >
+                                            <span>{scheduled.name.replace(/^shift\s+/i, '')}</span>
+                                            <span className="font-mono text-[9px] opacity-80">
+                                              {scheduled.startTime}–{scheduled.endTime}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-[11px] text-slate-400 italic">
+                                            —
+                                          </span>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="py-2 px-3 text-center font-mono text-[11px]">
+                                    <span className="font-bold text-emerald-700">{workCount}</span>
+                                    <span className="text-slate-400"> / </span>
+                                    <span className="font-bold text-rose-700">{offCount}</span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

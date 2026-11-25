@@ -968,8 +968,18 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   const companyName = settings?.companyName || 'KARYAPRESENSI';
   const companySubtitle = settings?.companySubtitle || 'HRIS PERUSAHAAN';
 
+  const estimatedPrintSheetHeight =
+    36 + Math.max(320, 60 + Math.max(1, matrixData.rows.length) * 16 + 76);
+  const matrixPrintZoom =
+    estimatedPrintSheetHeight > 715
+      ? Number(Math.max(0.58, 715 / estimatedPrintSheetHeight).toFixed(3))
+      : 1;
+
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-4 sm:space-y-5 print:space-y-0">
+      {activeSubTab === 'matriks' && (
+        <style media="print">{`@page { size: A4 landscape; margin: 5mm; }`}</style>
+      )}
       {/* Unified Toolbar */}
       <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-3.5 no-print">
         {/* Sub-tab Switcher & Primary Attendance Actions */}
@@ -1282,7 +1292,10 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       {activeSubTab === 'matriks' ? (
       <>
       {/* Excel-Style Sheet View */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5 overflow-hidden">
+      <div
+        className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5 overflow-hidden print:border-0 print:rounded-none print:p-0 print:overflow-visible matrix-print-sheet"
+        style={{ '--matrix-print-zoom': matrixPrintZoom } as React.CSSProperties}
+      >
         {loading ? (
           <div className="space-y-3 py-8">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -1290,7 +1303,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
             ))}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 print:space-y-1.5">
             {/* Quick Direct Input Mode Bar inside Matrix Tab */}
             <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2 pb-1 no-print">
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap">
@@ -1338,101 +1351,101 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
             </div>
 
             {/* Top Title Banner aligned over the main table */}
-            <div className="xl:pl-60">
-              <div className="bg-[#D9E1F2] border border-slate-400 py-2 px-3 sm:px-4 text-center font-bold text-xs sm:text-base tracking-wide text-slate-950 uppercase">
+            <div className="xl:pl-60 print:pl-[124px]">
+              <div className="bg-[#D9E1F2] border border-slate-400 py-2 px-3 sm:px-4 print:py-1 print:px-2 text-center font-bold text-xs sm:text-base print:text-[11px] print:leading-tight tracking-wide text-slate-950 uppercase">
                 DAFTAR HADIR KARYAWAN BULAN {meta.monthName.toUpperCase()} {meta.year}
                 {deptFilter !== 'all' ? ` — DIVISI ${deptFilter.toUpperCase()}` : ''}
               </div>
             </div>
 
-            <div className="flex flex-col xl:flex-row gap-4 items-start">
+            <div className="flex flex-col xl:flex-row print:flex-row gap-4 print:gap-2 items-start print:items-stretch">
               {/* Left Sidebar Panel (SHEET KEHADIRAN) — compact multi-column grid on mobile */}
-              <aside className="w-full xl:w-56 shrink-0 border border-slate-400 text-xs select-none bg-white">
+              <aside className="w-full xl:w-56 print:w-[116px] shrink-0 border border-slate-400 text-xs print:text-[7.5px] select-none bg-white">
                 {/* Gold Brand Block */}
-                <div className="bg-[#FFC000] border-b border-slate-400 px-3 py-2.5 xl:h-20 flex flex-col items-center justify-center text-center">
-                  <div className="font-display font-bold text-xs sm:text-sm tracking-tight text-slate-950 leading-tight uppercase">
+                <div className="bg-[#FFC000] border-b border-slate-400 px-3 py-2.5 xl:h-20 print:px-1.5 print:py-1 print:h-[44px] flex flex-col items-center justify-center text-center">
+                  <div className="font-display font-bold text-xs sm:text-sm print:text-[8.5px] tracking-tight text-slate-950 leading-tight uppercase">
                     {companyName}
                   </div>
-                  <div className="text-[10px] sm:text-[11px] font-bold text-slate-900 mt-0.5 uppercase">
+                  <div className="text-[10px] sm:text-[11px] print:text-[7px] font-bold text-slate-900 mt-0.5 uppercase">
                     {companySubtitle}
                   </div>
                 </div>
 
                 {/* SHEET KEHADIRAN */}
-                <div className="hidden xl:block bg-[#D9E1F2] border-b border-slate-400 py-1.5 px-2 text-center font-bold text-slate-900">
+                <div className="hidden xl:block print:block bg-[#D9E1F2] border-b border-slate-400 py-1.5 px-2 print:py-0.5 print:px-1 print:text-[7.5px] text-center font-bold text-slate-900">
                   SHEET KEHADIRAN
                 </div>
 
                 {/* Tahun / Bulan */}
                 <div className="grid grid-cols-2 border-b border-slate-400">
-                  <div className="grid grid-cols-2 border-r border-slate-400 xl:border-r-0 xl:col-span-2 xl:border-b xl:border-slate-400">
-                    <div className="py-1 px-2.5 font-bold bg-slate-50 border-r border-slate-400">
+                  <div className="grid grid-cols-2 border-r border-slate-400 xl:border-r-0 xl:col-span-2 xl:border-b xl:border-slate-400 print:border-r-0 print:col-span-2 print:border-b print:border-slate-400">
+                    <div className="py-1 px-2.5 print:py-0.5 print:px-1 font-bold bg-slate-50 border-r border-slate-400">
                       Tahun
                     </div>
-                    <div className="py-1 px-2 font-mono font-bold text-center tabular-nums">
+                    <div className="py-1 px-2 print:py-0.5 print:px-1 font-mono font-bold text-center tabular-nums">
                       {meta.year}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 xl:col-span-2">
-                    <div className="py-1 px-2.5 font-bold bg-slate-50 border-r border-slate-400">
+                  <div className="grid grid-cols-2 xl:col-span-2 print:col-span-2">
+                    <div className="py-1 px-2.5 print:py-0.5 print:px-1 font-bold bg-slate-50 border-r border-slate-400">
                       Bulan
                     </div>
-                    <div className="py-1 px-2 font-bold text-center truncate">{meta.monthName}</div>
+                    <div className="py-1 px-2 print:py-0.5 print:px-1 font-bold text-center truncate">{meta.monthName}</div>
                   </div>
                 </div>
 
                 {/* Date Range */}
-                <div className="grid grid-cols-2 border-b border-slate-400 text-[11px] font-mono text-slate-700 bg-slate-50 text-center">
-                  <div className="py-1 px-1.5 border-r border-slate-400">
+                <div className="grid grid-cols-2 border-b border-slate-400 text-[11px] print:text-[7px] font-mono text-slate-700 bg-slate-50 text-center">
+                  <div className="py-1 px-1.5 print:py-0.5 print:px-1 border-r border-slate-400">
                     {meta.startDateLabel}
                   </div>
-                  <div className="py-1 px-1.5">{meta.endDateLabel}</div>
+                  <div className="py-1 px-1.5 print:py-0.5 print:px-1">{meta.endDateLabel}</div>
                 </div>
 
                 {/* KPI Grid */}
-                <div className="p-2 border-b border-slate-400 bg-white">
-                  <div className="grid grid-cols-5 xl:grid-cols-2 gap-1.5 xl:gap-2">
+                <div className="p-2 print:p-1 border-b border-slate-400 bg-white">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 xl:grid-cols-2 print:grid-cols-2 gap-1.5 xl:gap-2 print:gap-1">
                     <div className="border border-slate-400 text-center">
-                      <div className="bg-[#4472C4] text-white font-bold py-1 text-[10px] sm:text-[11px] truncate px-0.5">
+                      <div className="bg-[#4472C4] text-white font-bold py-1 print:py-0.5 text-[10px] sm:text-[11px] print:text-[7px] truncate px-0.5">
                         PEGAWAI
                       </div>
-                      <div className="bg-[#EAEEF7] font-mono text-base sm:text-xl font-bold text-slate-900 py-1.5 sm:py-2 tabular-nums">
+                      <div className="bg-[#EAEEF7] font-mono text-base sm:text-xl print:text-[10px] font-bold text-slate-900 py-1.5 sm:py-2 print:py-0.5 tabular-nums">
                         {matrixData.totals.pegawai}
                       </div>
                     </div>
 
                     <div className="border border-slate-400 text-center">
-                      <div className="bg-[#548235] text-white font-bold py-1 text-[10px] sm:text-[11px] truncate px-0.5">
+                      <div className="bg-[#548235] text-white font-bold py-1 print:py-0.5 text-[10px] sm:text-[11px] print:text-[7px] truncate px-0.5">
                         HADIR
                       </div>
-                      <div className="bg-[#E2EFDA] font-mono text-base sm:text-xl font-bold text-slate-900 py-1.5 sm:py-2 tabular-nums">
+                      <div className="bg-[#E2EFDA] font-mono text-base sm:text-xl print:text-[10px] font-bold text-slate-900 py-1.5 sm:py-2 print:py-0.5 tabular-nums">
                         {matrixData.totals.hadirPct}%
                       </div>
                     </div>
 
                     <div className="border border-slate-400 text-center">
-                      <div className="bg-[#FCE4D6] text-[#833C0C] font-bold py-1 text-[10px] sm:text-[11px] truncate px-0.5">
+                      <div className="bg-[#FCE4D6] text-[#833C0C] font-bold py-1 print:py-0.5 text-[10px] sm:text-[11px] print:text-[7px] truncate px-0.5">
                         IJIN
                       </div>
-                      <div className="bg-[#FFF2CC] font-mono text-base sm:text-xl font-bold text-slate-900 py-1.5 sm:py-2 tabular-nums">
+                      <div className="bg-[#FFF2CC] font-mono text-base sm:text-xl print:text-[10px] font-bold text-slate-900 py-1.5 sm:py-2 print:py-0.5 tabular-nums">
                         {matrixData.totals.i}
                       </div>
                     </div>
 
                     <div className="border border-slate-400 text-center">
-                      <div className="bg-[#4338CA] text-white font-bold py-1 text-[10px] sm:text-[11px] truncate px-0.5">
+                      <div className="bg-[#4338CA] text-white font-bold py-1 print:py-0.5 text-[10px] sm:text-[11px] print:text-[7px] truncate px-0.5">
                         SAKIT
                       </div>
-                      <div className="bg-[#EEF2FF] font-mono text-base sm:text-xl font-bold text-slate-900 py-1.5 sm:py-2 tabular-nums">
+                      <div className="bg-[#EEF2FF] font-mono text-base sm:text-xl print:text-[10px] font-bold text-slate-900 py-1.5 sm:py-2 print:py-0.5 tabular-nums">
                         {matrixData.totals.s}
                       </div>
                     </div>
 
-                    <div className="border border-slate-400 text-center xl:col-span-2">
-                      <div className="bg-[#C00000] text-white font-bold py-1 text-[10px] sm:text-[11px] truncate px-0.5">
+                    <div className="border border-slate-400 text-center col-span-2 sm:col-span-1 xl:col-span-2 print:col-span-2">
+                      <div className="bg-[#C00000] text-white font-bold py-1 print:py-0.5 text-[10px] sm:text-[11px] print:text-[7px] truncate px-0.5">
                         ALPHA
                       </div>
-                      <div className="bg-[#F4CCCC] font-mono text-base sm:text-xl font-bold text-slate-900 py-1.5 sm:py-2 tabular-nums">
+                      <div className="bg-[#F4CCCC] font-mono text-base sm:text-xl print:text-[10px] font-bold text-slate-900 py-1.5 sm:py-2 print:py-0.5 tabular-nums">
                         {matrixData.totals.a}
                       </div>
                     </div>
@@ -1440,42 +1453,42 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </div>
 
                 {/* Legend */}
-                <div className="bg-[#D9E1F2] border-b border-slate-400 py-1 px-2 text-center font-bold text-[11px] text-slate-900">
+                <div className="bg-[#D9E1F2] border-b border-slate-400 py-1 px-2 print:py-0.5 print:text-[7.5px] text-center font-bold text-[11px] text-slate-900">
                   KETERANGAN
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-1 divide-y divide-slate-200 text-[11px]">
-                  <div className="px-2.5 py-1.5 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-4 h-4 bg-[#548235] text-white font-mono font-bold text-[10px] shrink-0">
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-1 print:grid-cols-1 xl:divide-y xl:divide-slate-200 print:divide-y print:divide-slate-200 text-[11px] print:text-[7px]">
+                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-r border-slate-200 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
+                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#548235] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
                       h
                     </span>
                     <span className="truncate">Hadir / Terlambat</span>
                   </div>
-                  <div className="px-2.5 py-1.5 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-4 h-4 bg-[#0F766E] text-white font-mono font-bold text-[10px] shrink-0">
+                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 sm:border-r xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
+                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#0F766E] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
                       h
                     </span>
                     <span className="truncate">Izin Telat</span>
                   </div>
-                  <div className="px-2.5 py-1.5 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-4 h-4 bg-[#FFF2CC] text-[#833C0C] border border-amber-300 font-mono font-bold text-[10px] shrink-0">
+                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-r border-slate-200 sm:border-r-0 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
+                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#FFF2CC] text-[#833C0C] border border-amber-300 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
                       i
                     </span>
                     <span className="truncate">Izin</span>
                   </div>
-                  <div className="px-2.5 py-1.5 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-4 h-4 bg-[#4338CA] text-white font-mono font-bold text-[10px] shrink-0">
+                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 sm:border-b-0 sm:border-r xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
+                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#4338CA] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
                       s
                     </span>
                     <span className="truncate">Sakit</span>
                   </div>
-                  <div className="px-2.5 py-1.5 flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-4 h-4 bg-[#C00000] text-white font-mono font-bold text-[10px] shrink-0">
+                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-r border-slate-200 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
+                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#C00000] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
                       a
                     </span>
                     <span className="truncate">Alpha</span>
                   </div>
-                  <div className="px-2.5 py-1.5 flex items-center gap-2">
-                    <span className="w-4 h-4 bg-[#D9D9D9] border border-slate-400 inline-block shrink-0" />
+                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 flex items-center gap-2 print:gap-1">
+                    <span className="w-4 h-4 print:w-2.5 print:h-2.5 bg-[#D9D9D9] border border-slate-400 inline-block shrink-0" />
                     <span className="truncate">Libur Karyawan</span>
                   </div>
                 </div>
@@ -1486,24 +1499,24 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 <div className="md:hidden mb-1.5 flex items-center justify-between text-[11px] text-slate-500 no-print">
                   <span>Geser tabel ke kiri/kanan untuk tanggal 1–{days.length} →</span>
                 </div>
-                <div className="overflow-x-auto rounded-sm">
-                <table className="w-full border-collapse text-[11px]">
+                <div className="overflow-x-auto rounded-sm print:overflow-visible print:rounded-none">
+                <table className="w-full border-collapse text-[11px] matrix-print-table">
                   <thead>
                     <tr>
                       <th
                         colSpan={3}
-                        className="bg-[#D9E1F2] border border-slate-400 font-bold text-slate-900 text-xs py-2 px-2 text-center h-16 sm:h-20"
+                        className="bg-[#D9E1F2] border border-slate-400 font-bold text-slate-900 text-xs print:text-[8px] py-2 px-2 print:py-1 text-center h-16 sm:h-20 print:h-[38px]"
                       >
                         PEGAWAI
                       </th>
                       {days.map((dateStr) => (
                         <th
                           key={dateStr}
-                          className="bg-[#D9E1F2] border border-slate-400 p-0.5 h-16 sm:h-20 w-8 sm:w-7 align-middle"
+                          className="bg-[#D9E1F2] border border-slate-400 p-0.5 h-16 sm:h-20 print:h-[38px] w-8 sm:w-7 matrix-print-day-col align-middle"
                         >
                           <div className="flex items-center justify-center h-full">
                             <span
-                              className="font-semibold text-[10px] text-slate-900 whitespace-nowrap"
+                              className="font-semibold text-[10px] print:text-[7px] text-slate-900 whitespace-nowrap"
                               style={{
                                 writingMode: 'vertical-rl',
                                 transform: 'rotate(180deg)',
@@ -1514,44 +1527,44 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                           </div>
                         </th>
                       ))}
-                      <th className="w-2.5 border-0 bg-white" />
+                      <th className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
                       <th
                         colSpan={4}
-                        className="bg-[#D9E1F2] border border-slate-400 font-bold text-slate-900 text-xs py-2 px-2 text-center"
+                        className="bg-[#D9E1F2] border border-slate-400 font-bold text-slate-900 text-xs print:text-[8px] py-2 px-2 print:py-1 text-center"
                       >
                         RINGKASAN
                       </th>
                     </tr>
 
                     <tr className="bg-[#1F4E78] text-white">
-                      <th className="border border-slate-400 py-1.5 px-2 font-bold text-center whitespace-nowrap">
+                      <th className="border border-slate-400 py-1.5 px-2 font-bold text-center whitespace-nowrap matrix-print-id-col">
                         ID
                       </th>
-                      <th className="sticky left-0 z-10 bg-[#1F4E78] border border-slate-400 py-1.5 px-2 sm:px-2.5 font-bold text-left whitespace-nowrap min-w-[116px] max-w-[138px] sm:max-w-none sm:min-w-[165px]">
+                      <th className="sticky left-0 z-10 print:static bg-[#1F4E78] border border-slate-400 py-1.5 px-2 sm:px-2.5 font-bold text-left whitespace-nowrap min-w-[116px] max-w-[138px] sm:max-w-none sm:min-w-[165px] shadow-[2px_0_6px_-2px_rgba(15,23,42,0.2)] print:shadow-none matrix-print-name-col">
                         Nama
                       </th>
-                      <th className="border border-slate-400 py-1.5 px-2 font-bold text-center whitespace-nowrap">
+                      <th className="border border-slate-400 py-1.5 px-2 font-bold text-center whitespace-nowrap matrix-print-off-col">
                         Hari Libur
                       </th>
                       {days.map((dateStr) => (
                         <th
                           key={dateStr}
-                          className="border border-slate-400 py-1.5 px-1 font-mono font-bold text-center tabular-nums min-w-[30px] sm:min-w-0"
+                          className="border border-slate-400 py-1.5 px-1 font-mono font-bold text-center tabular-nums min-w-[30px] sm:min-w-0 matrix-print-day-col"
                         >
                           {dateStr.slice(8, 10)}
                         </th>
                       ))}
-                      <th className="w-2.5 border-0 bg-white" />
-                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8">
+                      <th className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
+                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
                         h
                       </th>
-                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8">
+                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
                         i
                       </th>
-                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8">
+                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
                         s
                       </th>
-                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8">
+                      <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
                         a
                       </th>
                     </tr>
@@ -1570,13 +1583,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     ) : (
                       matrixData.rows.map((row) => (
                         <tr key={row.employee.id} className="hover:bg-blue-50/40">
-                          <td className="border border-slate-400 px-2 py-1 font-mono text-center text-slate-800 whitespace-nowrap">
+                          <td className="border border-slate-400 px-2 py-1 font-mono text-center text-slate-800 whitespace-nowrap matrix-print-id-col">
                             {row.employee.employeeCode}
                           </td>
-                          <td className="sticky left-0 z-10 bg-white border border-slate-400 px-2 sm:px-2.5 py-1 font-semibold text-slate-900 whitespace-nowrap max-w-[138px] sm:max-w-none truncate">
+                          <td className="sticky left-0 z-10 print:static bg-white border border-slate-400 px-2 sm:px-2.5 py-1 font-semibold text-slate-900 whitespace-nowrap max-w-[138px] sm:max-w-none truncate shadow-[2px_0_6px_-2px_rgba(15,23,42,0.12)] print:shadow-none matrix-print-name-col">
                             {row.employee.name}
                           </td>
-                          <td className="border border-slate-400 px-2 py-1 text-center text-slate-700 whitespace-nowrap">
+                          <td className="border border-slate-400 px-2 py-1 text-center text-slate-700 whitespace-nowrap matrix-print-off-col">
                             {formatOffDaysSummary(row.employee.offDays)}
                           </td>
 
@@ -1689,7 +1702,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                                     e.preventDefault();
                                     openCellEditor(row.employee, cell.date, cell.rec);
                                   }}
-                                  className="w-full h-8 sm:h-6 min-w-[30px] sm:min-w-0 flex items-center justify-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-700"
+                                  className="w-full h-8 sm:h-6 min-w-[30px] sm:min-w-0 flex items-center justify-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-700 matrix-print-cell-btn"
                                 >
                                   {isCellSaving ? '·' : cell.code}
                                 </button>
@@ -1697,17 +1710,17 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                             );
                           })}
 
-                          <td className="w-2.5 border-0 bg-white" />
-                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono font-bold text-slate-900 tabular-nums">
+                          <td className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
+                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono font-bold text-slate-900 tabular-nums matrix-print-sum-col">
                             {row.summary.h}
                           </td>
-                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono text-slate-800 tabular-nums">
+                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono text-slate-800 tabular-nums matrix-print-sum-col">
                             {row.summary.i}
                           </td>
-                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono text-slate-800 tabular-nums">
+                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono text-slate-800 tabular-nums matrix-print-sum-col">
                             {row.summary.s}
                           </td>
-                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono text-slate-800 tabular-nums">
+                          <td className="border border-slate-400 px-1.5 py-1 text-center font-mono text-slate-800 tabular-nums matrix-print-sum-col">
                             {row.summary.a}
                           </td>
                         </tr>
@@ -1722,12 +1735,12 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                           <td
                             colSpan={2}
                             rowSpan={5}
-                            className="bg-[#1F4E78] text-white border border-slate-400 font-bold text-xs text-center align-middle"
+                            className="bg-[#1F4E78] text-white border border-slate-400 font-bold text-xs print:text-[8px] text-center align-middle"
                           >
                             RINGKASAN
                           </td>
                         )}
-                        <td className="bg-[#1F4E78] text-white border border-slate-400 font-mono font-bold text-center py-1 px-2">
+                        <td className="bg-[#1F4E78] text-white border border-slate-400 font-mono font-bold text-center py-1 px-2 print:py-0.5 print:px-1">
                           {metric}
                         </td>
                         {matrixData.daySums.map((ds, dIdx) => {
@@ -1735,7 +1748,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                           return (
                             <td
                               key={days[dIdx]}
-                              className={`border border-slate-400 text-center font-mono py-1 tabular-nums ${
+                              className={`border border-slate-400 text-center font-mono py-1 print:py-0.5 tabular-nums matrix-print-day-col ${
                                 metric === 'TOTAL'
                                   ? 'bg-slate-100 font-bold text-slate-900'
                                   : 'bg-white text-slate-800'
@@ -1745,19 +1758,19 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                             </td>
                           );
                         })}
-                        <td className="w-2.5 border-0 bg-white" />
+                        <td className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
                         {idx === 4 ? (
                           <>
-                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 tabular-nums">
+                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 print:py-0.5 tabular-nums matrix-print-sum-col">
                               {matrixData.totals.h}
                             </td>
-                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 tabular-nums">
+                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 print:py-0.5 tabular-nums matrix-print-sum-col">
                               {matrixData.totals.i}
                             </td>
-                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 tabular-nums">
+                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 print:py-0.5 tabular-nums matrix-print-sum-col">
                               {matrixData.totals.s}
                             </td>
-                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 tabular-nums">
+                            <td className="border border-slate-400 bg-slate-100 font-mono font-bold text-center py-1 print:py-0.5 tabular-nums matrix-print-sum-col">
                               {matrixData.totals.a}
                             </td>
                           </>
@@ -2426,7 +2439,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       </button>
                     ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-medium text-teal-950 mb-1">
                         Perkiraan Tiba
@@ -2435,7 +2448,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                         type="time"
                         value={inputLatePermitEstArrival}
                         onChange={(e) => setInputLatePermitEstArrival(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-teal-200 rounded-lg"
+                        className="w-full px-2.5 py-2 sm:py-1.5 text-xs font-mono bg-white border border-teal-200 rounded-lg"
                       />
                     </div>
                     <div>
@@ -2448,7 +2461,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                         value={inputLatePermitApprovedBy}
                         onChange={(e) => setInputLatePermitApprovedBy(e.target.value)}
                         placeholder="Admin HR"
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-teal-200 rounded-lg"
+                        className="w-full px-2.5 py-2 sm:py-1.5 text-xs bg-white border border-teal-200 rounded-lg"
                       />
                     </div>
                   </div>

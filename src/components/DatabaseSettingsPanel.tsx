@@ -911,12 +911,12 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
   if (!databaseToken) {
     return (
       <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
+        <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0">
               <Database className="w-4 h-4" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="font-display text-base font-semibold text-slate-900">
                 6. Pengaturan Database &amp; Struktur Tabel
               </h2>
@@ -931,7 +931,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
           </span>
         </div>
 
-        <form onSubmit={handleUnlockDatabase} className="p-6 max-w-md mx-auto space-y-4">
+        <form onSubmit={handleUnlockDatabase} className="p-4 sm:p-6 max-w-md mx-auto space-y-4">
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
             <div className="w-11 h-11 rounded-xl bg-blue-900 text-white flex items-center justify-center mx-auto">
               <KeyRound className="w-5 h-5" />
@@ -1000,7 +1000,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
   return (
     <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-lg bg-blue-900 text-white flex items-center justify-center shrink-0">
             <Database className="w-4 h-4" />
@@ -1018,56 +1018,56 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
         <button
           type="button"
           onClick={handleLockDatabase}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <Lock className="w-3.5 h-3.5" />
-          <span>Kunci Pengaturan Database</span>
+          <span>Kunci Database</span>
         </button>
       </div>
 
       {/* Sub-Tabs */}
-      <div className="px-6 pt-4 border-b border-slate-200 bg-white flex flex-wrap items-center gap-2">
+      <div className="px-4 sm:px-6 pt-3 sm:pt-4 border-b border-slate-200 bg-white grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-1 sm:gap-2">
         <button
           type="button"
           onClick={() => setInnerTab('tables')}
-          className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+          className={`px-3 sm:px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
             innerTab === 'tables'
               ? 'border-blue-700 text-blue-800'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Wrench className="w-3.5 h-3.5" />
+          <Wrench className="w-3.5 h-3.5 shrink-0" />
           <span>Cek &amp; Buat Tabel Otomatis</span>
         </button>
 
         <button
           type="button"
           onClick={() => setInnerTab('scripts')}
-          className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+          className={`px-3 sm:px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
             innerTab === 'scripts'
               ? 'border-blue-700 text-blue-800'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Code2 className="w-3.5 h-3.5" />
+          <Code2 className="w-3.5 h-3.5 shrink-0" />
           <span>Copy Script Setting Tabel</span>
         </button>
 
         <button
           type="button"
           onClick={() => setInnerTab('config')}
-          className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+          className={`px-3 sm:px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
             innerTab === 'config'
               ? 'border-blue-700 text-blue-800'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Server className="w-3.5 h-3.5" />
-          <span>Koneksi Database (URL, API Key &amp; PIN)</span>
+          <Server className="w-3.5 h-3.5 shrink-0" />
+          <span>Koneksi Database (URL, Key &amp; PIN)</span>
         </button>
       </div>
 
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-5">
         {notice && (
           <div
             className={`p-3.5 rounded-lg border text-xs flex items-center gap-2 ${
@@ -1483,9 +1483,50 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
               )}
             </div>
 
-            {/* Required Tables Status Table */}
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left border-collapse">
+            {/* Required Tables Status: Mobile Cards (< md) + Desktop Table (md+) */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="md:hidden divide-y divide-slate-100">
+                {(schemaStatus?.tables ?? []).map((tbl) => (
+                  <div key={tbl.tableName} className="p-3.5 space-y-1.5 text-xs">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-mono font-semibold text-slate-900 truncate">
+                          {tbl.tableName}
+                        </div>
+                        <div className="text-[11px] text-slate-500">{tbl.description}</div>
+                      </div>
+                      <div className="shrink-0">
+                        {tbl.remoteStatus === 'available' || (tbl.exists && !tbl.remoteStatus) ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded">
+                            Tersedia
+                          </span>
+                        ) : tbl.remoteStatus === 'local' && tbl.exists ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded">
+                            Lokal
+                          </span>
+                        ) : tbl.remoteStatus === 'rls_blocked' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded">
+                            RLS
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold text-red-800 bg-red-50 border border-red-200 rounded">
+                            Belum Ada
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>{tbl.module} · <span className="font-mono">{tbl.firestoreCollection}</span></span>
+                      <span className="font-mono font-semibold text-slate-800 tabular-nums">
+                        {tbl.recordCount} baris
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
                     <th className="py-2.5 px-3">Nama Tabel (SQL)</th>
@@ -1553,6 +1594,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         )}
@@ -1681,7 +1723,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
           <div className="space-y-6">
             <form
               onSubmit={handleSaveDatabaseConfig}
-              className="p-5 rounded-xl border border-slate-200 space-y-5"
+              className="p-4 sm:p-5 rounded-xl border border-slate-200 space-y-5"
             >
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>

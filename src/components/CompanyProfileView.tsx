@@ -388,11 +388,11 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
       )}
 
       {/* Company Identity Header Card */}
-      <section className="bg-white border border-slate-200 rounded-xl p-6">
+      <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-5 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5 min-w-0">
             {/* Company Logo / Monogram */}
-            <div className="w-20 h-20 rounded-xl bg-slate-900 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-slate-900 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
               {profile.logoDataUrl && !logoError ? (
                 <img
                   src={profile.logoDataUrl}
@@ -402,7 +402,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                   className="w-full h-full object-contain bg-white p-1.5"
                 />
               ) : (
-                <span className="font-display text-2xl font-bold tracking-tight text-white">
+                <span className="font-display text-xl sm:text-2xl font-bold tracking-tight text-white">
                   {monogram}
                 </span>
               )}
@@ -425,7 +425,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                 )}
               </div>
 
-              <h2 className="font-display text-2xl font-bold text-slate-900 mt-1 tracking-tight text-balance">
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-slate-900 mt-1 tracking-tight text-balance">
                 {companyName}
               </h2>
 
@@ -447,11 +447,11 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0 no-print">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2.5 w-full lg:w-auto shrink-0 no-print">
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Cetak Profil</span>
@@ -460,10 +460,10 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
             <button
               type="button"
               onClick={() => openEditModal('identitas')}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Pencil className="w-3.5 h-3.5" />
-              <span>Edit Profil Perusahaan</span>
+              <span>Edit Profil</span>
             </button>
           </div>
         </div>
@@ -536,7 +536,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
         <div className="lg:col-span-7 space-y-6">
           {/* Legalitas & Kontak Resmi */}
           <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
                   Identitas Legal &amp; Kontak Resmi
@@ -555,19 +555,19 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
             </div>
 
             <dl className="divide-y divide-slate-100 text-sm">
-              <div className="px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
+              <div className="px-4 sm:px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
                 <dt className="text-xs font-medium text-slate-500">Badan Hukum</dt>
                 <dd className="sm:col-span-2 font-medium text-slate-900">
                   {profile.legalName || '—'}
                 </dd>
               </div>
 
-              <div className="px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
+              <div className="px-4 sm:px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
                 <dt className="text-xs font-medium text-slate-500">Bidang Usaha</dt>
                 <dd className="sm:col-span-2 text-slate-800">{profile.industry || '—'}</dd>
               </div>
 
-              <div className="px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
+              <div className="px-4 sm:px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
                 <dt className="text-xs font-medium text-slate-500">NPWP &amp; NIB</dt>
                 <dd className="sm:col-span-2 font-mono text-xs text-slate-800 tabular-nums flex flex-wrap gap-x-4 gap-y-1">
                   <span>NPWP: {profile.taxId || '—'}</span>
@@ -575,7 +575,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                 </dd>
               </div>
 
-              <div className="px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
+              <div className="px-4 sm:px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
                 <dt className="text-xs font-medium text-slate-500">Telepon &amp; Email</dt>
                 <dd className="sm:col-span-2 text-slate-800 space-y-1">
                   <div className="font-mono text-xs tabular-nums flex items-center gap-1.5">
@@ -589,15 +589,15 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                 </dd>
               </div>
 
-              <div className="px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
+              <div className="px-4 sm:px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
                 <dt className="text-xs font-medium text-slate-500">Situs Web</dt>
                 <dd className="sm:col-span-2 text-xs text-slate-800 flex items-center gap-1.5">
                   <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>{profile.website || '—'}</span>
+                  <span className="break-all">{profile.website || '—'}</span>
                 </dd>
               </div>
 
-              <div className="px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
+              <div className="px-4 sm:px-6 py-3.5 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-4">
                 <dt className="text-xs font-medium text-slate-500">Alamat Kantor Pusat</dt>
                 <dd className="sm:col-span-2 text-slate-800 text-xs leading-relaxed">
                   <div>{profile.address || '—'}</div>
@@ -610,7 +610,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Visi & Misi Perusahaan */}
-          <section className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-5">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -647,7 +647,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Sebaran Divisi & SDM Aktif */}
-          <section className="bg-white border border-slate-200 rounded-xl p-6">
+          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -704,7 +704,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
         {/* Right Column: Leadership, Shift Schedule, Branches */}
         <div className="lg:col-span-5 space-y-6">
           {/* Pimpinan & Penandatangan Laporan */}
-          <section className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -758,7 +758,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Kebijakan Shift & Jam Operasional */}
-          <section className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -802,7 +802,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Lokasi Kantor & Cabang */}
-          <section className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -890,10 +890,10 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
 
       {/* Modal: Edit Profil Perusahaan */}
       {editModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto no-print">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-2xl shadow-xl my-auto max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <div>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-xl w-full sm:max-w-2xl shadow-xl sm:my-auto max-h-[92dvh] flex flex-col overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="min-w-0 pr-2">
                 <h3 className="font-display text-base font-bold text-slate-900">
                   Edit Profil Perusahaan
                 </h3>
@@ -905,14 +905,14 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                 type="button"
                 onClick={() => setEditModalOpen(false)}
                 aria-label="Tutup"
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Section Tabs */}
-            <div className="px-6 pt-3 pb-0 border-b border-slate-200 flex items-center gap-2 bg-slate-50/70 shrink-0 overflow-x-auto">
+            <div className="px-4 sm:px-6 pt-3 pb-0 border-b border-slate-200 flex items-center gap-2 bg-slate-50/70 shrink-0 overflow-x-auto">
               {[
                 { id: 'identitas' as const, label: 'Identitas & Logo' },
                 { id: 'kontak' as const, label: 'Kontak & Legalitas' },
@@ -922,7 +922,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                   key={tab.id}
                   type="button"
                   onClick={() => setEditTab(tab.id)}
-                  className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-3 sm:px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     editTab === tab.id
                       ? 'border-blue-700 text-blue-700'
                       : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -934,7 +934,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveProfile} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="p-4 sm:p-6 space-y-4 overflow-y-auto">
                 {editError && (
                   <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -1315,7 +1315,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                 )}
               </div>
 
-              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/70 flex items-center justify-end gap-2.5 shrink-0">
+              <div className="px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50/70 flex items-center justify-end gap-2.5 shrink-0 pb-safe">
                 <button
                   type="button"
                   onClick={() => setEditModalOpen(false)}
@@ -1338,9 +1338,9 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
 
       {/* Modal: Tambah / Edit Lokasi Cabang */}
       {branchModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto no-print">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md shadow-xl my-auto overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-xl w-full sm:max-w-md shadow-xl sm:my-auto max-h-[92dvh] flex flex-col overflow-hidden">
+            <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <h3 className="font-display text-base font-bold text-slate-900">
                 {editingBranchId ? 'Edit Lokasi Cabang' : 'Tambah Lokasi / Cabang Baru'}
               </h3>
@@ -1354,7 +1354,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSaveBranch} className="p-5 space-y-4">
+            <form onSubmit={handleSaveBranch} className="p-4 sm:p-5 space-y-4 overflow-y-auto pb-safe">
               {branchError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
                   {branchError}

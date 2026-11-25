@@ -1359,72 +1359,72 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                  <span>Total Keterlambatan</span>
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
+                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-slate-500">
+                  <span className="truncate">Total Terlambat</span>
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 </div>
-                <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+                <div className="mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold text-slate-900 tabular-nums leading-tight">
                   {lateStats.totalLateMinutes}{' '}
-                  <span className="text-xs font-normal text-slate-500">
+                  <span className="block sm:inline text-[11px] sm:text-xs font-normal text-slate-500">
                     mnt ({lateStats.totalLateCount}x)
                   </span>
                 </div>
               </div>
 
-              <div className="p-5 bg-blue-50/70 border border-blue-200/80 rounded-xl">
-                <div className="flex items-center justify-between text-xs font-medium text-blue-800">
-                  <span>Diganti Jam Kerja (Cicilan)</span>
-                  <Clock className="w-3.5 h-3.5 text-blue-700" />
+              <div className="p-3.5 sm:p-5 bg-blue-50/70 border border-blue-200/80 rounded-xl">
+                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-blue-800">
+                  <span className="truncate">Diganti Jam Kerja</span>
+                  <Clock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
                 </div>
-                <div className="mt-2 font-mono text-2xl font-bold text-blue-900 tabular-nums">
+                <div className="mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold text-blue-900 tabular-nums leading-tight">
                   {lateStats.totalSettledWorkMinutes}{' '}
-                  <span className="text-xs font-normal text-blue-700">
+                  <span className="block sm:inline text-[11px] sm:text-xs font-normal text-blue-700">
                     mnt ({lateStats.workInstallmentCount} cicilan)
                   </span>
                 </div>
               </div>
 
-              <div className="p-5 bg-rose-50/70 border border-rose-200/80 rounded-xl">
-                <div className="flex items-center justify-between text-xs font-medium text-rose-800">
-                  <span>Diganti Potongan Gaji</span>
-                  <Banknote className="w-3.5 h-3.5 text-rose-700" />
+              <div className="p-3.5 sm:p-5 bg-rose-50/70 border border-rose-200/80 rounded-xl">
+                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-rose-800">
+                  <span className="truncate">Potongan Gaji</span>
+                  <Banknote className="w-3.5 h-3.5 text-rose-700 shrink-0" />
                 </div>
-                <div className="mt-2 font-mono text-2xl font-bold text-rose-900 tabular-nums">
-                  {lateStats.totalSettledSalaryMinutes}{' '}
-                  <span className="text-xs font-normal text-rose-700">
-                    mnt ({formatRupiah(lateStats.totalDeductionAmount)})
+                <div className="mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold text-rose-900 tabular-nums leading-tight">
+                  {lateStats.totalSettledSalaryMinutes} mnt
+                  <span className="block text-[11px] sm:text-xs font-normal text-rose-700 truncate">
+                    {formatRupiah(lateStats.totalDeductionAmount)}
                   </span>
                 </div>
               </div>
 
               <div
-                className={`p-5 border rounded-xl ${
+                className={`p-3.5 sm:p-5 border rounded-xl ${
                   lateStats.totalRemainingLateMinutes > 0
                     ? 'bg-amber-50/80 border-amber-200'
                     : 'bg-emerald-50/80 border-emerald-200'
                 }`}
               >
                 <div
-                  className={`flex items-center justify-between text-xs font-medium ${
+                  className={`flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium ${
                     lateStats.totalRemainingLateMinutes > 0
                       ? 'text-amber-800'
                       : 'text-emerald-800'
                   }`}
                 >
-                  <span>Sisa Tunggakan Keterlambatan</span>
-                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span className="truncate">Sisa Tunggakan</span>
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 </div>
                 <div
-                  className={`mt-2 font-mono text-2xl font-bold tabular-nums ${
+                  className={`mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold tabular-nums leading-tight ${
                     lateStats.totalRemainingLateMinutes > 0
                       ? 'text-amber-900'
                       : 'text-emerald-900'
                   }`}
                 >
                   {lateStats.totalRemainingLateMinutes}{' '}
-                  <span className="text-xs font-normal">
+                  <span className="block sm:inline text-[11px] sm:text-xs font-normal">
                     mnt ({formatMinutesAsHoursMinutes(lateStats.totalRemainingLateMinutes)})
                   </span>
                 </div>
@@ -2352,7 +2352,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 <label className="block text-xs font-medium text-slate-700 mb-1.5">
                   Metode Penggantian
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                   <button
                     type="button"
                     onClick={() => {

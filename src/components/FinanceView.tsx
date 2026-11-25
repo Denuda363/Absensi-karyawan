@@ -1524,7 +1524,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   return (
     <div className="space-y-6">
       {/* 1. Header & Action Bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4 no-print">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4 no-print">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
             <Landmark className="w-3.5 h-3.5 text-blue-700" />
@@ -1541,41 +1541,41 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           </h2>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full xl:w-auto shrink-0">
           <button
             type="button"
             onClick={() => openCreateTxModal('pendapatan', 'transfer')}
-            className="px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Catat Pendapatan</span>
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Catat Pendapatan</span>
           </button>
 
           <button
             type="button"
             onClick={() => openCreateTxModal('pengeluaran', 'cash')}
-            className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Catat Pengeluaran</span>
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Catat Pengeluaran</span>
           </button>
 
           <button
             type="button"
             onClick={() => openTransferModal('cash-to-bank')}
-            className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
-            <ArrowLeftRight className="w-3.5 h-3.5" />
-            <span>Pindah Dana (Cash ↔ Rekening)</span>
+            <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Pindah Dana</span>
           </button>
 
           <button
             type="button"
             onClick={() => openManageModal('rekening')}
-            className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
-            <FolderCog className="w-3.5 h-3.5" />
-            <span>Rekening &amp; Kategori</span>
+            <FolderCog className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Rekening &amp; Kategori</span>
           </button>
         </div>
       </div>
@@ -1642,13 +1642,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ) : (
         <>
           {/* 2. 4-Column KPI Summary Strip */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
               <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                 <span>Pendapatan ({periodLabel})</span>
-                <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
+                <ArrowDownLeft className="w-4 h-4 text-emerald-600 shrink-0" />
               </div>
-              <div className="font-mono text-2xl font-bold text-emerald-700 tabular-nums">
+              <div className="font-mono text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums">
                 {formatRupiah(periodMetrics.totalIncome)}
               </div>
               <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
@@ -1667,12 +1667,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
               <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                 <span>Pengeluaran ({periodLabel})</span>
-                <ArrowUpRight className="w-4 h-4 text-red-600" />
+                <ArrowUpRight className="w-4 h-4 text-red-600 shrink-0" />
               </div>
-              <div className="font-mono text-2xl font-bold text-red-700 tabular-nums">
+              <div className="font-mono text-xl sm:text-2xl font-bold text-red-700 tabular-nums">
                 {formatRupiah(periodMetrics.totalExpense)}
               </div>
               <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
@@ -1691,17 +1691,17 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
               <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                 <span>
                   {periodMetrics.netBalance >= 0
                     ? 'Surplus Operasional'
                     : 'Defisit Operasional'}
                 </span>
-                <Wallet className="w-4 h-4 text-blue-700" />
+                <Wallet className="w-4 h-4 text-blue-700 shrink-0" />
               </div>
               <div
-                className={`font-mono text-2xl font-bold tabular-nums ${
+                className={`font-mono text-xl sm:text-2xl font-bold tabular-nums ${
                   periodMetrics.netBalance >= 0 ? 'text-blue-700' : 'text-red-700'
                 }`}
               >
@@ -1712,12 +1712,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
               <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                 <span>Total Saldo Kas &amp; Rekening</span>
-                <Building2 className="w-4 h-4 text-slate-700" />
+                <Building2 className="w-4 h-4 text-slate-700 shrink-0" />
               </div>
-              <div className="font-mono text-2xl font-bold text-slate-900 tabular-nums">
+              <div className="font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
                 {formatSignedRupiah(totalCashBalance + totalBankBalance)}
               </div>
               <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
@@ -1805,12 +1805,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto shrink-0">
               <button
                 type="button"
                 onClick={handleExportExcel}
                 disabled={exportingExcel}
-                className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 sm:py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>{exportingExcel ? 'Menyiapkan...' : 'Excel (.xlsx)'}</span>
@@ -1819,7 +1819,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <button
                 type="button"
                 onClick={handleExportCsv}
-                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 sm:py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
                 <span>CSV</span>
               </button>
@@ -1827,7 +1827,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <button
                 type="button"
                 onClick={() => setBackupModalOpen(true)}
-                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 sm:py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Backup</span>
@@ -1836,7 +1836,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 sm:py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Cetak</span>
@@ -1846,54 +1846,54 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
           {/* 4. Workspace Section: Dashboard Keuangan / Tab Kategori / Jurnal Transaksi / Kas, Rekening & Mutasi */}
           <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg self-start no-print">
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+              <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg w-full xl:w-auto no-print">
                 <button
                   type="button"
                   onClick={() => setLedgerTab('dashboard')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                     ledgerTab === 'dashboard'
                       ? 'bg-white text-blue-800 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  <span>Dashboard Keuangan</span>
+                  <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Dashboard</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setLedgerTab('per-kategori')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                     ledgerTab === 'per-kategori'
                       ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>Tab Kategori ({categories.length})</span>
+                  <Layers className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Kategori ({categories.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setLedgerTab('kronologis')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center justify-center whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                     ledgerTab === 'kronologis'
                       ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Jurnal Transaksi ({filteredTransactions.length})
+                  <span className="truncate">Jurnal ({filteredTransactions.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setLedgerTab('perpindahan')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                     ledgerTab === 'perpindahan'
                       ? 'bg-white text-blue-800 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <ArrowLeftRight className="w-3.5 h-3.5" />
-                  <span>Kas, Rekening &amp; Mutasi ({periodTransfers.length})</span>
+                  <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Kas &amp; Mutasi ({periodTransfers.length})</span>
                 </button>
               </div>
 
@@ -3089,7 +3089,58 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       </div>
                     ) : (
                       <div className="border border-slate-200 rounded-xl overflow-hidden">
-                        <div className="overflow-x-auto">
+                        {/* Mobile cards (< md) */}
+                        <div className="md:hidden divide-y divide-slate-100">
+                          {filteredTransactions.map((tx) => {
+                            const isIncome = tx.type === 'pendapatan';
+                            return (
+                              <div key={tx.id} className="p-3.5 space-y-1.5 text-xs">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="font-semibold text-slate-900 truncate">
+                                      {tx.title}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 mt-0.5">
+                                      <span className="font-mono">{tx.date}</span> ·{' '}
+                                      {tx.method === 'cash' ? 'Cash' : 'Transfer'} ·{' '}
+                                      <span className="truncate">{tx.bankAccount}</span>
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <div
+                                      className={`font-mono font-bold tabular-nums ${
+                                        isIncome ? 'text-emerald-700' : 'text-red-700'
+                                      }`}
+                                    >
+                                      {isIncome ? '+' : '-'}
+                                      {formatRupiah(tx.amount)}
+                                    </div>
+                                  </div>
+                                </div>
+                                {(tx.counterparty || tx.notes || tx.referenceNo) && (
+                                  <div className="text-[11px] text-slate-500 flex flex-wrap items-center justify-between gap-2">
+                                    <span className="truncate">
+                                      {[tx.referenceNo, tx.counterparty, tx.notes]
+                                        .filter(Boolean)
+                                        .join(' · ')}
+                                    </span>
+                                    <span className="no-print shrink-0">
+                                      {renderTransactionActions(tx)}
+                                    </span>
+                                  </div>
+                                )}
+                                {!tx.counterparty && !tx.notes && !tx.referenceNo && (
+                                  <div className="flex justify-end no-print">
+                                    {renderTransactionActions(tx)}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Desktop table (md+) */}
+                        <div className="hidden md:block overflow-x-auto">
                           <table className="w-full text-left border-collapse text-xs">
                             <thead>
                               <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
@@ -3465,7 +3516,40 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                     </div>
                                   </div>
 
-                                  <div className="overflow-x-auto">
+                                  {/* Mobile category item cards (< md) */}
+                                  <div className="md:hidden divide-y divide-slate-100">
+                                    {grp.items.map((tx) => (
+                                      <div key={tx.id} className="p-3.5 space-y-1.5 text-xs">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <div className="font-semibold text-slate-900 truncate">
+                                              {tx.title}
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 mt-0.5">
+                                              <span className="font-mono">{tx.date}</span> ·{' '}
+                                              {tx.method === 'cash' ? 'Cash' : 'Transfer'} ·{' '}
+                                              <span>{tx.bankAccount}</span>
+                                            </div>
+                                          </div>
+                                          <div className="font-mono font-bold text-emerald-700 tabular-nums whitespace-nowrap shrink-0">
+                                            +{formatRupiah(tx.amount)}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                                          <span className="truncate">
+                                            {[tx.referenceNo, tx.counterparty, tx.notes]
+                                              .filter(Boolean)
+                                              .join(' · ')}
+                                          </span>
+                                          <span className="no-print shrink-0">
+                                            {renderTransactionActions(tx)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-left border-collapse text-xs">
                                       <tbody className="divide-y divide-slate-100">
                                         {grp.items.map((tx) => (
@@ -3573,7 +3657,40 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                     </div>
                                   </div>
 
-                                  <div className="overflow-x-auto">
+                                  {/* Mobile category item cards (< md) */}
+                                  <div className="md:hidden divide-y divide-slate-100">
+                                    {grp.items.map((tx) => (
+                                      <div key={tx.id} className="p-3.5 space-y-1.5 text-xs">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <div className="font-semibold text-slate-900 truncate">
+                                              {tx.title}
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 mt-0.5">
+                                              <span className="font-mono">{tx.date}</span> ·{' '}
+                                              {tx.method === 'cash' ? 'Cash' : 'Transfer'} ·{' '}
+                                              <span>{tx.bankAccount}</span>
+                                            </div>
+                                          </div>
+                                          <div className="font-mono font-bold text-red-700 tabular-nums whitespace-nowrap shrink-0">
+                                            -{formatRupiah(tx.amount)}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                                          <span className="truncate">
+                                            {[tx.referenceNo, tx.counterparty, tx.notes]
+                                              .filter(Boolean)
+                                              .join(' · ')}
+                                          </span>
+                                          <span className="no-print shrink-0">
+                                            {renderTransactionActions(tx)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-left border-collapse text-xs">
                                       <tbody className="divide-y divide-slate-100">
                                         {grp.items.map((tx) => (
@@ -3772,8 +3889,70 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     </p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                  <>
+                    {/* Mobile Journal Cards (< md) */}
+                    <div className="md:hidden divide-y divide-slate-100">
+                      {filteredTransactions.map((tx) => {
+                        const isIncome = tx.type === 'pendapatan';
+                        return (
+                          <div key={tx.id} className="p-4 space-y-2 text-xs">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                                  <span
+                                    className={`font-semibold ${
+                                      isIncome ? 'text-emerald-700' : 'text-red-700'
+                                    }`}
+                                  >
+                                    {isIncome ? 'Pendapatan' : 'Pengeluaran'}
+                                  </span>
+                                  <span className="text-slate-400">·</span>
+                                  <span className="text-slate-600">
+                                    {tx.method === 'cash' ? 'Cash' : 'Transfer'}
+                                  </span>
+                                  <span className="text-slate-400">·</span>
+                                  <span className="font-mono text-slate-500">{tx.date}</span>
+                                </div>
+                                <div className="font-semibold text-sm text-slate-900 truncate">
+                                  {tx.title}
+                                </div>
+                              </div>
+                              <div
+                                className={`font-mono font-bold text-sm tabular-nums whitespace-nowrap shrink-0 ${
+                                  isIncome ? 'text-emerald-700' : 'text-red-700'
+                                }`}
+                              >
+                                {isIncome ? '+' : '-'}
+                                {formatRupiah(tx.amount)}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                              <div className="min-w-0 truncate">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCategoryFilter(tx.categoryId);
+                                    setLedgerTab('per-kategori');
+                                  }}
+                                  className="font-medium text-blue-700 hover:underline cursor-pointer"
+                                >
+                                  {tx.categoryName}
+                                </button>
+                                <span> · {tx.bankAccount || '—'}</span>
+                                {tx.counterparty && <span> · {tx.counterparty}</span>}
+                              </div>
+                              <div className="no-print shrink-0">
+                                {renderTransactionActions(tx)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
                           <th className="py-2.5 px-4 whitespace-nowrap">Tanggal</th>
@@ -3849,7 +4028,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                         })}
                       </tbody>
                     </table>
-                  </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -4047,8 +4227,43 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       </button>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
+                    <>
+                      {/* Mobile Transfer History Cards (< md) */}
+                      <div className="md:hidden divide-y divide-slate-100">
+                        {periodTransfers.map((tr) => (
+                          <div key={tr.id} className="p-4 space-y-2 text-xs">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="font-mono text-[11px] text-slate-500">
+                                  {tr.date} {tr.referenceNo ? `· ${tr.referenceNo}` : ''}
+                                </div>
+                                <div className="mt-1 font-semibold text-slate-900">
+                                  <span className="text-red-700">{tr.fromAccountName}</span>{' '}
+                                  <span className="text-slate-400">→</span>{' '}
+                                  <span className="text-emerald-700">{tr.toAccountName}</span>
+                                </div>
+                              </div>
+                              <div className="font-mono font-bold text-blue-800 tabular-nums whitespace-nowrap shrink-0">
+                                {formatRupiah(tr.amount)}
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                              <span className="truncate">{tr.notes || 'Mutasi internal'}</span>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingTransferTarget(tr)}
+                                title="Hapus perpindahan dana"
+                                className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-md cursor-pointer no-print shrink-0"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
                             <th className="py-2.5 px-4 whitespace-nowrap">Tanggal</th>
@@ -4093,7 +4308,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -4106,10 +4322,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* MODAL CATAT / EDIT TRANSAKSI (PILIH KAS ATAU REKENING BRI/BCA/DLL) */}
       {/* =================================================================== */}
       {txModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 no-print">
-          <div className="bg-white w-full max-w-lg rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92vh] flex flex-col">
-            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between shrink-0">
-              <div>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="bg-slate-950 px-4 sm:px-5 py-4 text-white flex items-center justify-between shrink-0">
+              <div className="min-w-0 pr-2">
                 <h3 className="font-display text-sm font-bold text-white">
                   {editingTx ? 'Edit Transaksi Keuangan' : 'Catat Transaksi Keuangan'}
                 </h3>
@@ -4120,13 +4336,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <button
                 type="button"
                 onClick={() => setTxModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-md cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-white rounded-md cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveTransaction} className="p-5 space-y-4 overflow-y-auto">
+            <form onSubmit={handleSaveTransaction} className="p-4 sm:p-5 space-y-4 overflow-y-auto pb-safe">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <span className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -4667,11 +4883,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* MODAL KELOLA REKENING BANK & KATEGORI */}
       {/* =================================================================== */}
       {manageModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 no-print">
-          <div className="bg-white w-full max-w-2xl rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92vh] flex flex-col">
-            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between shrink-0">
-              <div>
-                <h3 className="font-display text-sm font-bold text-white">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+          <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="bg-slate-950 px-4 sm:px-5 py-4 text-white flex items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <h3 className="font-display text-sm font-bold text-white truncate">
                   Kelola Rekening Bank, Kas &amp; Kategori Keuangan
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -4681,13 +4897,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <button
                 type="button"
                 onClick={() => setManageModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-md cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-white rounded-md cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4 overflow-y-auto">
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto pb-safe">
               <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg">
                 <button
                   type="button"
@@ -4695,7 +4911,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     setManageTab('rekening');
                     setManageError(null);
                   }}
-                  className={`py-2 text-xs font-semibold rounded-md cursor-pointer transition-colors ${
+                  className={`py-2 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md cursor-pointer transition-colors ${
                     manageTab === 'rekening'
                       ? 'bg-white text-blue-800 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
@@ -4709,13 +4925,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     setManageTab('kategori-pengeluaran');
                     setManageError(null);
                   }}
-                  className={`py-2 text-xs font-semibold rounded-md cursor-pointer transition-colors ${
+                  className={`py-2 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md cursor-pointer transition-colors ${
                     manageTab === 'kategori-pengeluaran'
                       ? 'bg-white text-red-700 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Kategori Pengeluaran
+                  Kat. Pengeluaran
                 </button>
                 <button
                   type="button"
@@ -4723,13 +4939,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     setManageTab('kategori-pendapatan');
                     setManageError(null);
                   }}
-                  className={`py-2 text-xs font-semibold rounded-md cursor-pointer transition-colors ${
+                  className={`py-2 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md cursor-pointer transition-colors ${
                     manageTab === 'kategori-pendapatan'
                       ? 'bg-white text-emerald-700 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Kategori Pendapatan
+                  Kat. Pendapatan
                 </button>
               </div>
 

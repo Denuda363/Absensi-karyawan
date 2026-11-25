@@ -326,13 +326,18 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             <span className="truncate">Ketepatan Shift</span>
             <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
           </div>
-          <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums leading-tight">
-            {todayMetrics.hadirCount}
-            <span className="text-xs sm:text-sm font-normal text-slate-500"> tepat · </span>
-            <span className={todayMetrics.terlambatCount > 0 ? 'text-amber-700' : 'text-slate-900'}>
-              {todayMetrics.terlambatCount}
+          <div className="mt-2 font-mono text-lg sm:text-2xl font-bold text-slate-900 tabular-nums leading-tight flex flex-wrap items-baseline gap-x-1">
+            <span>
+              {todayMetrics.hadirCount}
+              <span className="text-[11px] sm:text-sm font-normal text-slate-500"> tepat</span>
             </span>
-            <span className="text-xs sm:text-sm font-normal text-slate-500"> telat</span>
+            <span className="text-[11px] sm:text-sm font-normal text-slate-400">·</span>
+            <span>
+              <span className={todayMetrics.terlambatCount > 0 ? 'text-amber-700' : 'text-slate-900'}>
+                {todayMetrics.terlambatCount}
+              </span>
+              <span className="text-[11px] sm:text-sm font-normal text-slate-500"> telat</span>
+            </span>
           </div>
           <div className="mt-2 text-[11px] sm:text-xs text-slate-500 font-mono tabular-nums truncate">
             {todayMetrics.totalLateMinutesToday > 0
@@ -472,7 +477,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                         )}
                       </div>
                       <div
-                        className={`mt-2 font-mono text-[10px] sm:text-[11px] tabular-nums whitespace-nowrap ${
+                        className={`mt-2 font-mono text-[9px] sm:text-[11px] tracking-tighter sm:tracking-normal tabular-nums whitespace-nowrap ${
                           isFocused ? 'font-bold text-blue-700' : 'text-slate-500'
                         }`}
                       >
@@ -757,7 +762,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                         <div className="font-medium text-slate-900 truncate">
                           {rec.employeeName}
                         </div>
-                        <div className="font-mono text-slate-500 tabular-nums">
+                        <div className="font-mono text-slate-500 tabular-nums truncate">
                           {rec.checkIn
                             ? `Masuk ${rec.checkIn}${rec.checkOut ? ` · Pulang ${rec.checkOut}` : ''}`
                             : rec.status === 'izin_terlambat'

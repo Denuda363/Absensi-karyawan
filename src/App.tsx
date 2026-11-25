@@ -313,7 +313,7 @@ function AppWorkspace() {
   const pageMeta = PAGE_TITLES[effectiveNav];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex print:block print:min-h-0 print:bg-white">
       <Sidebar
         activeNav={effectiveNav}
         onSelectNav={handleGuardedNavigate}
@@ -359,7 +359,9 @@ function AppWorkspace() {
               <RealtimeClock variant="compact" />
             </div>
 
-            <PWAInstallButton variant="header" />
+            <div className="hidden sm:inline-flex">
+              <PWAInstallButton variant="header" />
+            </div>
 
             <NotificationBellButton
               unreadCount={unreadCount}
@@ -414,7 +416,7 @@ function AppWorkspace() {
         </header>
 
         {/* Main Content (includes bottom safe clearance for mobile bottom nav) */}
-        <main className="flex-1 p-3.5 sm:p-5 lg:p-8 pb-24 lg:pb-8 max-w-[1440px] w-full mx-auto">
+        <main className="flex-1 p-3.5 sm:p-5 lg:p-8 pb-24 lg:pb-8 max-w-[1440px] w-full mx-auto print:p-0 print:pb-0 print:max-w-none print:m-0">
           {loadError && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800 flex items-center justify-between gap-4">
               <span>{loadError}</span>

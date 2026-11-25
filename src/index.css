@@ -91,13 +91,102 @@
   .no-print {
     display: none !important;
   }
-  body {
+  html, body {
     background-color: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  .matrix-print-sheet {
+    zoom: var(--matrix-print-zoom, 1);
+    width: 100% !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .matrix-print-table {
+    width: 100% !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
+    font-size: 8px !important;
+    line-height: 1.05 !important;
+  }
+
+  .matrix-print-table th,
+  .matrix-print-table td {
+    position: static !important;
+    box-shadow: none !important;
+    min-width: 0 !important;
+    padding: 1.5px 2px !important;
+    border-color: #64748b !important;
+  }
+
+  .matrix-print-table thead tr:first-child th {
+    height: 38px !important;
+    padding: 2px 1px !important;
+    font-size: 7.5px !important;
+  }
+
+  .matrix-print-table .matrix-print-day-col {
+    width: 19px !important;
+    max-width: 19px !important;
+    padding: 1px 0 !important;
+    font-size: 7.5px !important;
+  }
+
+  .matrix-print-table .matrix-print-id-col {
+    white-space: nowrap !important;
+    font-size: 7.5px !important;
+    padding: 1px 3px !important;
+  }
+
+  .matrix-print-table .matrix-print-name-col {
+    max-width: 112px !important;
+    width: 112px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 8px !important;
+    padding: 1px 4px !important;
+  }
+
+  .matrix-print-table .matrix-print-off-col {
+    max-width: 56px !important;
+    white-space: nowrap !important;
+    font-size: 7.5px !important;
+    padding: 1px 3px !important;
+  }
+
+  .matrix-print-table .matrix-print-spacer-col {
+    width: 5px !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+
+  .matrix-print-table .matrix-print-sum-col {
+    width: 18px !important;
+    padding: 1px 2px !important;
+    font-size: 8px !important;
+  }
+
+  .matrix-print-table .matrix-print-cell-btn {
+    height: 14px !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 8px !important;
+    line-height: 1 !important;
+  }
+
+  .matrix-print-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }

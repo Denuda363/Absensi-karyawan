@@ -952,11 +952,11 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto shrink-0">
             <button
               type="button"
               onClick={() => setSettingsModalOpen(true)}
-              className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3 py-2 sm:py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>Aturan &amp; Tarif</span>
@@ -964,7 +964,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <button
               type="button"
               onClick={() => setBackupModalOpen(true)}
-              className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3 py-2 sm:py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Settings2 className="w-3.5 h-3.5" />
               <span>Backup Gaji</span>
@@ -972,7 +972,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <button
               type="button"
               onClick={() => handleForceLock()}
-              className="px-3.5 py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              className="col-span-2 sm:col-span-1 px-3.5 py-2 sm:py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Lock className="w-3.5 h-3.5" />
               <span>Kunci Akses</span>
@@ -1121,39 +1121,39 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto shrink-0">
               <button
                 type="button"
                 onClick={() => openRaiseModal()}
-                className="px-3 py-2 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>Atur Kenaikan Gaji</span>
+                <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Naik Gaji</span>
               </button>
               <button
                 type="button"
                 onClick={() => openAdjustmentModal()}
-                className="px-3 py-2 text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Bonus / Tunjangan / Potongan</span>
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Bonus / Potongan</span>
               </button>
               <button
                 type="button"
                 onClick={handleExportExcel}
                 disabled={exportingExcel || filteredRows.length === 0}
-                className="px-3 py-2 text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
                 <span>{exportingExcel ? 'Menyiapkan...' : 'Excel (.xlsx)'}</span>
               </button>
               <button
                 type="button"
                 onClick={handleExportCsv}
                 disabled={filteredRows.length === 0}
-                className="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 shrink-0" />
                 <span>CSV</span>
               </button>
             </div>
@@ -1161,13 +1161,13 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
         </div>
 
         {/* 4 KPI Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between text-xs font-medium text-slate-500">
               <span>Total Gaji Bersih (THP)</span>
-              <Wallet className="w-4 h-4 text-emerald-700" />
+              <Wallet className="w-4 h-4 text-emerald-700 shrink-0" />
             </div>
-            <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+            <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
               {formatRupiah(kpiTotals.net)}
             </div>
             <div className="mt-1.5 text-xs text-slate-500">
@@ -1175,12 +1175,12 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between text-xs font-medium text-slate-500">
               <span>Pendapatan Bruto</span>
-              <Banknote className="w-4 h-4 text-blue-700" />
+              <Banknote className="w-4 h-4 text-blue-700 shrink-0" />
             </div>
-            <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+            <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
               {formatRupiah(kpiTotals.gross)}
             </div>
             <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
@@ -1189,12 +1189,12 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between text-xs font-medium text-slate-500">
               <span>Total Potongan</span>
-              <AlertCircle className="w-4 h-4 text-red-600" />
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             </div>
-            <div className="mt-2 font-mono text-2xl font-bold text-red-700 tabular-nums">
+            <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-red-700 tabular-nums">
               {formatRupiah(kpiTotals.deductions)}
             </div>
             <div className="mt-1.5 text-xs text-slate-500">
@@ -1202,12 +1202,12 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between text-xs font-medium text-slate-500">
               <span>Progres Pembayaran</span>
-              <CheckCircle2 className="w-4 h-4 text-slate-700" />
+              <CheckCircle2 className="w-4 h-4 text-slate-700 shrink-0" />
             </div>
-            <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
+            <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
               {kpiTotals.paidCount} / {kpiTotals.count}
             </div>
             <div className="mt-1.5 text-xs text-slate-500">
@@ -1218,9 +1218,9 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
 
         {/* Main Payroll Table */}
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="font-display text-base font-bold text-slate-900">
+              <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 Rekapitulasi Gaji Bulanan — {formatIndonesianMonth(selectedMonth)}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -1238,8 +1238,180 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               Tidak ada karyawan yang sesuai dengan filter saat ini.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[1160px]">
+            <>
+              {/* Mobile Payroll Cards (< md) */}
+              <div className="md:hidden divide-y divide-slate-200">
+                {filteredRows.map((row) => {
+                  const allowanceTotal =
+                    row.positionAllowance +
+                    row.transportMealAllowance +
+                    row.otherAllowance;
+                  const extraEarnTotal =
+                    row.overtimePay + row.totalBonus + row.totalExtraAllowance;
+
+                  return (
+                    <div key={row.employee.id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-slate-900 truncate">
+                            {row.employee.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            <span className="font-mono text-slate-600">
+                              {row.employee.employeeCode}
+                            </span>{' '}
+                            • {row.employee.department} • {row.employee.position}
+                          </div>
+                          <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                            {row.profile.paymentMethod === 'tunai'
+                              ? 'Tunai'
+                              : `${row.profile.bankName || 'Transfer'} ${
+                                  row.profile.bankAccountNumber || ''
+                                }`}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <span className="px-2 py-0.5 text-[10px] font-mono font-semibold bg-slate-100 text-slate-700 border border-slate-200 rounded">
+                            Tgl {row.paydayDay}
+                          </span>
+                          <select
+                            aria-label={`Status gaji ${row.employee.name}`}
+                            value={row.status}
+                            disabled={updatingStatusKey === row.employee.id}
+                            onChange={(e) =>
+                              handleChangePaymentStatus(
+                                row.employee.id,
+                                e.target.value as PayrollRecordStatus
+                              )
+                            }
+                            className={`px-2 py-1 text-[11px] font-semibold rounded-md border cursor-pointer focus:outline-none ${
+                              row.status === 'dibayar'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : row.status === 'disetujui'
+                                ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                : 'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}
+                          >
+                            <option value="draft">Draft</option>
+                            <option value="disetujui">Disetujui</option>
+                            <option value="dibayar">Dibayar</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 tabular-nums">
+                        <span>
+                          Hadir <strong>{row.presentDays}/{row.effectiveWorkDays}</strong> hari
+                        </span>
+                        <span>•</span>
+                        <span>Lembur {row.overtimeHours} jam</span>
+                        {row.totalLateMinutes > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-amber-700">
+                              Telat {row.totalLateMinutes}m
+                            </span>
+                          </>
+                        )}
+                        {row.alphaCount > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-red-700">Alpha {row.alphaCount}h</span>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 text-[11px]">
+                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80">
+                          <div className="text-slate-500">Pokok+Tunj</div>
+                          <div className="font-mono font-semibold text-slate-900 tabular-nums truncate mt-0.5">
+                            {formatRupiah(row.baseSalary + allowanceTotal)}
+                          </div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-blue-50/50 border border-blue-200/70">
+                          <div className="text-slate-500">Lembur/Bns</div>
+                          <div className="font-mono font-semibold text-blue-700 tabular-nums truncate mt-0.5">
+                            +{formatRupiah(extraEarnTotal)}
+                          </div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-red-50/40 border border-red-200/70">
+                          <div className="text-slate-500">Potongan</div>
+                          <div className="font-mono font-semibold text-red-700 tabular-nums truncate mt-0.5">
+                            -{formatRupiah(row.totalDeductions)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="px-3 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
+                            Gaji Bersih (THP)
+                          </div>
+                          <div className="text-[10px] font-mono text-emerald-700/80 tabular-nums">
+                            Bruto {formatRupiah(row.grossSalary)}
+                          </div>
+                        </div>
+                        <div className="font-mono text-base font-bold text-emerald-900 tabular-nums">
+                          {formatRupiah(row.netSalary)}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setPayslipRow(row)}
+                          className="min-h-[38px] px-2 py-1.5 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg cursor-pointer"
+                        >
+                          Slip
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditProfile(row)}
+                          className="min-h-[38px] px-2 py-1.5 text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg cursor-pointer"
+                        >
+                          Atur
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openRaiseModal(row.employee.id)}
+                          className="min-h-[38px] px-2 py-1.5 text-xs font-medium bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          <span>Naik</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAdjustmentModal(row.employee.id)}
+                          className="min-h-[38px] px-2 py-1.5 text-xs font-medium bg-white hover:bg-blue-50 text-blue-700 border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Adj</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="p-4 bg-slate-900 text-white space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span>TOTAL ({filteredRows.length} Karyawan)</span>
+                    <span className="font-mono text-sm text-emerald-300 tabular-nums">
+                      {formatRupiah(kpiTotals.net)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono tabular-nums text-slate-300">
+                    <div>Bruto: {formatRupiah(kpiTotals.gross)}</div>
+                    <div className="text-right text-red-300">
+                      Pot: -{formatRupiah(kpiTotals.deductions)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop Payroll Table (md+) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[1160px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
                     <th className="py-3 px-4">Karyawan</th>
@@ -1485,18 +1657,19 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   </tr>
                 </tfoot>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </div>
 
         {/* Lower Tabbed Section: Bonus/Tunjangan/Potongan & Riwayat Kenaikan Gaji */}
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
-            <div className="flex items-center gap-2">
+          <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => setLowerTab('penyesuaian')}
-                className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                   lowerTab === 'penyesuaian'
                     ? 'bg-slate-900 text-white'
                     : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
@@ -1507,7 +1680,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               <button
                 type="button"
                 onClick={() => setLowerTab('kenaikan')}
-                className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                   lowerTab === 'kenaikan'
                     ? 'bg-slate-900 text-white'
                     : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
@@ -1687,20 +1860,21 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       {/* MODAL: SLIP GAJI INDIVIDU (PRINT-READY)                               */}
       {/* ===================================================================== */}
       {payslipRow && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto print:static print:bg-white print:p-0">
-          <div className="bg-white w-full max-w-3xl rounded-2xl border border-slate-200 shadow-xl overflow-hidden print:border-0 print:shadow-none print:rounded-none">
-            <div className="px-6 py-3.5 bg-slate-950 text-white flex items-center justify-between no-print">
-              <div className="text-sm font-semibold">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto print:static print:bg-white print:p-0 print:block">
+          <div className="bg-white w-full sm:max-w-3xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[94dvh] sm:max-h-none flex flex-col print:max-h-none print:border-0 print:shadow-none print:rounded-none">
+            <div className="px-4 sm:px-6 py-3.5 bg-slate-950 text-white flex items-center justify-between gap-2 shrink-0 no-print">
+              <div className="text-xs sm:text-sm font-semibold truncate">
                 Pratinjau Slip Gaji — {payslipRow.employee.name}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3.5 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 sm:px-3.5 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Cetak / Simpan PDF</span>
+                  <span className="hidden sm:inline">Cetak / Simpan PDF</span>
+                  <span className="sm:hidden">Cetak</span>
                 </button>
                 <button
                   type="button"
@@ -1712,18 +1886,18 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               </div>
             </div>
 
-            <div className="p-6 sm:p-8 space-y-6 text-slate-900">
-              <div className="flex items-start justify-between gap-4 border-b-2 border-slate-900 pb-4">
-                <div className="flex items-center gap-3">
+            <div className="p-4 sm:p-8 space-y-5 sm:space-y-6 text-slate-900 overflow-y-auto pb-safe print:overflow-visible print:p-4">
+              <div className="flex flex-col sm:flex-row print:flex-row sm:items-start print:items-start justify-between gap-3 sm:gap-4 border-b-2 border-slate-900 pb-4">
+                <div className="flex items-center gap-3 min-w-0">
                   {companyProfile?.logoDataUrl && (
                     <img
                       src={companyProfile.logoDataUrl}
                       alt={legalName}
-                      className="w-12 h-12 object-contain border border-slate-200 rounded-lg p-1"
+                      className="w-12 h-12 object-contain border border-slate-200 rounded-lg p-1 shrink-0"
                     />
                   )}
-                  <div>
-                    <div className="font-display text-lg font-bold text-slate-950">
+                  <div className="min-w-0">
+                    <div className="font-display text-base sm:text-lg font-bold text-slate-950">
                       {legalName}
                     </div>
                     <div className="text-xs text-slate-600">
@@ -1741,7 +1915,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                     </div>
                   </div>
                 </div>
-                <div className="text-right shrink-0">
+                <div className="text-left sm:text-right print:text-right shrink-0">
                   <div className="text-xs font-bold tracking-wider uppercase text-slate-500">
                     SLIP GAJI KARYAWAN
                   </div>
@@ -1920,7 +2094,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 </div>
               </div>
 
-              <div className="bg-slate-950 text-white rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+              <div className="bg-slate-950 text-white rounded-xl px-4 sm:px-5 py-4 flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2 sm:gap-4">
                 <div>
                   <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
                     Total Gaji Bersih Diterima (Take-Home Pay)
@@ -1929,12 +2103,12 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                     Periode {formatIndonesianMonth(selectedMonth)} • Dibayarkan tiap tanggal {payslipRow.paydayDay}
                   </div>
                 </div>
-                <div className="font-mono text-2xl font-bold text-emerald-400 tabular-nums">
+                <div className="font-mono text-xl sm:text-2xl font-bold text-emerald-400 tabular-nums">
                   {formatRupiah(payslipRow.netSalary)}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-8 pt-4 text-xs text-center">
+              <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-6 sm:gap-8 pt-4 text-xs text-center">
                 <div>
                   <div className="text-slate-500">Disetujui Oleh,</div>
                   <div className="font-semibold text-slate-800 mt-0.5">
@@ -1965,27 +2139,27 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       {/* MODAL: ATUR KOMPONEN GAJI & TANGGAL GAJIAN PER KARYAWAN               */}
       {/* ===================================================================== */}
       {editingProfileEmp && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto no-print">
-          <div className="bg-white w-full max-w-xl rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="font-display text-base font-bold text-slate-900">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 truncate">
                   Atur Gaji &amp; Tanggal Gajian — {editingProfileEmp.name}
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 truncate">
                   {editingProfileEmp.employeeCode} • {editingProfileEmp.department} ({editingProfileEmp.position})
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingProfileEmp(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
+            <form onSubmit={handleSaveProfile} className="p-4 sm:p-6 space-y-4 overflow-y-auto pb-safe">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -2194,25 +2368,25 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       {/* MODAL: ATUR KENAIKAN GAJI KARYAWAN                                    */}
       {/* ===================================================================== */}
       {raiseModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto no-print">
-          <div className="bg-white w-full max-w-xl rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-950 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
-                <h3 className="font-display text-base font-bold">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="px-4 sm:px-6 py-4 bg-slate-950 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <TrendingUp className="w-4 h-4 text-emerald-400 shrink-0" />
+                <h3 className="font-display text-sm sm:text-base font-bold truncate">
                   Atur Kenaikan Gaji Karyawan
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setRaiseModalOpen(false)}
-                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer"
+                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitRaise} className="p-6 space-y-4">
+            <form onSubmit={handleSubmitRaise} className="p-4 sm:p-6 space-y-4 overflow-y-auto pb-safe">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Pilih Karyawan
@@ -2468,22 +2642,22 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       {/* MODAL: TAMBAH BONUS, TUNJANGAN TAMBAHAN & POTONGAN                    */}
       {/* ===================================================================== */}
       {adjModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto no-print">
-          <div className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-display text-base font-bold text-slate-900">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 Tambah Bonus / Tunjangan / Potongan ({formatIndonesianMonth(selectedMonth)})
               </h3>
               <button
                 type="button"
                 onClick={() => setAdjModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateAdjustment} className="p-6 space-y-4">
+            <form onSubmit={handleCreateAdjustment} className="p-4 sm:p-6 space-y-4 overflow-y-auto pb-safe">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Pilih Karyawan
@@ -2495,7 +2669,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setAdjType('bonus')}
@@ -2557,7 +2731,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Nominal (Rp)
@@ -2624,10 +2798,10 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       {/* MODAL: PENGATURAN TARIF & ATURAN PAYROLL                              */}
       {/* ===================================================================== */}
       {settingsModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto no-print">
-          <div className="bg-white w-full max-w-lg rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-display text-base font-bold text-slate-900">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 Pengaturan Tarif &amp; Aturan Payroll
               </h3>
               <button
@@ -2639,7 +2813,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSavePayrollSettings} className="p-6 space-y-4">
+            <form onSubmit={handleSavePayrollSettings} className="p-4 sm:p-6 space-y-4 overflow-y-auto pb-safe">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -2798,10 +2972,10 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       {/* MODAL: BACKUP & RESTORE RAHASIA GAJI                                  */}
       {/* ===================================================================== */}
       {backupModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto no-print">
-          <div className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-display text-base font-bold text-slate-900">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 Backup &amp; Restore Data Gaji (Rahasia)
               </h3>
               <button
@@ -2812,7 +2986,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto pb-safe">
               <p className="text-xs text-slate-600 leading-relaxed">
                 Data penggajian disimpan terpisah dari backup absensi umum agar kerahasiaan nominal gaji, tanggal gajian individu, dan riwayat kenaikan gaji tetap terjaga.
               </p>

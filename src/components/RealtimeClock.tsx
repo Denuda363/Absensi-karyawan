@@ -482,21 +482,21 @@ export const RealtimeClock: React.FC<RealtimeClockProps> = ({
 
   // Full Executive Chronometer (used in Dashboard Header)
   return (
-    <div className="bg-slate-950 text-white border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-4 shrink-0">
+    <div className="bg-slate-950 text-white border border-slate-800 rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2.5 sm:gap-4 w-full sm:w-auto overflow-hidden shrink-0">
       <KineticDial
         hours={hours}
         minutes={minutes}
         seconds={seconds}
         millis={millis}
         sweepMode={sweepMode}
-        size={64}
+        size={58}
       />
 
-      <div className="min-w-0">
-        <div className="flex items-center justify-between gap-3 mb-1.5">
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-300">
-            <PhaseIcon className={`w-3.5 h-3.5 ${phase.accentClass}`} />
-            <span>{phase.label}</span>
+      <div className="min-w-0 flex-1 sm:flex-none">
+        <div className="flex items-center justify-between gap-2 sm:gap-3 mb-1.5">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-300 truncate">
+            <PhaseIcon className={`w-3.5 h-3.5 shrink-0 ${phase.accentClass}`} />
+            <span className="truncate">{phase.label}</span>
           </span>
           <button
             type="button"
@@ -504,17 +504,17 @@ export const RealtimeClock: React.FC<RealtimeClockProps> = ({
               setSweepMode((m) => (m === 'smooth' ? 'tick' : 'smooth'))
             }
             title="Ubah gaya gerak jarum detik"
-            className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition-colors cursor-pointer"
+            className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition-colors shrink-0 cursor-pointer"
           >
             {sweepMode === 'smooth' ? 'Halus' : 'Detak'}
           </button>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1">
           <RollingDigit digit={hh[0]} />
           <RollingDigit digit={hh[1]} />
           <span
-            className={`font-mono text-lg font-bold px-0.5 transition-opacity duration-150 ${
+            className={`font-mono text-base sm:text-lg font-bold px-0.5 transition-opacity duration-150 ${
               colonActive ? 'opacity-100 text-sky-400' : 'opacity-30 text-slate-500'
             }`}
           >
@@ -523,7 +523,7 @@ export const RealtimeClock: React.FC<RealtimeClockProps> = ({
           <RollingDigit digit={mm[0]} />
           <RollingDigit digit={mm[1]} />
           <span
-            className={`font-mono text-lg font-bold px-0.5 transition-opacity duration-150 ${
+            className={`font-mono text-base sm:text-lg font-bold px-0.5 transition-opacity duration-150 ${
               colonActive ? 'opacity-100 text-sky-400' : 'opacity-30 text-slate-500'
             }`}
           >
@@ -533,10 +533,10 @@ export const RealtimeClock: React.FC<RealtimeClockProps> = ({
           <RollingDigit digit={ss[1]} />
         </div>
 
-        <div className="mt-1.5 text-[11px] text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
-          <span>{dateLabel}</span>
+        <div className="mt-1.5 text-[10px] sm:text-[11px] text-slate-400 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <span className="truncate">{dateLabel}</span>
           <span aria-hidden="true">·</span>
-          <span className="font-semibold text-sky-400">{tzLabel}</span>
+          <span className="font-semibold text-sky-400 shrink-0">{tzLabel}</span>
         </div>
       </div>
     </div>
