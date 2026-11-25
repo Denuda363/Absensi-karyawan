@@ -474,11 +474,20 @@ export function calculateLatenessMinutes(checkIn: string, shiftStart: string): n
   return diff > 0 ? diff : 0;
 }
 
+export const UNASSIGNED_SHIFT_NAME = 'Belum Diatur';
+
+export function isEmployeeShiftAssigned(shiftName?: string): boolean {
+  const clean = String(shiftName || '').trim().toLowerCase();
+  return Boolean(clean && clean !== 'belum diatur' && clean !== '-');
+}
+
 export function getEmployeeShiftTolerance(
   employee: Employee,
   shifts?: ShiftConfig[]
 ): number {
-  if (!shifts || shifts.length === 0) return 0;
+  if (!shifts || shifts.length === 0 || !isEmployeeShiftAssigned(employee.shiftName)) {
+    return 0;
+  }
   const match = shifts.find(
     (s) => s.name.toLowerCase() === employee.shiftName.toLowerCase()
   );
@@ -511,13 +520,44 @@ export function getShiftMembersForWeekday(
     return { members, isCustomDayRoster: true };
   }
 
-  const members = employees.filter(
-    (emp) =>
-      emp.active &&
-      emp.shiftName.toLowerCase() === shift.name.toLowerCase() &&
-      !emp.offDays.includes(dayIndex)
+  // Tidak ada shift default per karyawan: seluruh anggota shift diatur penuh melalui Jadwal Shift
+  return { members: [], isCustomDayRoster: false };
+}
+
+export function getEmployeeScheduledShiftsForWeekday(
+  employeeId: string,
+  dayIndex: number,
+  shifts?: ShiftConfig[]
+): ShiftConfig[] {
+  if (!shifts || shifts.length === 0 || !employeeId) return [];
+  const dayKey = String(dayIndex);
+  return shifts.filter((shift) => {
+    const ids = shift.dailyMemberIds?.[dayKey];
+    return Array.isArray(ids) && ids.includes(employeeId);
+  });
+}
+
+export function getEmployeeWeeklyShiftSummary(
+  employeeId: string,
+  shifts?: ShiftConfig[]
+): {
+  dayEntries: { dayIndex: number; dayShort: string; shift: ShiftConfig | null }[];
+  uniqueShiftNames: string[];
+  scheduledDayCount: number;
+} {
+  const dayEntries = HARI_WEEKDAYS.map((day) => {
+    const matched = getEmployeeScheduledShiftsForWeekday(employeeId, day.index, shifts);
+    return {
+      dayIndex: day.index,
+      dayShort: day.short,
+      shift: matched[0] ?? null,
+    };
+  });
+  const uniqueShiftNames = Array.from(
+    new Set(dayEntries.map((d) => d.shift?.name).filter((n): n is string => Boolean(n)))
   );
-  return { members, isCustomDayRoster: false };
+  const scheduledDayCount = dayEntries.filter((d) => d.shift !== null).length;
+  return { dayEntries, uniqueShiftNames, scheduledDayCount };
 }
 
 export function resolveAttendanceShift(
@@ -530,22 +570,51 @@ export function resolveAttendanceShift(
   shiftEnd: string;
   lateToleranceMinutes: number;
 } {
-  const targetName = String(overrideShiftName || '').trim() || employee.shiftName;
-  const match = shifts?.find(
-    (s) => s.name.toLowerCase() === targetName.toLowerCase()
-  );
-  if (match) {
+  const override = String(overrideShiftName || '').trim();
+  if (override && isEmployeeShiftAssigned(override)) {
+    const match = shifts?.find(
+      (s) => s.name.toLowerCase() === override.toLowerCase()
+    );
+    if (match) {
+      return {
+        shiftName: match.name,
+        shiftStart: match.startTime,
+        shiftEnd: match.endTime,
+        lateToleranceMinutes: match.lateToleranceMinutes,
+      };
+    }
     return {
-      shiftName: match.name,
-      shiftStart: match.startTime,
-      shiftEnd: match.endTime,
-      lateToleranceMinutes: match.lateToleranceMinutes,
+      shiftName: override,
+      shiftStart: isEmployeeShiftAssigned(employee.shiftName) ? employee.shiftStart : '',
+      shiftEnd: isEmployeeShiftAssigned(employee.shiftName) ? employee.shiftEnd : '',
+      lateToleranceMinutes: 0,
     };
   }
+
+  if (isEmployeeShiftAssigned(employee.shiftName)) {
+    const match = shifts?.find(
+      (s) => s.name.toLowerCase() === employee.shiftName.toLowerCase()
+    );
+    if (match) {
+      return {
+        shiftName: match.name,
+        shiftStart: match.startTime,
+        shiftEnd: match.endTime,
+        lateToleranceMinutes: match.lateToleranceMinutes,
+      };
+    }
+    return {
+      shiftName: employee.shiftName,
+      shiftStart: employee.shiftStart,
+      shiftEnd: employee.shiftEnd,
+      lateToleranceMinutes: 0,
+    };
+  }
+
   return {
-    shiftName: targetName,
-    shiftStart: employee.shiftStart,
-    shiftEnd: employee.shiftEnd,
+    shiftName: UNASSIGNED_SHIFT_NAME,
+    shiftStart: '',
+    shiftEnd: '',
     lateToleranceMinutes: 0,
   };
 }
@@ -563,8 +632,11 @@ export function resolveEmployeeDefaultShiftForDate(
 } {
   if (!shifts || shifts.length === 0) {
     return {
-      ...resolveAttendanceShift(employee, shifts, employee.shiftName),
-      scheduledShiftNames: employee.shiftName ? [employee.shiftName] : [],
+      shiftName: UNASSIGNED_SHIFT_NAME,
+      shiftStart: '',
+      shiftEnd: '',
+      lateToleranceMinutes: 0,
+      scheduledShiftNames: [],
     };
   }
   const dayIdx = getDayOfWeekFromDateStr(dateStr);
@@ -575,10 +647,7 @@ export function resolveEmployeeDefaultShiftForDate(
   const scheduledShiftNames = scheduledShifts.map((s) => s.name);
 
   if (scheduledShifts.length > 0) {
-    const preferred =
-      scheduledShifts.find(
-        (s) => s.name.toLowerCase() === employee.shiftName.toLowerCase()
-      ) || scheduledShifts[0];
+    const preferred = scheduledShifts[0];
     return {
       shiftName: preferred.name,
       shiftStart: preferred.startTime,
@@ -589,8 +658,55 @@ export function resolveEmployeeDefaultShiftForDate(
   }
 
   return {
-    ...resolveAttendanceShift(employee, shifts, employee.shiftName),
+    shiftName: UNASSIGNED_SHIFT_NAME,
+    shiftStart: '',
+    shiftEnd: '',
+    lateToleranceMinutes: 0,
     scheduledShiftNames: [],
+  };
+}
+
+export function formatEmployeeShiftForDisplay(
+  employee: Employee,
+  dateStr: string,
+  shifts?: ShiftConfig[]
+): {
+  hasSchedule: boolean;
+  label: string;
+  shortLabel: string;
+  shiftName: string;
+  shiftStart: string;
+  shiftEnd: string;
+} {
+  const scheduled = resolveEmployeeDefaultShiftForDate(employee, dateStr, shifts);
+  if (scheduled.scheduledShiftNames.length > 0) {
+    return {
+      hasSchedule: true,
+      label: `${scheduled.shiftName} (${scheduled.shiftStart}–${scheduled.shiftEnd})`,
+      shortLabel: scheduled.shiftName,
+      shiftName: scheduled.shiftName,
+      shiftStart: scheduled.shiftStart,
+      shiftEnd: scheduled.shiftEnd,
+    };
+  }
+  const weekly = getEmployeeWeeklyShiftSummary(employee.id, shifts);
+  if (weekly.scheduledDayCount > 0) {
+    return {
+      hasSchedule: false,
+      label: `Tidak ada shift hari ini (${weekly.uniqueShiftNames.join('/')})`,
+      shortLabel: 'Kosong hari ini',
+      shiftName: '',
+      shiftStart: '',
+      shiftEnd: '',
+    };
+  }
+  return {
+    hasSchedule: false,
+    label: 'Belum dijadwalkan (Atur di Jadwal Shift)',
+    shortLabel: 'Belum diatur',
+    shiftName: '',
+    shiftStart: '',
+    shiftEnd: '',
   };
 }
 

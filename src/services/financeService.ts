@@ -19,7 +19,7 @@ import {
   upsertFinanceTransactionToFirestore,
   upsertFinanceTransferToFirestore,
 } from './firebaseClient';
-import { notifyLocalScopeMutation } from './realtimeService';
+import { isFirestoreEngineActive, notifyLocalScopeMutation } from './realtimeService';
 import {
   emitAppNotification,
   formatRupiahNotif,
@@ -98,7 +98,9 @@ export async function createFinanceAccount(
     () => clientCreateFinanceAccount(adminToken, payload)
   );
   notifyLocalScopeMutation('finance', 'create_finance_account');
-  void upsertFinanceAccountToFirestore(created).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void upsertFinanceAccountToFirestore(created).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Akun Keuangan Dibuat',
     message: `${created.name} (${created.kind === 'cash' ? 'Kas Tunai' : created.bankName || 'Rekening Bank'})`,
@@ -141,7 +143,9 @@ export async function updateFinanceAccount(
     () => clientUpdateFinanceAccount(adminToken, accountId, payload)
   );
   notifyLocalScopeMutation('finance', 'update_finance_account');
-  void upsertFinanceAccountToFirestore(updated).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void upsertFinanceAccountToFirestore(updated).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Akun Keuangan Diperbarui',
     message: `${updated.name} · Saldo awal ${formatRupiahNotif(updated.openingBalance)}`,
@@ -172,7 +176,9 @@ export async function deleteFinanceAccount(
     }
   );
   notifyLocalScopeMutation('finance', 'delete_finance_account');
-  void deleteFinanceAccountFromFirestore(accountId).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void deleteFinanceAccountFromFirestore(accountId).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Akun Keuangan Dihapus',
     message: `Akun kas/rekening #${accountId} dihapus dari daftar aktif.`,
@@ -207,7 +213,9 @@ export async function createFinanceTransfer(
     () => clientCreateFinanceTransfer(adminToken, payload)
   );
   notifyLocalScopeMutation('finance', 'create_finance_transfer');
-  void upsertFinanceTransferToFirestore(transfer).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void upsertFinanceTransferToFirestore(transfer).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Transfer Saldo Internal',
     message: `${transfer.fromAccountName} → ${transfer.toAccountName} (${transfer.date})`,
@@ -237,7 +245,9 @@ export async function deleteFinanceTransfer(
     }
   );
   notifyLocalScopeMutation('finance', 'delete_finance_transfer');
-  void deleteFinanceTransferFromFirestore(transferId).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void deleteFinanceTransferFromFirestore(transferId).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Transfer Internal Dihapus',
     message: `Mutasi transfer internal #${transferId} telah dibatalkan.`,
@@ -269,7 +279,9 @@ export async function createFinanceCategory(
     () => clientCreateFinanceCategory(adminToken, payload)
   );
   notifyLocalScopeMutation('finance', 'create_finance_category');
-  void upsertFinanceCategoryToFirestore(created).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void upsertFinanceCategoryToFirestore(created).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Kategori Keuangan Ditambahkan',
     message: `${created.name} (${created.type === 'pendapatan' ? 'Pendapatan' : 'Pengeluaran'})`,
@@ -302,7 +314,9 @@ export async function updateFinanceCategory(
     () => clientUpdateFinanceCategory(adminToken, categoryId, payload)
   );
   notifyLocalScopeMutation('finance', 'update_finance_category');
-  void upsertFinanceCategoryToFirestore(updated).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void upsertFinanceCategoryToFirestore(updated).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Kategori Keuangan Diperbarui',
     message: `Kategori "${updated.name}" telah diperbarui.`,
@@ -330,7 +344,9 @@ export async function deleteFinanceCategory(
     }
   );
   notifyLocalScopeMutation('finance', 'delete_finance_category');
-  void deleteFinanceCategoryFromFirestore(categoryId).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void deleteFinanceCategoryFromFirestore(categoryId).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Kategori Keuangan Dihapus',
     message: `Kategori #${categoryId} dihapus dari daftar kategori.`,
@@ -370,7 +386,9 @@ export async function createFinanceTransaction(
     () => clientCreateFinanceTransaction(adminToken, payload)
   );
   notifyLocalScopeMutation('finance', 'create_finance_transaction');
-  void upsertFinanceTransactionToFirestore(tx).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void upsertFinanceTransactionToFirestore(tx).catch(() => undefined);
+  }
   const isIncome = tx.type === 'pendapatan';
   const sign = isIncome ? '+' : '-';
   emitAppNotification({
@@ -417,7 +435,9 @@ export async function updateFinanceTransaction(
     () => clientUpdateFinanceTransaction(adminToken, txId, payload)
   );
   notifyLocalScopeMutation('finance', 'update_finance_transaction');
-  void upsertFinanceTransactionToFirestore(tx).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void upsertFinanceTransactionToFirestore(tx).catch(() => undefined);
+  }
   const sign = tx.type === 'pendapatan' ? '+' : '-';
   emitAppNotification({
     title: 'Transaksi Keuangan Diperbarui',
@@ -449,7 +469,9 @@ export async function deleteFinanceTransaction(
     }
   );
   notifyLocalScopeMutation('finance', 'delete_finance_transaction');
-  void deleteFinanceTransactionFromFirestore(txId).catch(() => undefined);
+  if (isFirestoreEngineActive()) {
+    void deleteFinanceTransactionFromFirestore(txId).catch(() => undefined);
+  }
   emitAppNotification({
     title: 'Transaksi Keuangan Dihapus',
     message: `Entri transaksi keuangan #${txId} telah dihapus.`,
@@ -515,20 +537,22 @@ export async function restoreFinanceBackup(
     () => clientRestoreFinanceBackup(adminToken, backupPayload)
   );
   notifyLocalScopeMutation('finance', 'restore_finance_backup');
-  void (async () => {
-    for (const acc of restored.accounts) {
-      await upsertFinanceAccountToFirestore(acc).catch(() => undefined);
-    }
-    for (const cat of restored.categories) {
-      await upsertFinanceCategoryToFirestore(cat).catch(() => undefined);
-    }
-    for (const tx of restored.transactions) {
-      await upsertFinanceTransactionToFirestore(tx).catch(() => undefined);
-    }
-    for (const tr of restored.transfers) {
-      await upsertFinanceTransferToFirestore(tr).catch(() => undefined);
-    }
-  })();
+  if (isFirestoreEngineActive()) {
+    void (async () => {
+      for (const acc of restored.accounts) {
+        await upsertFinanceAccountToFirestore(acc).catch(() => undefined);
+      }
+      for (const cat of restored.categories) {
+        await upsertFinanceCategoryToFirestore(cat).catch(() => undefined);
+      }
+      for (const tx of restored.transactions) {
+        await upsertFinanceTransactionToFirestore(tx).catch(() => undefined);
+      }
+      for (const tr of restored.transfers) {
+        await upsertFinanceTransferToFirestore(tr).catch(() => undefined);
+      }
+    })();
+  }
   emitAppNotification({
     title: 'Restore Data Keuangan Berhasil',
     message: `${restored.transactions.length} transaksi & ${restored.accounts.length} akun dipulihkan.`,

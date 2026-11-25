@@ -16,6 +16,7 @@ import {
   AttendanceRecord,
   calculateLatenessMinutes,
   Employee,
+  formatEmployeeShiftForDisplay,
   formatIndonesianDate,
   formatOffDaysSummary,
   formatShortDateLabel,
@@ -25,6 +26,7 @@ import {
   isEmployeeOffDay,
   NavSection,
   resolveAttendanceShift,
+  resolveEmployeeDefaultShiftForDate,
   ShiftConfig,
 } from '../types';
 import { RealtimeClock } from './RealtimeClock';
@@ -110,7 +112,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       if (rec.status !== 'terlambat' || !rec.checkIn) return acc;
       const emp = employees.find((e) => e.id === rec.employeeId);
       if (!emp) return acc;
-      const shiftInfo = resolveAttendanceShift(emp, shifts, rec.shiftName);
+      const shiftInfo = rec.shiftName
+        ? resolveAttendanceShift(emp, shifts, rec.shiftName)
+        : resolveEmployeeDefaultShiftForDate(emp, rec.date, shifts);
       return acc + calculateLatenessMinutes(rec.checkIn, shiftInfo.shiftStart);
     }, 0);
 
@@ -643,25 +647,34 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             </div>
           ) : (
             <div className="mt-3 divide-y divide-slate-100 max-h-96 overflow-y-auto pr-1">
-              {filteredUnloggedToday.map((emp) => (
-                <div
-                  key={emp.id}
-                  className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-900 truncate">
-                      {emp.name}
+              {filteredUnloggedToday.map((emp) => {
+                const shiftDisplay = formatEmployeeShiftForDisplay(emp, today, shifts);
+                return (
+                  <div
+                    key={emp.id}
+                    className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900 truncate">
+                        {emp.name}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">
+                        <span className="font-mono">{emp.employeeCode}</span> · {emp.department}
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-500 truncate">
-                      <span className="font-mono">{emp.employeeCode}</span> · {emp.department}
-                    </div>
-                  </div>
 
-                  <span className="self-start sm:self-auto px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-md whitespace-nowrap shrink-0 font-mono tabular-nums">
-                    {emp.shiftName} ({emp.shiftStart}–{emp.shiftEnd})
-                  </span>
-                </div>
-              ))}
+                    <span
+                      className={`self-start sm:self-auto px-2.5 py-1 text-xs font-medium border rounded-md whitespace-nowrap shrink-0 tabular-nums ${
+                        shiftDisplay.hasSchedule
+                          ? 'text-slate-700 bg-slate-100 border-slate-200 font-mono'
+                          : 'text-slate-500 bg-slate-50 border-slate-200 italic'
+                      }`}
+                    >
+                      {shiftDisplay.label}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

@@ -8,11 +8,14 @@ import {
   formatOffDaysSummary,
   getDayNameIndonesian,
   getDaysInMonth,
+  getEmployeeWeeklyShiftSummary,
   getMonthEffectiveWorkDays,
   getMonthMetadata,
   isEmployeeOffDay,
+  isEmployeeShiftAssigned,
   LateSettlement,
   resolveAttendanceShift,
+  resolveEmployeeDefaultShiftForDate,
   ShiftConfig,
   statusToMatrixCode,
 } from '../types';
@@ -764,9 +767,15 @@ export async function exportAttendanceMatrixToExcel(params: {
     const denom = attendedTotal + izinCount + sakitCount + alphaCount;
     const pct = denom > 0 ? attendedTotal / denom : 0;
 
+    const weeklyShift = getEmployeeWeeklyShiftSummary(emp.id, shifts);
+    const shiftLabel =
+      weeklyShift.uniqueShiftNames.length > 0
+        ? weeklyShift.uniqueShiftNames.join(' / ')
+        : 'Diatur di Jadwal Shift';
+
     return {
       emp,
-      shiftLabel: `${emp.shiftName} (${emp.shiftStart}-${emp.shiftEnd})`,
+      shiftLabel,
       offLabel: formatOffDaysSummary(emp.offDays),
       effectiveWorkDays,
       hadirCount,
@@ -1052,6 +1061,9 @@ export async function exportAttendanceMatrixToExcel(params: {
   interface ExportLateDetailRow {
     rec: AttendanceRecord;
     emp: Employee;
+    shiftName: string;
+    shiftStart: string;
+    shiftEnd: string;
     tolerance: number;
     lateMinutes: number;
   }
@@ -1060,6 +1072,8 @@ export async function exportAttendanceMatrixToExcel(params: {
   const lateDetailRows: ExportLateDetailRow[] = [];
 
   for (const emp of sortedEmployees) {
+    const weeklyShift = getEmployeeWeeklyShiftSummary(emp.id, shifts);
+    const firstWeeklyShift = weeklyShift.dayEntries.find((d) => d.shift)?.shift ?? null;
     const monthAtt = attendanceRecords.filter(
       (r) => r.employeeId === emp.id && r.date.startsWith(yearMonth)
     );
@@ -1068,17 +1082,32 @@ export async function exportAttendanceMatrixToExcel(params: {
     let empLateMins = 0;
     let empMaxLate = 0;
     const empLateEntries: { date: string; minutes: number }[] = [];
+    const empDetailShiftNames = new Set<string>();
+    let firstDetailShiftHours = '';
 
     for (const rec of monthAtt) {
-      const recShift = resolveAttendanceShift(emp, shifts, rec.shiftName);
+      const recShift = rec.shiftName
+        ? resolveAttendanceShift(emp, shifts, rec.shiftName)
+        : resolveEmployeeDefaultShiftForDate(emp, rec.date, shifts);
       const tol = recShift.lateToleranceMinutes;
-      const rawLate = rec.checkIn
-        ? calculateLatenessMinutes(rec.checkIn, recShift.shiftStart)
-        : 0;
+      const rawLate =
+        rec.checkIn && recShift.shiftStart
+          ? calculateLatenessMinutes(rec.checkIn, recShift.shiftStart)
+          : 0;
       const isLate =
         rec.status === 'terlambat' ||
-        (rec.status === 'hadir' && Boolean(rec.checkIn) && rawLate > tol);
+        (rec.status === 'hadir' && Boolean(rec.checkIn) && Boolean(recShift.shiftStart) && rawLate > tol);
       if (isLate) {
+        const assigned = isEmployeeShiftAssigned(recShift.shiftName);
+        const sName = assigned ? recShift.shiftName : 'Belum dijadwalkan';
+        const sStart = assigned ? recShift.shiftStart : '';
+        const sEnd = assigned ? recShift.shiftEnd : '';
+        if (assigned) {
+          empDetailShiftNames.add(sName);
+          if (!firstDetailShiftHours && sStart && sEnd) {
+            firstDetailShiftHours = `${sStart}-${sEnd}`;
+          }
+        }
         empLateCount++;
         empLateMins += rawLate;
         if (rawLate > empMaxLate) empMaxLate = rawLate;
@@ -1086,6 +1115,9 @@ export async function exportAttendanceMatrixToExcel(params: {
         lateDetailRows.push({
           rec,
           emp,
+          shiftName: sName,
+          shiftStart: sStart,
+          shiftEnd: sEnd,
           tolerance: tol,
           lateMinutes: rawLate,
         });
@@ -1116,10 +1148,22 @@ export async function exportAttendanceMatrixToExcel(params: {
               .join(', ')
           : '-';
 
+      const summaryNames =
+        empDetailShiftNames.size > 0
+          ? Array.from(empDetailShiftNames).join(', ')
+          : weeklyShift.uniqueShiftNames.length > 0
+            ? weeklyShift.uniqueShiftNames.join(', ')
+            : 'Belum dijadwalkan';
+      const summaryHours =
+        firstDetailShiftHours ||
+        (firstWeeklyShift ? `${firstWeeklyShift.startTime}-${firstWeeklyShift.endTime}` : '');
+
       lateSummaryRows.push({
         emp,
-        shiftDisplay: `${emp.shiftName} (${emp.shiftStart}-${emp.shiftEnd})`,
-        tolerance: resolveAttendanceShift(emp, shifts).lateToleranceMinutes,
+        shiftDisplay: summaryHours ? `${summaryNames} (${summaryHours})` : summaryNames,
+        tolerance:
+          firstWeeklyShift?.lateToleranceMinutes ??
+          resolveAttendanceShift(emp, shifts).lateToleranceMinutes,
         lateCount: empLateCount,
         totalLateMinutes: empLateMins,
         maxLateMinutes: empMaxLate,
@@ -1576,7 +1620,10 @@ export async function exportAttendanceMatrixToExcel(params: {
 
     lateDetailRows.forEach((d, idx) => {
       const r = cursorRow;
-      const shiftStr = `${d.emp.shiftName} (${d.emp.shiftStart}-${d.emp.shiftEnd}, tol. ${d.tolerance}m)`;
+      const shiftStr =
+        d.shiftStart && d.shiftEnd
+          ? `${d.shiftName} (${d.shiftStart}-${d.shiftEnd}, tol. ${d.tolerance}m)`
+          : `${d.shiftName} (tol. ${d.tolerance}m)`;
       const notesStr = d.rec.notes || '-';
 
       wsLate.getRow(r).height = calcDynamicRowHeight(

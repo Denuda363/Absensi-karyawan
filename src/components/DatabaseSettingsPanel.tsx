@@ -284,7 +284,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
   }, [databaseToken, loadSchemaStatus]);
 
   useEffect(() => {
-    if (!databaseToken) return;
+    if (!databaseToken || cfgEngine !== 'firestore') return;
     let cancelled = false;
     void (async () => {
       try {
@@ -305,7 +305,7 @@ export const DatabaseSettingsPanel: React.FC<DatabaseSettingsPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [databaseToken, fbUser]);
+  }, [databaseToken, fbUser, cfgEngine]);
 
   const handleUnlockDatabase = async (e: React.FormEvent) => {
     e.preventDefault();

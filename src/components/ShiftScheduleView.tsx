@@ -26,7 +26,8 @@ import {
   AppSettings,
   calculateDurationHours,
   Employee,
-  formatOffDaysSummary,
+  getEmployeeScheduledShiftsForWeekday,
+  getEmployeeWeeklyShiftSummary,
   getShiftMembersForWeekday,
   getTodayDateStr,
   HARI_MAP,
@@ -35,7 +36,7 @@ import {
   NavSection,
   ShiftConfig,
 } from '../types';
-import { updateAppSettings, updateEmployee } from '../services/attendanceService';
+import { updateAppSettings } from '../services/attendanceService';
 import { exportShiftScheduleToExcel } from '../utils/excelShiftExport';
 import {
   buildDailyScheduleBlocks,
@@ -146,13 +147,6 @@ function renderShiftIcon(icon: ShiftVisualStyle['icon'], className = 'w-4 h-4') 
   }
 }
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
 export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   employees,
   settings,
@@ -173,7 +167,6 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
   const [shiftFilter, setShiftFilter] = useState<string>('ALL');
 
-  const [busyEmployeeId, setBusyEmployeeId] = useState<string | null>(null);
   const [busyDailyKey, setBusyDailyKey] = useState<string | null>(null);
   const [exportingExcel, setExportingExcel] = useState<boolean>(false);
   const [printOverrideDayIndex, setPrintOverrideDayIndex] = useState<number | null>(null);
@@ -204,14 +197,6 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   const [copyDayTargets, setCopyDayTargets] = useState<Set<number>>(new Set());
   const [savingCopyDay, setSavingCopyDay] = useState<boolean>(false);
 
-  // Modal 1: Atur Anggota Master Shift (multi-select)
-  const [memberModalShift, setMemberModalShift] = useState<ShiftConfig | null>(null);
-  const [memberModalSelectedIds, setMemberModalSelectedIds] = useState<Set<string>>(new Set());
-  const [memberModalSearch, setMemberModalSearch] = useState<string>('');
-  const [memberModalOnlyUnassigned, setMemberModalOnlyUnassigned] = useState<boolean>(false);
-  const [memberModalFallbackShiftId, setMemberModalFallbackShiftId] = useState<string>('');
-  const [savingMembers, setSavingMembers] = useState<boolean>(false);
-
   // Modal 2: Buat / Edit Shift
   const [shiftFormOpen, setShiftFormOpen] = useState<boolean>(false);
   const [editingShift, setEditingShift] = useState<ShiftConfig | null>(null);
@@ -219,7 +204,6 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   const [shiftStartInput, setShiftStartInput] = useState<string>('08:00');
   const [shiftEndInput, setShiftEndInput] = useState<string>('17:00');
   const [shiftToleranceInput, setShiftToleranceInput] = useState<number>(10);
-  const [syncEmployeesOnEdit, setSyncEmployeesOnEdit] = useState<boolean>(true);
   const [newShiftMemberIds, setNewShiftMemberIds] = useState<Set<string>>(new Set());
   const [newShiftMemberSearch, setNewShiftMemberSearch] = useState<string>('');
   const [savingShiftForm, setSavingShiftForm] = useState<boolean>(false);
@@ -254,39 +238,32 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         return false;
       }
       if (q) {
+        const weeklySummary = getEmployeeWeeklyShiftSummary(emp.id, shifts);
+        const scheduledHit = weeklySummary.uniqueShiftNames.some((n) =>
+          n.toLowerCase().includes(q)
+        );
         const hit =
           emp.name.toLowerCase().includes(q) ||
           emp.employeeCode.toLowerCase().includes(q) ||
           emp.department.toLowerCase().includes(q) ||
           emp.position.toLowerCase().includes(q) ||
-          emp.shiftName.toLowerCase().includes(q);
+          scheduledHit;
         if (!hit) return false;
       }
       return true;
     });
-  }, [activeEmployees, departmentFilter, searchQuery]);
-
-  const knownShiftNamesLower = useMemo(
-    () => new Set(shifts.map((s) => s.name.toLowerCase())),
-    [shifts]
-  );
-
-  const customShiftEmployees = useMemo(
-    () =>
-      filteredEmployees.filter(
-        (e) => !knownShiftNamesLower.has(e.shiftName.toLowerCase())
-      ),
-    [filteredEmployees, knownShiftNamesLower]
-  );
+  }, [activeEmployees, departmentFilter, searchQuery, shifts]);
 
   const shiftSummaries = useMemo(() => {
+    const activeIds = new Set(activeEmployees.map((e) => e.id));
     return shifts.map((shift, idx) => {
-      const allMembers = activeEmployees.filter(
-        (e) => e.shiftName.toLowerCase() === shift.name.toLowerCase()
-      );
-      const filteredMembers = filteredEmployees.filter(
-        (e) => e.shiftName.toLowerCase() === shift.name.toLowerCase()
-      );
+      const weeklyMemberIdSet = new Set<string>();
+      for (const day of HARI_WEEKDAYS) {
+        const { members } = getShiftMembersForWeekday(shift, day.index, activeEmployees);
+        for (const m of members) {
+          if (activeIds.has(m.id)) weeklyMemberIdSet.add(m.id);
+        }
+      }
       const todayDaily = getShiftMembersForWeekday(shift, todayWeekday, activeEmployees);
       const onDutyToday = todayDaily.members.filter(
         (e) => !isEmployeeOffDay(e, today).isOff
@@ -295,15 +272,14 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       return {
         shift,
         style: getShiftVisualStyle(shift.name, idx),
-        allMembers,
-        filteredMembers,
+        weeklyUniqueCount: weeklyMemberIdSet.size,
         todayAssignedCount: todayDaily.members.length,
         onDutyToday,
         offToday,
         durationHours: calculateDurationHours(shift.startTime, shift.endTime),
       };
     });
-  }, [shifts, activeEmployees, filteredEmployees, today, todayWeekday]);
+  }, [shifts, activeEmployees, today, todayWeekday]);
 
   const visibleShiftSummaries = useMemo(() => {
     if (shiftFilter === 'ALL') return shiftSummaries;
@@ -351,8 +327,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         emp.name.toLowerCase().includes(q) ||
         emp.employeeCode.toLowerCase().includes(q) ||
         emp.position.toLowerCase().includes(q) ||
-        emp.department.toLowerCase().includes(q) ||
-        emp.shiftName.toLowerCase().includes(q)
+        emp.department.toLowerCase().includes(q)
       );
     });
   }, [activeEmployees, dailyModalSearch]);
@@ -502,40 +477,10 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     }
   };
 
-  const handleResetDailyShiftToDefault = async (
+  const handleClearDailyShift = async (
     shift: ShiftConfig,
     dayIndex: number
   ) => {
-    // Check if restoring master shift members would create a double shift on dayIndex
-    const defaultMasterMembers = activeEmployees.filter(
-      (emp) =>
-        emp.shiftName.toLowerCase() === shift.name.toLowerCase() &&
-        !emp.offDays.includes(dayIndex)
-    );
-    const conflictingNames: string[] = [];
-    for (const otherShift of shifts) {
-      if (otherShift.id === shift.id) continue;
-      const { members: otherMembers } = getShiftMembersForWeekday(
-        otherShift,
-        dayIndex,
-        activeEmployees
-      );
-      const otherIds = new Set(otherMembers.map((m) => m.id));
-      for (const emp of defaultMasterMembers) {
-        if (otherIds.has(emp.id)) {
-          conflictingNames.push(`${emp.name} (${otherShift.name})`);
-        }
-      }
-    }
-    if (conflictingNames.length > 0) {
-      setErrorMessage(
-        `Tidak bisa mengembalikan ke master shift karena dapat menyebabkan double shift pada hari ${HARI_MAP[dayIndex]?.label ?? ''}: ${conflictingNames
-          .slice(0, 3)
-          .join(', ')}.`
-      );
-      return;
-    }
-
     const lockKey = `${shift.id}__${dayIndex}`;
     setBusyDailyKey(lockKey);
     setErrorMessage(null);
@@ -558,11 +503,11 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       await updateAppSettings({ shifts: nextShifts });
       await onRefresh();
       showToast(
-        `Jadwal ${shift.name} hari ${HARI_MAP[dayIndex]?.label ?? ''} dikembalikan ke daftar master shift.`
+        `Daftar anggota ${shift.name} hari ${HARI_MAP[dayIndex]?.label ?? ''} dikosongkan.`
       );
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal mereset jadwal harian.'
+        err instanceof Error ? err.message : 'Gagal mengosongkan jadwal harian.'
       );
     } finally {
       setBusyDailyKey(null);
@@ -611,178 +556,6 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     }
   };
 
-  // Direct 1-click master shift reassignment per employee
-  const handleQuickAssignShift = async (emp: Employee, targetShiftId: string) => {
-    const targetShift = shifts.find((s) => s.id === targetShiftId);
-    if (!targetShift) return;
-
-    setBusyEmployeeId(emp.id);
-    setErrorMessage(null);
-    try {
-      await updateEmployee(emp.id, {
-        shiftName: targetShift.name,
-        shiftStart: targetShift.startTime,
-        shiftEnd: targetShift.endTime,
-      });
-      await onRefresh();
-      showToast(
-        `${emp.name} dipindahkan ke ${targetShift.name} (${targetShift.startTime} – ${targetShift.endTime}).`
-      );
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal mengubah shift karyawan.'
-      );
-    } finally {
-      setBusyEmployeeId(null);
-    }
-  };
-
-  // Sync an employee whose hours differ from preset shift hours
-  const handleSyncEmployeeHours = async (emp: Employee, shift: ShiftConfig) => {
-    setBusyEmployeeId(emp.id);
-    setErrorMessage(null);
-    try {
-      await updateEmployee(emp.id, {
-        shiftName: shift.name,
-        shiftStart: shift.startTime,
-        shiftEnd: shift.endTime,
-      });
-      await onRefresh();
-      showToast(`Jam kerja ${emp.name} disinkronkan ke ${shift.startTime} – ${shift.endTime}.`);
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal menyinkronkan jam kerja karyawan.'
-      );
-    } finally {
-      setBusyEmployeeId(null);
-    }
-  };
-
-  // Open Atur Anggota Master Modal
-  const openMemberModal = (shift: ShiftConfig) => {
-    const currentMemberIds = new Set(
-      activeEmployees
-        .filter((e) => e.shiftName.toLowerCase() === shift.name.toLowerCase())
-        .map((e) => e.id)
-    );
-    const otherShift = shifts.find((s) => s.id !== shift.id);
-    setMemberModalShift(shift);
-    setMemberModalSelectedIds(currentMemberIds);
-    setMemberModalSearch('');
-    setMemberModalOnlyUnassigned(false);
-    setMemberModalFallbackShiftId(otherShift ? otherShift.id : '');
-    setErrorMessage(null);
-  };
-
-  const memberModalFilteredEmployees = useMemo(() => {
-    if (!memberModalShift) return [];
-    const q = memberModalSearch.trim().toLowerCase();
-    return activeEmployees.filter((emp) => {
-      const isCurrentlyInTarget =
-        emp.shiftName.toLowerCase() === memberModalShift.name.toLowerCase();
-      if (memberModalOnlyUnassigned && isCurrentlyInTarget) return false;
-      if (q) {
-        return (
-          emp.name.toLowerCase().includes(q) ||
-          emp.employeeCode.toLowerCase().includes(q) ||
-          emp.position.toLowerCase().includes(q) ||
-          emp.department.toLowerCase().includes(q) ||
-          emp.shiftName.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [activeEmployees, memberModalShift, memberModalSearch, memberModalOnlyUnassigned]);
-
-  const memberModalGroupedEmployees = useMemo(
-    () => groupEmployeesByPosition(memberModalFilteredEmployees),
-    [memberModalFilteredEmployees]
-  );
-
-  const removedFromTargetCount = useMemo(() => {
-    if (!memberModalShift) return 0;
-    return activeEmployees.filter(
-      (emp) =>
-        emp.shiftName.toLowerCase() === memberModalShift.name.toLowerCase() &&
-        !memberModalSelectedIds.has(emp.id)
-    ).length;
-  }, [activeEmployees, memberModalShift, memberModalSelectedIds]);
-
-  const addedToTargetCount = useMemo(() => {
-    if (!memberModalShift) return 0;
-    return activeEmployees.filter(
-      (emp) =>
-        emp.shiftName.toLowerCase() !== memberModalShift.name.toLowerCase() &&
-        memberModalSelectedIds.has(emp.id)
-    ).length;
-  }, [activeEmployees, memberModalShift, memberModalSelectedIds]);
-
-  const handleSaveMembersModal = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!memberModalShift) return;
-
-    const toAssign = activeEmployees.filter(
-      (emp) =>
-        memberModalSelectedIds.has(emp.id) &&
-        emp.shiftName.toLowerCase() !== memberModalShift.name.toLowerCase()
-    );
-    const toRemove = activeEmployees.filter(
-      (emp) =>
-        !memberModalSelectedIds.has(emp.id) &&
-        emp.shiftName.toLowerCase() === memberModalShift.name.toLowerCase()
-    );
-
-    const fallbackShift = shifts.find((s) => s.id === memberModalFallbackShiftId);
-    if (toRemove.length > 0 && !fallbackShift) {
-      setErrorMessage(
-        'Pilih shift tujuan pengganti untuk karyawan yang dikeluarkan dari shift ini.'
-      );
-      return;
-    }
-
-    if (toAssign.length === 0 && toRemove.length === 0) {
-      setMemberModalShift(null);
-      return;
-    }
-
-    setSavingMembers(true);
-    setErrorMessage(null);
-    try {
-      for (const emp of toAssign) {
-        await updateEmployee(emp.id, {
-          shiftName: memberModalShift.name,
-          shiftStart: memberModalShift.startTime,
-          shiftEnd: memberModalShift.endTime,
-        });
-      }
-      if (fallbackShift) {
-        for (const emp of toRemove) {
-          await updateEmployee(emp.id, {
-            shiftName: fallbackShift.name,
-            shiftStart: fallbackShift.startTime,
-            shiftEnd: fallbackShift.endTime,
-          });
-        }
-      }
-      await onRefresh();
-      const targetName = memberModalShift.name;
-      setMemberModalShift(null);
-      showToast(
-        `Anggota master ${targetName} diperbarui: ${toAssign.length} masuk${
-          toRemove.length > 0 && fallbackShift
-            ? `, ${toRemove.length} dipindah ke ${fallbackShift.name}`
-            : ''
-        }.`
-      );
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Gagal menyimpan daftar anggota shift.'
-      );
-    } finally {
-      setSavingMembers(false);
-    }
-  };
-
   // Open Create Shift Modal
   const openCreateShiftModal = () => {
     setEditingShift(null);
@@ -790,7 +563,6 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     setShiftStartInput('08:00');
     setShiftEndInput('17:00');
     setShiftToleranceInput(10);
-    setSyncEmployeesOnEdit(true);
     setNewShiftMemberIds(new Set());
     setNewShiftMemberSearch('');
     setShiftFormOpen(true);
@@ -804,7 +576,6 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     setShiftStartInput(shift.startTime);
     setShiftEndInput(shift.endTime);
     setShiftToleranceInput(shift.lateToleranceMinutes);
-    setSyncEmployeesOnEdit(true);
     setNewShiftMemberIds(new Set());
     setNewShiftMemberSearch('');
     setShiftFormOpen(true);
@@ -845,55 +616,53 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
             : s
         );
 
-        const nameChanged = editingShift.name.toLowerCase() !== cleanName.toLowerCase();
         await updateAppSettings({
           shifts: nextShifts,
-          syncEmployees: syncEmployeesOnEdit && !nameChanged,
+          syncEmployees: false,
         });
-
-        if (syncEmployeesOnEdit && nameChanged) {
-          const affected = employees.filter(
-            (emp) => emp.shiftName.toLowerCase() === editingShift.name.toLowerCase()
-          );
-          for (const emp of affected) {
-            await updateEmployee(emp.id, {
-              shiftName: cleanName,
-              shiftStart: shiftStartInput,
-              shiftEnd: shiftEndInput,
-            });
-          }
-        }
 
         await onRefresh();
         setShiftFormOpen(false);
         showToast(`Shift "${cleanName}" berhasil diperbarui (${shiftStartInput} – ${shiftEndInput}).`);
       } else {
+        const selectedEmps = activeEmployees.filter((emp) =>
+          newShiftMemberIds.has(emp.id)
+        );
+        const dailyMemberIds: Record<string, string[]> = {};
+        if (selectedEmps.length > 0) {
+          for (const day of HARI_WEEKDAYS) {
+            const occupiedIds = new Set<string>();
+            for (const other of shifts) {
+              const { members } = getShiftMembersForWeekday(other, day.index, activeEmployees);
+              members.forEach((m) => occupiedIds.add(m.id));
+            }
+            const eligibleForDay = selectedEmps
+              .filter((emp) => !emp.offDays.includes(day.index) && !occupiedIds.has(emp.id))
+              .map((emp) => emp.id);
+            if (eligibleForDay.length > 0) {
+              dailyMemberIds[String(day.index)] = eligibleForDay;
+            }
+          }
+        }
+
         const newShift: ShiftConfig = {
           id: `shift_${Date.now()}`,
           name: cleanName,
           startTime: shiftStartInput,
           endTime: shiftEndInput,
           lateToleranceMinutes: Math.max(0, Math.min(120, Number(shiftToleranceInput) || 0)),
+          ...(Object.keys(dailyMemberIds).length > 0 ? { dailyMemberIds } : {}),
         };
         const nextShifts = [...shifts, newShift];
         await updateAppSettings({ shifts: nextShifts });
-
-        const selectedEmps = activeEmployees.filter((emp) =>
-          newShiftMemberIds.has(emp.id)
-        );
-        for (const emp of selectedEmps) {
-          await updateEmployee(emp.id, {
-            shiftName: newShift.name,
-            shiftStart: newShift.startTime,
-            shiftEnd: newShift.endTime,
-          });
-        }
 
         await onRefresh();
         setShiftFormOpen(false);
         showToast(
           `Shift baru "${cleanName}" (${shiftStartInput} – ${shiftEndInput}) dibuat${
-            selectedEmps.length > 0 ? ` dengan ${selectedEmps.length} anggota.` : '.'
+            selectedEmps.length > 0
+              ? ` dan dijadwalkan untuk ${selectedEmps.length} karyawan (anti double shift diterapkan).`
+              : '.'
           }`
         );
       }
@@ -916,28 +685,47 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
 
   const handleConfirmDeleteShift = async () => {
     if (!deletingShift || shifts.length <= 1) return;
-    const affected = employees.filter(
-      (emp) => emp.shiftName.toLowerCase() === deletingShift.name.toLowerCase()
-    );
     const fallback = shifts.find((s) => s.id === deleteTargetShiftId);
-    if (affected.length > 0 && !fallback) {
-      setErrorMessage('Pilih shift tujuan untuk memindahkan anggota shift ini.');
-      return;
-    }
+    const hasScheduledSlots = HARI_WEEKDAYS.some(
+      (day) => getShiftMembersForWeekday(deletingShift, day.index, activeEmployees).members.length > 0
+    );
 
     setDeletingBusy(true);
     setErrorMessage(null);
     try {
-      if (affected.length > 0 && fallback) {
-        for (const emp of affected) {
-          await updateEmployee(emp.id, {
-            shiftName: fallback.name,
-            shiftStart: fallback.startTime,
-            shiftEnd: fallback.endTime,
-          });
-        }
-      }
-      const nextShifts = shifts.filter((s) => s.id !== deletingShift.id);
+      const nextShifts = shifts
+        .filter((s) => s.id !== deletingShift.id)
+        .map((s) => {
+          if (!fallback || s.id !== fallback.id || !hasScheduledSlots) return s;
+          const nextDaily: Record<string, string[]> = { ...(s.dailyMemberIds ?? {}) };
+          for (const day of HARI_WEEKDAYS) {
+            const dKey = String(day.index);
+            const { members: sourceMembers } = getShiftMembersForWeekday(
+              deletingShift,
+              day.index,
+              activeEmployees
+            );
+            if (sourceMembers.length === 0) continue;
+            const occupiedOtherIds = new Set<string>();
+            for (const other of shifts) {
+              if (other.id === deletingShift.id) continue;
+              const { members } = getShiftMembersForWeekday(other, day.index, activeEmployees);
+              members.forEach((m) => occupiedOtherIds.add(m.id));
+            }
+            const existingTargetIds = Array.isArray(nextDaily[dKey]) ? nextDaily[dKey] : [];
+            const merged = [...existingTargetIds];
+            for (const m of sourceMembers) {
+              if (!occupiedOtherIds.has(m.id) && !merged.includes(m.id)) {
+                merged.push(m.id);
+              }
+            }
+            if (merged.length > 0) {
+              nextDaily[dKey] = merged;
+            }
+          }
+          return Object.keys(nextDaily).length > 0 ? { ...s, dailyMemberIds: nextDaily } : s;
+        });
+
       await updateAppSettings({ shifts: nextShifts });
       if (shiftFilter === deletingShift.id) {
         setShiftFilter('ALL');
@@ -947,8 +735,8 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       setDeletingShift(null);
       showToast(
         `Shift "${deletedName}" dihapus.${
-          affected.length > 0 && fallback
-            ? ` ${affected.length} anggota dipindahkan ke ${fallback.name}.`
+          hasScheduledSlots && fallback
+            ? ` Jadwal harian yang kosong dipindahkan ke ${fallback.name}.`
             : ''
         }`
       );
@@ -1132,7 +920,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
               }`}
             >
               <Users className="w-3.5 h-3.5" />
-              <span>Master per Shift</span>
+              <span>Jenis Shift &amp; Ringkasan</span>
             </button>
             <button
               type="button"
@@ -1410,6 +1198,14 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
               const offEmployeesOnDay = filteredEmployees.filter((emp) =>
                 emp.offDays.includes(day.index)
               );
+              const assignedIdsOnDay = new Set<string>();
+              for (const s of shifts) {
+                const { members } = getShiftMembersForWeekday(s, day.index, activeEmployees);
+                members.forEach((m) => assignedIdsOnDay.add(m.id));
+              }
+              const unscheduledEmployeesOnDay = filteredEmployees.filter(
+                (emp) => !emp.offDays.includes(day.index) && !assignedIdsOnDay.has(emp.id)
+              );
 
               return (
                 <section
@@ -1523,15 +1319,13 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0 no-print">
-                              {isCustomDayRoster && (
+                              {isCustomDayRoster && allDayMembers.length > 0 && (
                                 <button
                                   type="button"
                                   disabled={isLocked}
-                                  onClick={() =>
-                                    handleResetDailyShiftToDefault(shift, day.index)
-                                  }
-                                  title="Kembalikan ke daftar master shift"
-                                  className="p-2 sm:p-1.5 text-slate-500 hover:text-slate-900 bg-white border border-slate-200 hover:bg-slate-50 rounded-md cursor-pointer"
+                                  onClick={() => handleClearDailyShift(shift, day.index)}
+                                  title="Kosongkan anggota shift pada hari ini"
+                                  className="p-2 sm:p-1.5 text-slate-500 hover:text-red-700 bg-white border border-slate-200 hover:bg-red-50 rounded-md cursor-pointer"
                                 >
                                   <RotateCcw className="w-3.5 h-3.5" />
                                 </button>
@@ -1642,6 +1436,31 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     })}
                   </div>
 
+                  {/* Karyawan Belum Masuk Shift Hari Ini */}
+                  {unscheduledEmployeesOnDay.length > 0 && (
+                    <div className="px-4 sm:px-5 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center gap-2">
+                      <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 shrink-0">
+                        <Users className="w-3.5 h-3.5 text-slate-500" />
+                        <span>
+                          Belum Terjadwal Shift ({unscheduledEmployeesOnDay.length}):
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {unscheduledEmployeesOnDay.map((emp) => (
+                          <span
+                            key={emp.id}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[11px] text-slate-700 font-medium"
+                          >
+                            <span className="font-semibold">{emp.name}</span>
+                            <span className="text-[10px] text-slate-500 uppercase font-semibold">
+                              ({emp.position || emp.department})
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Karyawan Libur / OFF Section on Day Card */}
                   <div className="px-4 sm:px-5 py-3 bg-rose-50/70 border-t border-rose-200/80 flex flex-col sm:flex-row sm:items-center gap-2">
                     <div className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 shrink-0">
@@ -1677,19 +1496,19 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         </div>
       )}
 
-      {/* TAB 2: Master per Shift */}
+      {/* TAB 2: Jenis Shift & Ringkasan Mingguan Karyawan */}
       {subTab === 'roster' && (
         <div className="space-y-6 no-print">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Shift Definitions */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {visibleShiftSummaries.map(
-              ({ shift, style, allMembers, filteredMembers, onDutyToday, durationHours }) => (
+              ({ shift, style, weeklyUniqueCount, todayAssignedCount, onDutyToday, durationHours }) => (
                 <div
                   key={shift.id}
                   className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col"
                 >
-                  {/* Shift Card Header */}
                   <div
-                    className={`px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 ${style.headerBg}`}
+                    className={`px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3 ${style.headerBg}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div
@@ -1699,31 +1518,23 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-display text-base font-bold text-slate-900">
+                          <h3 className="font-display text-base font-bold text-slate-900 truncate">
                             {shift.name}
                           </h3>
                           <span
                             className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${style.badgeBg} ${style.badgeText} ${style.badgeBorder}`}
                           >
-                            {allMembers.length} Karyawan
+                            {todayAssignedCount} hari ini
                           </span>
                         </div>
                         <p className="text-xs text-slate-600 mt-0.5 font-mono tabular-nums">
-                          {shift.startTime} – {shift.endTime} ({durationHours} jam) • Toleransi{' '}
-                          {shift.lateToleranceMinutes} menit • {onDutyToday} masuk hari ini
+                          {shift.startTime} – {shift.endTime} ({durationHours} jam) · Toleransi{' '}
+                          {shift.lateToleranceMinutes} menit
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 no-print">
-                      <button
-                        type="button"
-                        onClick={() => openMemberModal(shift)}
-                        className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <Users className="w-3.5 h-3.5" />
-                        <span>Atur Anggota</span>
-                      </button>
+                    <div className="flex items-center gap-1.5 shrink-0 no-print">
                       <button
                         type="button"
                         onClick={() => openEditShiftModal(shift)}
@@ -1745,187 +1556,124 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Employee List grouped by Jabatan */}
-                  <div className="flex-1 divide-y divide-slate-100">
-                    {filteredMembers.length === 0 ? (
-                      <div className="px-5 py-8 text-center">
-                        <p className="text-xs text-slate-500">
-                          {allMembers.length === 0
-                            ? `Belum ada karyawan dengan shift utama ${shift.name}.`
-                            : 'Tidak ada karyawan yang cocok dengan filter pencarian.'}
-                        </p>
-                        {allMembers.length === 0 && (
-                          <button
-                            type="button"
-                            onClick={() => openMemberModal(shift)}
-                            className="mt-3 px-3.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg inline-flex items-center gap-1.5 cursor-pointer no-print"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Tambah Karyawan ke {shift.name}</span>
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      groupEmployeesByPosition(filteredMembers).map((posGroup) => (
-                        <div key={posGroup.key}>
-                          <div
-                            className={`px-5 py-1.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between border-b border-slate-200/80 ${
-                              posGroup.isLeader
-                                ? 'bg-amber-50 text-amber-900'
-                                : 'bg-slate-50 text-slate-700'
-                            }`}
-                          >
-                            <span>{posGroup.label}</span>
-                            <span className="font-mono text-[10px] opacity-75">
-                              {posGroup.employees.length}
-                            </span>
-                          </div>
-                          <div className="divide-y divide-slate-100">
-                            {posGroup.employees.map((emp) => {
-                              const offToday = isEmployeeOffDay(emp, today);
-                              const hasCustomHours =
-                                emp.shiftStart !== shift.startTime ||
-                                emp.shiftEnd !== shift.endTime;
-                              const isBusy = busyEmployeeId === emp.id;
-
-                              return (
-                                <div
-                                  key={emp.id}
-                                  className="px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
-                                >
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 font-display text-xs font-bold flex items-center justify-center shrink-0">
-                                      {getInitials(emp.name)}
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="text-sm font-semibold text-slate-900 truncate">
-                                          {emp.name}
-                                        </span>
-                                        <span className="font-mono text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                          {emp.employeeCode}
-                                        </span>
-                                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 uppercase">
-                                          {emp.position || emp.department}
-                                        </span>
-                                        {offToday.isOff ? (
-                                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                            Libur Hari Ini
-                                          </span>
-                                        ) : (
-                                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                            Bertugas
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-                                        <span>
-                                          {emp.department} · {emp.position}
-                                        </span>
-                                        <span className="text-slate-300">•</span>
-                                        <span>Libur: {formatOffDaysSummary(emp.offDays)}</span>
-                                        {hasCustomHours && (
-                                          <>
-                                            <span className="text-slate-300">•</span>
-                                            <span className="text-amber-700 font-mono font-medium">
-                                              Jam khusus: {emp.shiftStart}–{emp.shiftEnd}
-                                            </span>
-                                            <button
-                                              type="button"
-                                              disabled={isBusy}
-                                              onClick={() => handleSyncEmployeeHours(emp, shift)}
-                                              className="text-blue-700 hover:underline font-medium cursor-pointer no-print"
-                                            >
-                                              Samakan
-                                            </button>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 shrink-0 no-print">
-                                    <select
-                                      aria-label={`Pindahkan shift ${emp.name}`}
-                                      value={shift.id}
-                                      disabled={isBusy}
-                                      onChange={(e) => handleQuickAssignShift(emp, e.target.value)}
-                                      className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 disabled:opacity-50 cursor-pointer"
-                                    >
-                                      {shifts.map((opt) => (
-                                        <option key={opt.id} value={opt.id}>
-                                          {opt.id === shift.id
-                                            ? `${opt.name} (${opt.startTime})`
-                                            : `Pindah → ${opt.name}`}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))
-                    )}
+                  <div className="px-5 py-3.5 flex items-center justify-between gap-3 text-xs text-slate-600">
+                    <div>
+                      <span className="font-semibold text-slate-800">{weeklyUniqueCount} karyawan</span>{' '}
+                      terjadwal minggu ini ·{' '}
+                      <span className="text-emerald-700 font-semibold">{onDutyToday} masuk hari ini</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openDailyMemberModal(shift, todayWeekday)}
+                      className="px-2.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shrink-0 cursor-pointer"
+                    >
+                      Atur Hari Ini
+                    </button>
                   </div>
                 </div>
               )
             )}
           </div>
 
-          {shiftFilter === 'ALL' && customShiftEmployees.length > 0 && (
-            <div className="bg-white rounded-xl border border-amber-200 shadow-xs overflow-hidden">
-              <div className="px-5 py-3.5 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-display text-sm font-bold text-amber-950">
-                    Shift Kustom / Belum Terdaftar di Master Shift ({customShiftEmployees.length})
-                  </h3>
-                  <p className="text-xs text-amber-800">
-                    Pindahkan karyawan berikut ke salah satu shift resmi agar jadwal terstandardisasi.
-                  </p>
-                </div>
+          {/* Ringkasan Jadwal Mingguan per Karyawan (Dikelompokkan per Jabatan) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-display text-sm font-bold text-slate-900">
+                  Ringkasan Jadwal Shift per Karyawan (Senin – Minggu)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Tidak ada shift default per karyawan. Seluruh jadwal diambil langsung dari tab Jadwal Harian dan dikelompokkan berdasarkan jabatan.
+                </p>
               </div>
-              <div className="divide-y divide-slate-100">
-                {customShiftEmployees.map((emp) => (
-                  <div
-                    key={emp.id}
-                    className="px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        {emp.name}{' '}
-                        <span className="font-mono text-xs text-slate-500">
-                          ({emp.employeeCode})
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {emp.department} · Saat ini: <strong>{emp.shiftName || 'Kosong'}</strong> (
-                        {emp.shiftStart}–{emp.shiftEnd})
-                      </div>
-                    </div>
-                    <select
-                      value=""
-                      disabled={busyEmployeeId === emp.id}
-                      onChange={(e) => {
-                        if (e.target.value) handleQuickAssignShift(emp, e.target.value);
-                      }}
-                      className="px-3 py-1.5 text-xs font-semibold border border-amber-300 rounded-lg bg-white text-slate-800 cursor-pointer no-print"
-                    >
-                      <option value="" disabled>
-                        Pilih Shift Resmi...
-                      </option>
-                      {shifts.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          Masukkan ke {s.name} ({s.startTime}–{s.endTime})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => setSubTab('harian')}
+                className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer"
+              >
+                Atur di Jadwal Harian →
+              </button>
             </div>
-          )}
+
+            {filteredEmployees.length === 0 ? (
+              <div className="px-5 py-8 text-center text-xs text-slate-500">
+                Tidak ada karyawan yang cocok dengan filter pencarian.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[820px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
+                      <th className="py-2.5 px-4 w-56">Karyawan &amp; Jabatan</th>
+                      {HARI_WEEKDAYS.map((day) => (
+                        <th key={day.index} className="py-2.5 px-2 text-center">
+                          {day.short}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {groupEmployeesByPosition(filteredEmployees).map((posGroup) => (
+                      <React.Fragment key={posGroup.key}>
+                        <tr>
+                          <td
+                            colSpan={8}
+                            className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider border-y border-slate-200/80 ${
+                              posGroup.isLeader
+                                ? 'bg-amber-50 text-amber-900'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {posGroup.label} ({posGroup.employees.length})
+                          </td>
+                        </tr>
+                        {posGroup.employees.map((emp) => (
+                          <tr key={emp.id} className="hover:bg-slate-50/70">
+                            <td className="py-2.5 px-4">
+                              <div className="font-semibold text-slate-900">{emp.name}</div>
+                              <div className="text-[11px] text-slate-500">
+                                <span className="font-mono">{emp.employeeCode}</span> · {emp.position || emp.department}
+                              </div>
+                            </td>
+                            {HARI_WEEKDAYS.map((day) => {
+                              const isOff = emp.offDays.includes(day.index);
+                              const scheduled = getEmployeeScheduledShiftsForWeekday(
+                                emp.id,
+                                day.index,
+                                shifts
+                              )[0];
+                              return (
+                                <td key={day.index} className="py-2 px-1.5 text-center">
+                                  {isOff ? (
+                                    <span className="inline-block px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-800 font-semibold text-[10px]">
+                                      Libur
+                                    </span>
+                                  ) : scheduled ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openDailyMemberModal(scheduled, day.index)}
+                                      title={`${scheduled.name} (${scheduled.startTime}–${scheduled.endTime})`}
+                                      className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-900 font-semibold text-[10px] hover:bg-blue-100 cursor-pointer"
+                                    >
+                                      {scheduled.name.replace(/^shift\s+/i, '')}
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 italic">
+                                      —
+                                    </span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1980,7 +1728,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-xs">
-                {visibleShiftSummaries.map(({ shift, style, filteredMembers }) => (
+                {visibleShiftSummaries.map(({ shift, style }) => (
                   <tr key={shift.id} className="align-top">
                     <td className={`px-4 py-3.5 border-r border-slate-200 ${style.headerBg}`}>
                       <div className="font-display font-bold text-slate-900">
@@ -1989,15 +1737,12 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                       <div className="font-mono text-[11px] text-slate-600 mt-0.5">
                         {shift.startTime} – {shift.endTime}
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-1">
-                        Master: {filteredMembers.length} anggota
-                      </div>
                     </td>
 
                     {HARI_WEEKDAYS.map((day) => {
                       const isTodayCol = day.index === todayWeekday;
                       const filteredIds = new Set(filteredEmployees.map((e) => e.id));
-                      const { members, isCustomDayRoster } = getShiftMembersForWeekday(
+                      const { members } = getShiftMembersForWeekday(
                         shift,
                         day.index,
                         activeEmployees
@@ -2013,14 +1758,9 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                             isTodayCol ? 'bg-blue-50/40' : ''
                           }`}
                         >
-                          {isCustomDayRoster && (
-                            <div className="text-[9px] font-bold uppercase text-blue-700 mb-1">
-                              Khusus {day.short}
-                            </div>
-                          )}
                           {workingToday.length === 0 ? (
                             <span className="text-[11px] italic text-slate-400">
-                              Tidak ada
+                              Belum diatur
                             </span>
                           ) : (
                             <div className="space-y-1">
@@ -2075,7 +1815,9 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                 className="px-2 py-1 rounded bg-white border border-amber-200 text-amber-950 text-[11px]"
                               >
                                 <span className="font-semibold">{emp.name}</span>{' '}
-                                <span className="text-amber-700">({emp.shiftName})</span>
+                                <span className="text-amber-700 text-[10px] uppercase">
+                                  ({emp.position || emp.department})
+                                </span>
                               </div>
                             ))}
                           </div>
@@ -2121,7 +1863,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     type="text"
                     value={dailyModalSearch}
                     onChange={(e) => setDailyModalSearch(e.target.value)}
-                    placeholder="Cari nama karyawan, jabatan, kode, atau shift utama..."
+                    placeholder="Cari nama karyawan, jabatan, atau kode..."
                     className="w-full pl-9 pr-3 py-2.5 sm:py-2 text-sm sm:text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   />
                 </div>
@@ -2326,7 +2068,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                       </span>
                                     </div>
                                     <div className="text-[11px] text-slate-500 truncate">
-                                      {emp.department} · Shift utama: {emp.shiftName}
+                                      {emp.department} · {emp.position}
                                     </div>
                                   </div>
                                 </div>
@@ -2453,217 +2195,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 1: Atur Anggota Master Shift (Multi-select Roster Builder) */}
-      {memberModalShift && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
-          <div className="bg-white w-full max-w-2xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
-            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between shrink-0">
-              <div>
-                <h3 className="font-display text-sm font-bold">
-                  Atur Anggota Master — {memberModalShift.name}
-                </h3>
-                <p className="text-[11px] text-slate-400 font-mono">
-                  Jam Kerja: {memberModalShift.startTime} – {memberModalShift.endTime} • Menetapkan shift utama karyawan
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMemberModalShift(null)}
-                className="p-2 text-slate-400 hover:text-white rounded-md cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveMembersModal} className="flex flex-col flex-1 min-h-0">
-              <div className="p-4 border-b border-slate-200 bg-slate-50 space-y-3 shrink-0">
-                <div className="flex flex-col sm:flex-row gap-2.5">
-                  <div className="relative flex-1">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={memberModalSearch}
-                      onChange={(e) => setMemberModalSearch(e.target.value)}
-                      placeholder="Cari nama, kode, divisi, atau shift saat ini..."
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                  <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-700 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={memberModalOnlyUnassigned}
-                      onChange={(e) => setMemberModalOnlyUnassigned(e.target.checked)}
-                      className="rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                    />
-                    <span>Dari shift lain saja</span>
-                  </label>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold text-slate-700">
-                      Terpilih: {memberModalSelectedIds.size} karyawan
-                    </span>
-                    {addedToTargetCount > 0 && (
-                      <span className="text-emerald-700 font-medium">
-                        +{addedToTargetCount} masuk
-                      </span>
-                    )}
-                    {removedFromTargetCount > 0 && (
-                      <span className="text-amber-700 font-medium">
-                        -{removedFromTargetCount} keluar
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMemberModalSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        memberModalFilteredEmployees.forEach((emp) => next.add(emp.id));
-                        return next;
-                      });
-                    }}
-                    className="text-blue-700 hover:underline font-semibold cursor-pointer"
-                  >
-                    Pilih semua yang tampil
-                  </button>
-                </div>
-
-                {removedFromTargetCount > 0 && shifts.length > 1 && (
-                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-[11px] font-medium text-amber-900">
-                      {removedFromTargetCount} karyawan dikeluarkan dari {memberModalShift.name}. Pindahkan ke:
-                    </span>
-                    <select
-                      value={memberModalFallbackShiftId}
-                      onChange={(e) => setMemberModalFallbackShiftId(e.target.value)}
-                      className="px-2.5 py-1 text-xs font-semibold border border-amber-300 rounded-md bg-white text-slate-800"
-                    >
-                      {shifts
-                        .filter((s) => s.id !== memberModalShift.id)
-                        .map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} ({s.startTime}–{s.endTime})
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                {memberModalGroupedEmployees.map((posGroup) => (
-                  <div key={posGroup.key} className="border-b border-slate-200 last:border-b-0">
-                    <div
-                      className={`sticky top-0 z-10 px-5 py-2 border-b border-slate-200 flex items-center justify-between ${
-                        posGroup.isLeader ? 'bg-amber-50' : 'bg-slate-100'
-                      }`}
-                    >
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-900">
-                        {posGroup.label}
-                      </span>
-                      <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
-                        {posGroup.employees.length}
-                      </span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {posGroup.employees.map((emp) => {
-                        const checked = memberModalSelectedIds.has(emp.id);
-                        const isCurrentlyInTarget =
-                          emp.shiftName.toLowerCase() === memberModalShift.name.toLowerCase();
-                        const cannotUncheck = isCurrentlyInTarget && shifts.length <= 1;
-
-                        return (
-                          <label
-                            key={emp.id}
-                            className={`px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 ${
-                              checked ? 'bg-blue-50/40' : ''
-                            }`}
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={cannotUncheck}
-                                onChange={(e) => {
-                                  const isChecked = e.target.checked;
-                                  setMemberModalSelectedIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (isChecked) next.add(emp.id);
-                                    else next.delete(emp.id);
-                                    return next;
-                                  });
-                                }}
-                                className="w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                              />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-xs font-semibold text-slate-900 truncate">
-                                    {emp.name}
-                                  </span>
-                                  <span className="font-mono text-[11px] text-slate-500">
-                                    ({emp.employeeCode})
-                                  </span>
-                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 uppercase">
-                                    {emp.position || emp.department}
-                                  </span>
-                                </div>
-                                <div className="text-[11px] text-slate-500 truncate">
-                                  {emp.department} · {emp.position}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="shrink-0 text-right">
-                              {isCurrentlyInTarget ? (
-                                checked ? (
-                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    Anggota Saat Ini
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                    Akan Dipindah
-                                  </span>
-                                )
-                              ) : checked ? (
-                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                                  {emp.shiftName} → {memberModalShift.name}
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                                  Saat ini: {emp.shiftName}
-                                </span>
-                              )}
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2 shrink-0 pb-safe">
-                <button
-                  type="button"
-                  onClick={() => setMemberModalShift(null)}
-                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingMembers}
-                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-slate-400 rounded-lg cursor-pointer"
-                >
-                  {savingMembers ? 'Menyimpan...' : 'Simpan Anggota Shift'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODAL 1 REMOVED: Tidak ada shift master/default per karyawan */}
 
       {/* MODAL 2: Buat / Ubah Shift */}
       {shiftFormOpen && (
@@ -2743,29 +2275,21 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
               </div>
 
               {editingShift ? (
-                <label className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={syncEmployeesOnEdit}
-                    onChange={(e) => setSyncEmployeesOnEdit(e.target.checked)}
-                    className="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                  />
-                  <span className="text-xs text-slate-700">
-                    Terapkan perubahan nama & jam kerja ini ke seluruh karyawan yang saat ini berada di <strong>{editingShift.name}</strong>.
-                  </span>
-                </label>
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700">
+                  Perubahan jam kerja atau nama <strong>{editingShift.name}</strong> akan otomatis berlaku pada seluruh jadwal harian yang menggunakan shift ini.
+                </div>
               ) : (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-semibold text-slate-700">
-                      Pilih Anggota Awal (Opsional · {newShiftMemberIds.size} dipilih)
+                      Jadwalkan Anggota Awal ke Hari Kerja (Opsional · {newShiftMemberIds.size} dipilih)
                     </label>
                   </div>
                   <input
                     type="text"
                     value={newShiftMemberSearch}
                     onChange={(e) => setNewShiftMemberSearch(e.target.value)}
-                    placeholder="Cari karyawan untuk langsung dimasukkan..."
+                    placeholder="Cari karyawan untuk langsung dijadwalkan..."
                     className="w-full px-3 py-2 sm:py-1.5 text-sm sm:text-xs border border-slate-200 rounded-lg"
                   />
                   <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
@@ -2786,38 +2310,43 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                           {posGroup.label} ({posGroup.employees.length})
                         </div>
                         <div className="divide-y divide-slate-100">
-                          {posGroup.employees.map((emp) => (
-                            <label
-                              key={emp.id}
-                              className="px-3 py-2.5 sm:py-2 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 cursor-pointer"
-                            >
-                              <span className="flex items-center gap-2 min-w-0">
-                                <input
-                                  type="checkbox"
-                                  checked={newShiftMemberIds.has(emp.id)}
-                                  onChange={(e) => {
-                                    const checked = e.target.checked;
-                                    setNewShiftMemberIds((prev) => {
-                                      const next = new Set(prev);
-                                      if (checked) next.add(emp.id);
-                                      else next.delete(emp.id);
-                                      return next;
-                                    });
-                                  }}
-                                  className="w-4 h-4 rounded border-slate-300 text-blue-700"
-                                />
-                                <span className="font-medium text-slate-800 truncate">
-                                  {emp.name}
+                          {posGroup.employees.map((emp) => {
+                            const weeklySummary = getEmployeeWeeklyShiftSummary(emp.id, shifts);
+                            return (
+                              <label
+                                key={emp.id}
+                                className="px-3 py-2.5 sm:py-2 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 cursor-pointer"
+                              >
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={newShiftMemberIds.has(emp.id)}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setNewShiftMemberIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (checked) next.add(emp.id);
+                                        else next.delete(emp.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-300 text-blue-700"
+                                  />
+                                  <span className="font-medium text-slate-800 truncate">
+                                    {emp.name}
+                                  </span>
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 uppercase shrink-0">
+                                    {emp.position || emp.department}
+                                  </span>
                                 </span>
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 uppercase shrink-0">
-                                  {emp.position || emp.department}
+                                <span className="text-[11px] text-slate-500 shrink-0">
+                                  {weeklySummary.scheduledDayCount > 0
+                                    ? `${weeklySummary.scheduledDayCount} hr terjadwal`
+                                    : 'Belum dijadwalkan'}
                                 </span>
-                              </span>
-                              <span className="text-[11px] text-slate-500 shrink-0">
-                                {emp.shiftName}
-                              </span>
-                            </label>
-                          ))}
+                              </label>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
@@ -2868,22 +2397,22 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
             </div>
             <div className="p-5 space-y-4 overflow-y-auto pb-safe">
               {(() => {
-                const affectedCount = employees.filter(
-                  (e) => e.shiftName.toLowerCase() === deletingShift.name.toLowerCase()
+                const scheduledDayCount = HARI_WEEKDAYS.filter(
+                  (d) => getShiftMembersForWeekday(deletingShift, d.index, activeEmployees).members.length > 0
                 ).length;
                 return (
                   <>
                     <p className="text-xs text-slate-600 leading-relaxed">
                       Anda akan menghapus konfigurasi <strong>{deletingShift.name}</strong> (
                       {deletingShift.startTime} – {deletingShift.endTime}).
-                      {affectedCount > 0
-                        ? ` Terdapat ${affectedCount} karyawan pada shift ini yang akan dipindahkan otomatis.`
-                        : ' Belum ada karyawan di shift ini.'}
+                      {scheduledDayCount > 0
+                        ? ` Terdapat jadwal harian pada ${scheduledDayCount} hari yang dapat dipindahkan otomatis ke shift lain (jika belum terjadwal di shift lain).`
+                        : ' Belum ada jadwal harian pada shift ini.'}
                     </p>
-                    {affectedCount > 0 && (
+                    {scheduledDayCount > 0 && (
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                          Pindahkan {affectedCount} karyawan ke shift:
+                          Pindahkan jadwal ke shift:
                         </label>
                         <select
                           value={deleteTargetShiftId}

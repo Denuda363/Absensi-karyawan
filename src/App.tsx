@@ -29,8 +29,10 @@ import {
   unlockAdminModeWithPin,
 } from './services/payrollService';
 import {
+  getRealtimeStateSnapshot,
   notifyScopeRefresh,
   subscribeRealtimeScopes,
+  subscribeRealtimeStatus,
 } from './services/realtimeService';
 import {
   subscribeFirebaseAuth,
@@ -131,6 +133,9 @@ function AppWorkspace() {
   const [adminPinError, setAdminPinError] = useState<string | null>(null);
 
   const [fbUser, setFbUser] = useState<User | null>(null);
+  const [activeDbEngine, setActiveDbEngine] = useState<string>(
+    () => getRealtimeStateSnapshot().engine
+  );
 
   const loadData = useCallback(async (options?: { silent?: boolean }) => {
     try {
@@ -179,7 +184,14 @@ function AppWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (!fbUser || !fbUser.emailVerified) return;
+    const unsub = subscribeRealtimeStatus((snap) => {
+      setActiveDbEngine(snap.engine);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (activeDbEngine !== 'firestore' || !fbUser || !fbUser.emailVerified) return;
     const unsub = subscribeFirestoreRealtime({
       onAppSettings: (remoteSettings, { isInitial }) => {
         if (isInitial) return;
@@ -224,7 +236,7 @@ function AppWorkspace() {
       },
     });
     return () => unsub();
-  }, [fbUser]);
+  }, [activeDbEngine, fbUser]);
 
   const unloggedTodayCount = useMemo(() => {
     const today = getTodayDateStr();

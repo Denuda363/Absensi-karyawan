@@ -42,7 +42,7 @@ const localMutationTimestamps = new Map<RealtimeScope, number>();
 
 let stateSnapshot: RealtimeStateSnapshot = {
   status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'connecting',
-  engine: 'firestore',
+  engine: 'supabase',
   revision: 0,
   lastEventAt: null,
 };
@@ -379,4 +379,8 @@ export function subscribeRealtimeStatus(listener: StatusListener): () => void {
 
 export function getRealtimeStateSnapshot(): RealtimeStateSnapshot {
   return { ...stateSnapshot };
+}
+
+export function isFirestoreEngineActive(): boolean {
+  return stateSnapshot.engine === 'firestore';
 }

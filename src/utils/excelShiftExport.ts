@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import {
   Employee,
   formatOffDaysSummary,
+  getEmployeeScheduledShiftsForWeekday,
   getShiftMembersForWeekday,
   HARI_WEEKDAYS,
   ShiftConfig,
@@ -238,123 +239,84 @@ export async function exportShiftScheduleToExcel(params: {
 
   if (!isSingleDayExport) {
   // =========================================================================
-  // Sheet 2: Master Roster per Shift
+  // Sheet 2: Jadwal Shift per Karyawan (Senin - Minggu)
   // =========================================================================
-  const rosterSheet = workbook.addWorksheet('Master per Shift');
+  const rosterSheet = workbook.addWorksheet('Jadwal per Karyawan');
   rosterSheet.columns = [
     { key: 'no', width: 6 },
-    { key: 'shift', width: 18 },
-    { key: 'hours', width: 15 },
     { key: 'code', width: 14 },
-    { key: 'name', width: 28 },
-    { key: 'dept', width: 22 },
-    { key: 'pos', width: 22 },
-    { key: 'offDays', width: 22 },
+    { key: 'name', width: 26 },
+    { key: 'pos', width: 20 },
+    ...HARI_WEEKDAYS.map((d) => ({ key: `day_${d.index}`, width: 14 })),
+    { key: 'offDays', width: 20 },
   ];
 
-  rosterSheet.mergeCells('A1:H1');
+  rosterSheet.mergeCells('A1:L1');
   const titleCell = rosterSheet.getCell('A1');
-  titleCell.value = `MASTER SHIFT KARYAWAN — ${(companyName || 'KARYAPRESENSI').toUpperCase()}`;
+  titleCell.value = `RINGKASAN JADWAL SHIFT PER KARYAWAN — ${(companyName || 'KARYAPRESENSI').toUpperCase()}`;
   titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF0F172A' } };
   titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
   rosterSheet.getRow(1).height = 24;
 
-  rosterSheet.mergeCells('A2:H2');
+  rosterSheet.mergeCells('A2:L2');
   const subCell = rosterSheet.getCell('A2');
-  subCell.value = `Total Karyawan Aktif: ${activeEmployees.length} | Total Jenis Shift: ${shifts.length}`;
+  subCell.value = `Total Karyawan Aktif: ${activeEmployees.length} | Semua penjadwalan diatur pada menu Jadwal Shift`;
   subCell.font = { name: 'Arial', size: 10, color: { argb: 'FF475569' } };
   rosterSheet.getRow(2).height = 18;
 
   const headerRow = rosterSheet.getRow(4);
   const headers = [
     'No',
-    'Nama Shift',
-    'Jam Kerja',
     'Kode',
     'Nama Karyawan',
-    'Divisi',
     'Jabatan',
-    'Hari Libur Mingguan',
+    ...HARI_WEEKDAYS.map((d) => d.label),
+    'Hari Libur',
   ];
   headers.forEach((h, idx) => {
     const cell = headerRow.getCell(idx + 1);
     cell.value = h;
     cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = headerFill;
-    cell.alignment = { vertical: 'middle', horizontal: idx === 0 ? 'center' : 'left' };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: idx === 0 || (idx >= 4 && idx <= 10) ? 'center' : 'left',
+    };
     cell.border = thinBorder;
   });
   headerRow.height = 22;
 
   let rowIdx = 5;
   let seq = 1;
-  const knownShiftNames = new Set(shifts.map((s) => s.name.toLowerCase()));
-
-  for (const shift of shifts) {
-    const members = activeEmployees.filter(
-      (e) => e.shiftName.toLowerCase() === shift.name.toLowerCase()
-    );
-    if (members.length === 0) {
-      const r = rosterSheet.getRow(rowIdx++);
-      r.values = [
-        '-',
-        shift.name,
-        `${shift.startTime} - ${shift.endTime}`,
-        '-',
-        '(Belum ada anggota)',
-        '-',
-        '-',
-        '-',
-      ];
-      r.eachCell((c) => {
-        c.font = { name: 'Arial', size: 10, italic: true, color: { argb: 'FF64748B' } };
-        c.border = thinBorder;
-      });
-      continue;
-    }
-
-    for (const emp of members) {
-      const r = rosterSheet.getRow(rowIdx++);
-      r.values = [
-        seq++,
-        shift.name,
-        `${emp.shiftStart} - ${emp.shiftEnd}`,
-        emp.employeeCode,
-        emp.name,
-        emp.department,
-        emp.position,
-        formatOffDaysSummary(emp.offDays),
-      ];
-      r.eachCell((c, colNum) => {
-        c.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
-        c.border = thinBorder;
-        c.alignment = {
-          vertical: 'middle',
-          horizontal: colNum === 1 ? 'center' : 'left',
-        };
-      });
-    }
-  }
-
-  const customMembers = activeEmployees.filter(
-    (e) => !knownShiftNames.has(e.shiftName.toLowerCase())
-  );
-  for (const emp of customMembers) {
+  for (const emp of activeEmployees) {
     const r = rosterSheet.getRow(rowIdx++);
+    const dayValues = HARI_WEEKDAYS.map((day) => {
+      if (emp.offDays.includes(day.index)) return 'Libur';
+      const scheduled = getEmployeeScheduledShiftsForWeekday(emp.id, day.index, shifts)[0];
+      return scheduled ? scheduled.name.replace(/^shift\s+/i, '') : '-';
+    });
     r.values = [
       seq++,
-      emp.shiftName || 'Kustom',
-      `${emp.shiftStart} - ${emp.shiftEnd}`,
       emp.employeeCode,
       emp.name,
-      emp.department,
-      emp.position,
+      emp.position || emp.department,
+      ...dayValues,
       formatOffDaysSummary(emp.offDays),
     ];
     r.eachCell((c, colNum) => {
-      c.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
+      const val = String(c.value ?? '');
+      const isOffCell = colNum >= 5 && colNum <= 11 && val === 'Libur';
+      c.font = {
+        name: 'Arial',
+        size: 10,
+        bold: isOffCell,
+        color: { argb: isOffCell ? 'FF9F1239' : val === '-' ? 'FF94A3B8' : 'FF0F172A' },
+      };
       c.border = thinBorder;
-      c.alignment = { vertical: 'middle', horizontal: colNum === 1 ? 'center' : 'left' };
+      c.alignment = {
+        vertical: 'middle',
+        horizontal: colNum === 1 || (colNum >= 5 && colNum <= 11) ? 'center' : 'left',
+      };
     });
   }
 
@@ -426,7 +388,7 @@ export async function exportShiftScheduleToExcel(params: {
   HARI_WEEKDAYS.forEach((day, dIdx) => {
     const offList = activeEmployees
       .filter((e) => e.offDays.includes(day.index))
-      .map((e, i) => `${i + 1}. ${e.name} (${e.shiftName})`);
+      .map((e, i) => `${i + 1}. ${e.name} (${e.position || e.department})`);
     if (offList.length > maxOffLen) maxOffLen = offList.length;
     const cell = offRow.getCell(dIdx + 2);
     cell.value = offList.length > 0 ? offList.join('\n') : '(Tidak ada libur)';

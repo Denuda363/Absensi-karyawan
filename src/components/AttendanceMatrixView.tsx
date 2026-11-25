@@ -27,6 +27,7 @@ import {
   calculateWorkDurationLabel,
   Employee,
   evaluateLateness,
+  formatEmployeeShiftForDisplay,
   formatOffDaysSummary,
   getCurrentTimeStr,
   getCurrentYearMonth,
@@ -35,6 +36,7 @@ import {
   getMonthMetadata,
   getTodayDateStr,
   isEmployeeOffDay,
+  isEmployeeShiftAssigned,
   LATE_PERMIT_REASON_PRESETS,
   LateSettlement,
   resolveAttendanceShift,
@@ -350,7 +352,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
         ? resolveAttendanceShift(defaultEmp, settings?.shifts, existing.shiftName)
         : dayDefaultShift;
 
-      setInputShiftName(activeShift.shiftName);
+      setInputShiftName(
+      isEmployeeShiftAssigned(activeShift.shiftName) ? activeShift.shiftName : ''
+    );
 
       if (initialStatus) {
         setInputStatus(initialStatus);
@@ -530,7 +534,10 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       ? resolveAttendanceShift(emp, settings?.shifts, existing.shiftName)
       : dayDefaultShift;
 
-    setInputShiftName(activeShift.shiftName);
+    const normalizedShiftName = isEmployeeShiftAssigned(activeShift.shiftName)
+      ? activeShift.shiftName
+      : '';
+    setInputShiftName(normalizedShiftName);
 
     if (existing) {
       setInputStatus(existing.status);
@@ -575,7 +582,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   }, [attendanceRecords, inputEmpId, inputDate]);
 
   const activeInputShiftInfo = useMemo(() => {
-    if (!selectedInputEmployee) return null;
+    if (!selectedInputEmployee || !isEmployeeShiftAssigned(inputShiftName)) return null;
     return resolveAttendanceShift(
       selectedInputEmployee,
       settings?.shifts,
@@ -601,54 +608,53 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       seen.add(key);
       list.push({ name: s.name, startTime: s.startTime, endTime: s.endTime });
     }
-    if (selectedInputEmployee && !seen.has(selectedInputEmployee.shiftName.toLowerCase())) {
-      seen.add(selectedInputEmployee.shiftName.toLowerCase());
-      list.push({
-        name: selectedInputEmployee.shiftName,
-        startTime: selectedInputEmployee.shiftStart,
-        endTime: selectedInputEmployee.shiftEnd,
-      });
-    }
-    if (inputShiftName && !seen.has(inputShiftName.toLowerCase())) {
+    if (
+      inputShiftName &&
+      isEmployeeShiftAssigned(inputShiftName) &&
+      !seen.has(inputShiftName.toLowerCase())
+    ) {
       list.push({
         name: inputShiftName,
-        startTime: selectedInputEmployee?.shiftStart || '08:00',
-        endTime: selectedInputEmployee?.shiftEnd || '17:00',
+        startTime: '',
+        endTime: '',
       });
     }
     return list;
-  }, [settings?.shifts, selectedInputEmployee, inputShiftName]);
+  }, [settings?.shifts, inputShiftName]);
 
   const handleChangeInputShift = (nextShiftName: string) => {
+    if (!nextShiftName || !isEmployeeShiftAssigned(nextShiftName)) {
+      setInputShiftName('');
+      return;
+    }
     if (!selectedInputEmployee) {
       setInputShiftName(nextShiftName);
       return;
     }
-    const prevShift = resolveAttendanceShift(
-      selectedInputEmployee,
-      settings?.shifts,
-      inputShiftName
-    );
+    const prevShift = isEmployeeShiftAssigned(inputShiftName)
+      ? resolveAttendanceShift(selectedInputEmployee, settings?.shifts, inputShiftName)
+      : null;
     const nextShift = resolveAttendanceShift(
       selectedInputEmployee,
       settings?.shifts,
       nextShiftName
     );
-    setInputShiftName(nextShift.shiftName);
+    setInputShiftName(isEmployeeShiftAssigned(nextShift.shiftName) ? nextShift.shiftName : '');
 
     const shouldReplaceIn =
       !existingRecordForInput ||
       !inputCheckIn ||
-      inputCheckIn === prevShift.shiftStart;
+      (prevShift !== null && inputCheckIn === prevShift.shiftStart);
     const shouldReplaceOut =
       !existingRecordForInput ||
       !inputCheckOut ||
-      inputCheckOut === prevShift.shiftEnd;
+      (prevShift !== null && inputCheckOut === prevShift.shiftEnd);
 
     if (inputStatus === 'izin_terlambat') {
       if (
         !existingRecordForInput ||
-        inputLatePermitEstArrival === addMinutesToTime(prevShift.shiftStart, 60)
+        (prevShift !== null &&
+          inputLatePermitEstArrival === addMinutesToTime(prevShift.shiftStart, 60))
       ) {
         setInputLatePermitEstArrival(addMinutesToTime(nextShift.shiftStart, 60));
       }
@@ -666,7 +672,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       if (shouldReplaceOut) {
         setInputCheckOut(nextShift.shiftEnd);
       }
-      if (nextCheckIn) {
+      if (nextCheckIn && nextShift.shiftStart) {
         const evalRes = evaluateLateness(
           nextCheckIn,
           nextShift.shiftStart,
@@ -705,8 +711,8 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
     const parsedOt = Math.max(0, Math.min(16, Number(inputOvertimeHours) || 0));
     const isPermit = inputStatus === 'izin_terlambat';
-    const resolvedShiftName =
-      activeInputShiftInfo?.shiftName || inputShiftName || selectedInputEmployee.shiftName;
+    const rawShiftName = activeInputShiftInfo?.shiftName || inputShiftName || '';
+    const resolvedShiftName = isEmployeeShiftAssigned(rawShiftName) ? rawShiftName : '';
     setInputSaving(true);
     try {
       if (existingRecordForInput) {
@@ -861,16 +867,21 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       const effectiveShift = existingRecord?.shiftName
         ? resolveAttendanceShift(employee, settings?.shifts, existingRecord.shiftName)
         : dayShift;
+      const shiftNameForRecord = isEmployeeShiftAssigned(effectiveShift.shiftName)
+        ? effectiveShift.shiftName
+        : '';
       const needsTimes = action === 'hadir' || action === 'terlambat';
       const defaultCheckIn =
         action === 'terlambat'
-          ? addMinutesToTime(effectiveShift.shiftStart, 20)
+          ? effectiveShift.shiftStart
+            ? addMinutesToTime(effectiveShift.shiftStart, 20)
+            : ''
           : effectiveShift.shiftStart;
 
       if (existingRecord) {
         await updateAttendanceRecord(existingRecord.id, {
           status: action,
-          shiftName: effectiveShift.shiftName,
+          shiftName: shiftNameForRecord,
           checkIn: needsTimes ? existingRecord.checkIn || defaultCheckIn : '',
           checkOut: needsTimes ? existingRecord.checkOut || effectiveShift.shiftEnd : '',
         });
@@ -879,7 +890,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           employeeId: employee.id,
           date,
           status: action,
-          shiftName: effectiveShift.shiftName,
+          shiftName: shiftNameForRecord,
           checkIn: needsTimes ? defaultCheckIn : '',
           checkOut: needsTimes ? effectiveShift.shiftEnd : '',
           overtimeHours: 0,
@@ -890,7 +901,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       await onRefresh();
       setActionBanner({
         type: 'success',
-        text: `Tersimpan: ${employee.name} (${date} · ${effectiveShift.shiftName}) → ${ATTENDANCE_STATUS_META[action].label} (tercatat di Log Catatan Absensi)`,
+        text: `Tersimpan: ${employee.name} (${date}${
+          shiftNameForRecord ? ` · ${shiftNameForRecord}` : ''
+        }) → ${ATTENDANCE_STATUS_META[action].label} (tercatat di Log Catatan Absensi)`,
       });
     } catch (err) {
       setActionBanner({
@@ -1166,13 +1179,20 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 allLabel="Semua Karyawan"
                 value={logEmployeeFilter}
                 onChange={setLogEmployeeFilter}
-                options={activeEmployees.map((emp) => ({
-                  id: emp.id,
-                  code: emp.employeeCode,
-                  name: emp.name,
-                  department: emp.department,
-                  subtitle: `${emp.department} · ${emp.shiftName}`,
-                }))}
+                options={activeEmployees.map((emp) => {
+                  const shiftDisp = formatEmployeeShiftForDisplay(
+                    emp,
+                    logSelectedDate || getTodayDateStr(),
+                    settings?.shifts
+                  );
+                  return {
+                    id: emp.id,
+                    code: emp.employeeCode,
+                    name: emp.name,
+                    department: emp.department,
+                    subtitle: `${emp.department} · ${shiftDisp.shortLabel}`,
+                  };
+                })}
                 className="w-full sm:w-56"
               />
 
@@ -1587,11 +1607,17 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                             }
 
                             const cellShift = cell.rec
-                              ? resolveAttendanceShift(
-                                  row.employee,
-                                  settings?.shifts,
-                                  cell.rec.shiftName
-                                )
+                              ? cell.rec.shiftName
+                                ? resolveAttendanceShift(
+                                    row.employee,
+                                    settings?.shifts,
+                                    cell.rec.shiftName
+                                  )
+                                : resolveEmployeeDefaultShiftForDate(
+                                    row.employee,
+                                    cell.date,
+                                    settings?.shifts
+                                  )
                               : null;
                             const lateMinutes =
                               cell.rec &&
@@ -1804,7 +1830,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   const meta = ATTENDANCE_STATUS_META[rec.status];
                   const emp = employees.find((e) => e.id === rec.employeeId);
                   const recShift = emp
-                    ? resolveAttendanceShift(emp, settings?.shifts, rec.shiftName)
+                    ? rec.shiftName
+                      ? resolveAttendanceShift(emp, settings?.shifts, rec.shiftName)
+                      : resolveEmployeeDefaultShiftForDate(emp, rec.date, settings?.shifts)
                     : null;
                   const lateMins =
                     recShift && rec.checkIn && (rec.status === 'hadir' || rec.status === 'terlambat')
@@ -1845,9 +1873,12 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700 font-mono tabular-nums">
-                        {recShift && (
+                        {recShift && isEmployeeShiftAssigned(recShift.shiftName) && (
                           <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded font-sans text-[11px] font-semibold text-slate-800">
-                            {recShift.shiftName} ({recShift.shiftStart}–{recShift.shiftEnd})
+                            {recShift.shiftName}
+                            {recShift.shiftStart && recShift.shiftEnd
+                              ? ` (${recShift.shiftStart}–${recShift.shiftEnd})`
+                              : ''}
                           </span>
                         )}
                         {rec.checkIn && (
@@ -1947,7 +1978,9 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       const meta = ATTENDANCE_STATUS_META[rec.status];
                       const emp = employees.find((e) => e.id === rec.employeeId);
                       const recShift = emp
-                        ? resolveAttendanceShift(emp, settings?.shifts, rec.shiftName)
+                        ? rec.shiftName
+                          ? resolveAttendanceShift(emp, settings?.shifts, rec.shiftName)
+                          : resolveEmployeeDefaultShiftForDate(emp, rec.date, settings?.shifts)
                         : null;
                       const offOnDate = emp ? isEmployeeOffDay(emp, rec.date).isOff : false;
                       const lateMins =
@@ -1989,14 +2022,16 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                             )}
                           </td>
                           <td className="py-3 px-4 whitespace-nowrap">
-                            {recShift ? (
+                            {recShift && isEmployeeShiftAssigned(recShift.shiftName) ? (
                               <div>
                                 <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-800 border border-slate-200 rounded">
                                   {recShift.shiftName}
                                 </span>
-                                <div className="text-[11px] font-mono text-slate-500 mt-0.5 tabular-nums">
-                                  {recShift.shiftStart}–{recShift.shiftEnd}
-                                </div>
+                                {recShift.shiftStart && recShift.shiftEnd && (
+                                  <div className="text-[11px] font-mono text-slate-500 mt-0.5 tabular-nums">
+                                    {recShift.shiftStart}–{recShift.shiftEnd}
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <span className="text-xs text-slate-400">—</span>
@@ -2194,6 +2229,11 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     ) : (
                       modalFilteredEmployees.map((emp) => {
                         const isSelected = emp.id === inputEmpId;
+                        const empShiftDisp = formatEmployeeShiftForDisplay(
+                          emp,
+                          inputDate || getTodayDateStr(),
+                          settings?.shifts
+                        );
                         return (
                           <button
                             key={emp.id}
@@ -2216,8 +2256,11 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                                 </span>
                               </div>
                               <div className="text-[11px] text-slate-500 truncate">
-                                {emp.department} · Shift {emp.shiftStart}–{emp.shiftEnd} · Libur:{' '}
-                                {formatOffDaysSummary(emp.offDays)}
+                                {emp.department} ·{' '}
+                                {empShiftDisp.hasSchedule
+                                  ? `${empShiftDisp.shiftName} ${empShiftDisp.shiftStart}–${empShiftDisp.shiftEnd}`
+                                  : empShiftDisp.shortLabel}{' '}
+                                · Libur: {formatOffDaysSummary(emp.offDays)}
                               </div>
                             </div>
                             {isSelected && (
@@ -2261,9 +2304,11 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     onChange={(e) => handleChangeInputShift(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   >
+                    <option value="">-- Pilih Shift (Belum Dijadwalkan) --</option>
                     {inputShiftSelectOptions.map((sh) => (
                       <option key={sh.name} value={sh.name}>
-                        {sh.name} ({sh.startTime}–{sh.endTime})
+                        {sh.name}
+                        {sh.startTime && sh.endTime ? ` (${sh.startTime}–${sh.endTime})` : ''}
                       </option>
                     ))}
                   </select>
@@ -2305,14 +2350,8 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   onChange={(e) => {
                     const nextSt = e.target.value as AttendanceStatus;
                     setInputStatus(nextSt);
-                    const refStart =
-                      activeInputShiftInfo?.shiftStart ||
-                      selectedInputEmployee?.shiftStart ||
-                      '08:00';
-                    const refEnd =
-                      activeInputShiftInfo?.shiftEnd ||
-                      selectedInputEmployee?.shiftEnd ||
-                      '17:00';
+                    const refStart = activeInputShiftInfo?.shiftStart || '08:00';
+                    const refEnd = activeInputShiftInfo?.shiftEnd || '17:00';
                     if (nextSt === 'izin_terlambat') {
                       if (!existingRecordForInput) setInputCheckIn('');
                       setInputLatePermitEstArrival(addMinutesToTime(refStart, 60));
@@ -2471,7 +2510,11 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     </div>
                   </div>
 
-                  {inputStatus !== 'izin_terlambat' && activeInputShiftInfo && inputCheckIn && (() => {
+                  {inputStatus !== 'izin_terlambat' &&
+                    activeInputShiftInfo &&
+                    activeInputShiftInfo.shiftStart &&
+                    inputCheckIn &&
+                    (() => {
                     const evalRes = evaluateLateness(
                       inputCheckIn,
                       activeInputShiftInfo.shiftStart,

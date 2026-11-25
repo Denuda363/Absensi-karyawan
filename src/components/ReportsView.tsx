@@ -25,12 +25,15 @@ import {
   formatIndonesianMonth,
   formatOffDaysSummary,
   getCurrentYearMonth,
+  getEmployeeWeeklyShiftSummary,
   getMonthEffectiveWorkDays,
   getTodayDateStr,
+  isEmployeeShiftAssigned,
   LateSettlement,
   LateSettlementMethod,
   NavSection,
   resolveAttendanceShift,
+  resolveEmployeeDefaultShiftForDate,
 } from '../types';
 import {
   createLateSettlement,
@@ -67,12 +70,17 @@ interface EmployeeMonthlySummary {
 interface LateLogDetail {
   record: AttendanceRecord;
   employee: Employee;
+  shiftName: string;
+  shiftStart: string;
+  shiftEnd: string;
   toleranceMinutes: number;
   lateMinutes: number;
 }
 
 interface EmployeeLatenessSummary {
   employee: Employee;
+  shiftLabel: string;
+  shiftTimeLabel: string;
   toleranceMinutes: number;
   lateCount: number;
   totalLateMinutes: number;
@@ -271,11 +279,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       )
       .map((rec) => {
         const employee = empMap.get(rec.employeeId)!;
-        const shiftInfo = resolveAttendanceShift(employee, settings?.shifts, rec.shiftName);
+        const shiftInfo = rec.shiftName
+          ? resolveAttendanceShift(employee, settings?.shifts, rec.shiftName)
+          : resolveEmployeeDefaultShiftForDate(employee, rec.date, settings?.shifts);
         const refTime = rec.checkIn || rec.latePermitEstimatedArrival || '';
-        const diffMins = refTime
-          ? calculateLatenessMinutes(refTime, shiftInfo.shiftStart)
-          : 0;
+        const diffMins =
+          refTime && shiftInfo.shiftStart
+            ? calculateLatenessMinutes(refTime, shiftInfo.shiftStart)
+            : 0;
         return { record: rec, employee, diffMins };
       })
       .sort((a, b) => b.record.date.localeCompare(a.record.date));
@@ -287,7 +298,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     const empSummaries: EmployeeLatenessSummary[] = [];
 
     for (const emp of scopedEmployees) {
-      const defaultTolerance = resolveAttendanceShift(emp, settings?.shifts).lateToleranceMinutes;
+      const weeklyShift = getEmployeeWeeklyShiftSummary(emp.id, settings?.shifts);
+      const firstWeeklyShift = weeklyShift.dayEntries.find((d) => d.shift)?.shift ?? null;
+      const defaultTolerance = firstWeeklyShift
+        ? firstWeeklyShift.lateToleranceMinutes
+        : resolveAttendanceShift(emp, settings?.shifts).lateToleranceMinutes;
       const monthAtt = attendanceRecords.filter(
         (r) => r.employeeId === emp.id && r.date.startsWith(selectedMonth)
       );
@@ -302,19 +317,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       const empLateLogs: LateLogDetail[] = [];
 
       for (const rec of monthAtt) {
-        const recShift = resolveAttendanceShift(emp, settings?.shifts, rec.shiftName);
+        const recShift = rec.shiftName
+          ? resolveAttendanceShift(emp, settings?.shifts, rec.shiftName)
+          : resolveEmployeeDefaultShiftForDate(emp, rec.date, settings?.shifts);
         const tolerance = recShift.lateToleranceMinutes;
-        const rawLate = rec.checkIn
-          ? calculateLatenessMinutes(rec.checkIn, recShift.shiftStart)
-          : 0;
+        const rawLate =
+          rec.checkIn && recShift.shiftStart
+            ? calculateLatenessMinutes(rec.checkIn, recShift.shiftStart)
+            : 0;
         const isLateRecord =
           rec.status === 'terlambat' ||
-          (rec.status === 'hadir' && Boolean(rec.checkIn) && rawLate > tolerance);
+          (rec.status === 'hadir' && Boolean(rec.checkIn) && Boolean(recShift.shiftStart) && rawLate > tolerance);
 
         if (isLateRecord) {
+          const hasAssignedShift = isEmployeeShiftAssigned(recShift.shiftName);
           const item: LateLogDetail = {
             record: rec,
             employee: emp,
+            shiftName: hasAssignedShift ? recShift.shiftName : 'Belum dijadwalkan',
+            shiftStart: hasAssignedShift ? recShift.shiftStart : '',
+            shiftEnd: hasAssignedShift ? recShift.shiftEnd : '',
             toleranceMinutes: tolerance,
             lateMinutes: rawLate,
           };
@@ -323,7 +345,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         }
       }
 
-      const tolerance = defaultTolerance;
+      const tolerance =
+        empLateLogs[0]?.toleranceMinutes ?? defaultTolerance;
 
       const empSettlements = monthScopedSettlements.filter(
         (s) => s.employeeId === emp.id
@@ -374,8 +397,32 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           totalLateMinutes - totalSettledMinutes
         );
 
+        const recordedShiftNames = Array.from(
+          new Set(
+            empLateLogs
+              .map((l) => l.shiftName)
+              .filter((n) => isEmployeeShiftAssigned(n) && n !== 'Belum dijadwalkan')
+          )
+        );
+        const shiftLabel =
+          recordedShiftNames.length > 0
+            ? recordedShiftNames.join(', ')
+            : weeklyShift.uniqueShiftNames.length > 0
+              ? weeklyShift.uniqueShiftNames.join(', ')
+              : 'Belum dijadwalkan';
+        const firstShiftWithHours =
+          empLateLogs.find((l) => l.shiftStart && l.shiftEnd) ??
+          (firstWeeklyShift
+            ? { shiftStart: firstWeeklyShift.startTime, shiftEnd: firstWeeklyShift.endTime }
+            : null);
+        const shiftTimeLabel = firstShiftWithHours
+          ? `${firstShiftWithHours.shiftStart}–${firstShiftWithHours.shiftEnd}`
+          : '—';
+
         empSummaries.push({
           employee: emp,
+          shiftLabel,
+          shiftTimeLabel,
           toleranceMinutes: tolerance,
           lateCount: empLateLogs.length,
           totalLateMinutes,
@@ -462,7 +509,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const lateShiftOptions = useMemo(() => {
     const set = new Set<string>();
     for (const d of lateLogDetails) {
-      if (d.employee.shiftName) set.add(d.employee.shiftName);
+      if (isEmployeeShiftAssigned(d.shiftName) && d.shiftName !== 'Belum dijadwalkan') {
+        set.add(d.shiftName);
+      }
     }
     return ['all', ...Array.from(set).sort()];
   }, [lateLogDetails]);
@@ -474,7 +523,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         lateEmpFilter === 'all' ? true : item.employee.id === lateEmpFilter
       )
       .filter((item) =>
-        lateShiftFilter === 'all' ? true : item.employee.shiftName === lateShiftFilter
+        lateShiftFilter === 'all' ? true : item.shiftName === lateShiftFilter
       )
       .filter((item) => {
         if (!q) return true;
@@ -482,7 +531,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           item.employee.name.toLowerCase().includes(q) ||
           item.employee.employeeCode.toLowerCase().includes(q) ||
           item.employee.department.toLowerCase().includes(q) ||
-          item.employee.shiftName.toLowerCase().includes(q) ||
+          item.shiftName.toLowerCase().includes(q) ||
           item.record.date.includes(q) ||
           (item.record.notes ?? '').toLowerCase().includes(q)
         );
@@ -526,7 +575,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     const chosenEmp = employees.find((e) => e.id === chosenEmpId);
     const remaining = targetSummary?.remainingLateMinutes ?? 0;
     const defaultMinutes = remaining > 0 ? Math.min(30, remaining) : 30;
-    const shiftEnd = chosenEmp?.shiftEnd || '17:00';
+    const chosenWeeklyShift = chosenEmp
+      ? getEmployeeWeeklyShiftSummary(chosenEmp.id, settings?.shifts).dayEntries.find(
+          (d) => d.shift
+        )?.shift
+      : null;
+    const shiftEnd =
+      targetSummary?.lateLogs[0]?.shiftEnd ||
+      chosenWeeklyShift?.endTime ||
+      '17:00';
 
     setFormEmpId(chosenEmpId);
     setFormMethod('tambahan_jam_kerja');
@@ -548,7 +605,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     const remaining = summary?.remainingLateMinutes ?? 0;
     const nextMin = remaining > 0 ? Math.min(30, remaining) : 30;
     setFormMinutes(nextMin);
-    const shiftEnd = emp?.shiftEnd || '17:00';
+    const weeklyShift = emp
+      ? getEmployeeWeeklyShiftSummary(emp.id, settings?.shifts).dayEntries.find(
+          (d) => d.shift
+        )?.shift
+      : null;
+    const shiftEnd = summary?.lateLogs[0]?.shiftEnd || weeklyShift?.endTime || '17:00';
     setFormExtraStart(shiftEnd);
     setFormExtraEnd(addMinutesToTimeStr(shiftEnd, nextMin));
     setFormDeductionAmount(nextMin * defaultRatePerMinute);
@@ -739,8 +801,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         s.employee.employeeCode,
         `"${s.employee.name.replace(/"/g, '""')}"`,
         `"${s.employee.department.replace(/"/g, '""')}"`,
-        `"${s.employee.shiftName.replace(/"/g, '""')}"`,
-        `${s.employee.shiftStart}-${s.employee.shiftEnd}`,
+        `"${s.shiftLabel.replace(/"/g, '""')}"`,
+        s.shiftTimeLabel,
         s.toleranceMinutes,
         s.lateCount,
         s.totalLateMinutes,
@@ -790,8 +852,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       d.employee.employeeCode,
       `"${d.employee.name.replace(/"/g, '""')}"`,
       `"${d.employee.department.replace(/"/g, '""')}"`,
-      `"${d.employee.shiftName.replace(/"/g, '""')}"`,
-      `${d.employee.shiftStart}-${d.employee.shiftEnd}`,
+      `"${d.shiftName.replace(/"/g, '""')}"`,
+      d.shiftStart && d.shiftEnd ? `${d.shiftStart}-${d.shiftEnd}` : '-',
       d.record.checkIn || '-',
       d.lateMinutes,
       `"${(d.record.notes || '').replace(/"/g, '""')}"`,
@@ -1418,7 +1480,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                               {row.employee.department}
                             </div>
                             <div className="text-[11px] font-mono text-slate-500 mt-0.5 tabular-nums">
-                              {row.employee.shiftName} ({row.employee.shiftStart}–{row.employee.shiftEnd})
+                              {row.shiftLabel}
+                              {row.shiftTimeLabel !== '—' ? ` (${row.shiftTimeLabel})` : ''}
                             </div>
                           </div>
                           {row.remainingLateMinutes === 0 ? (
@@ -1553,9 +1616,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                               </div>
                             </td>
                             <td className="py-3 px-4 text-xs text-slate-600 whitespace-nowrap">
-                              <div className="font-semibold text-slate-800">{row.employee.shiftName}</div>
+                              <div className="font-semibold text-slate-800">{row.shiftLabel}</div>
                               <div className="font-mono text-slate-500 tabular-nums">
-                                {row.employee.shiftStart}–{row.employee.shiftEnd} · Tol. {row.toleranceMinutes} mnt
+                                {row.shiftTimeLabel} · Tol. {row.toleranceMinutes} mnt
                               </div>
                             </td>
                             <td className="py-3 px-4 text-xs">
@@ -1687,10 +1750,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                                             </span>
                                           </td>
                                           <td className="py-2 px-3 font-medium text-slate-800 whitespace-nowrap">
-                                            {entry.employee.shiftName}
+                                            {entry.shiftName}
                                           </td>
                                           <td className="py-2 px-3 font-mono text-slate-600 tabular-nums whitespace-nowrap">
-                                            {entry.employee.shiftStart}–{entry.employee.shiftEnd} (tol. {entry.toleranceMinutes}m)
+                                            {entry.shiftStart && entry.shiftEnd
+                                              ? `${entry.shiftStart}–${entry.shiftEnd}`
+                                              : '—'}{' '}
+                                            (tol. {entry.toleranceMinutes}m)
                                           </td>
                                           <td className="py-2 px-3 font-mono font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                                             {entry.record.checkIn || '—'}
@@ -1895,7 +1961,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         code: s.employee.employeeCode,
                         name: s.employee.name,
                         department: s.employee.department,
-                        subtitle: `${s.employee.shiftName} · ${s.lateCount}x telat`,
+                        subtitle: `${s.shiftLabel} · ${s.lateCount}x telat`,
                       }))}
                       placeholder="Filter karyawan..."
                     />
@@ -1975,7 +2041,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                             {item.employee.name}
                           </div>
                           <div className="text-xs text-slate-500 truncate">
-                            {item.employee.shiftName} ({item.employee.shiftStart}–{item.employee.shiftEnd})
+                            {item.shiftName}
+                            {item.shiftStart && item.shiftEnd
+                              ? ` (${item.shiftStart}–${item.shiftEnd})`
+                              : ''}
                           </div>
                         </div>
                         <span className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-amber-50 text-amber-800 border border-amber-200 shrink-0 tabular-nums">
@@ -2029,10 +2098,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="text-xs font-semibold text-slate-800">
-                            {item.employee.shiftName}
+                            {item.shiftName}
                           </div>
                           <div className="font-mono text-[11px] text-slate-500 tabular-nums">
-                            {item.employee.shiftStart}–{item.employee.shiftEnd} (tol. {item.toleranceMinutes}m)
+                            {item.shiftStart && item.shiftEnd
+                              ? `${item.shiftStart}–${item.shiftEnd}`
+                              : '—'}{' '}
+                            (tol. {item.toleranceMinutes}m)
                           </div>
                         </td>
                         <td className="py-3 px-4 font-mono text-xs font-semibold text-slate-900 tabular-nums">

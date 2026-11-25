@@ -13,16 +13,19 @@ import {
 } from 'lucide-react';
 import {
   Employee,
+  formatEmployeeShiftForDisplay,
   formatIndonesianDate,
   formatIndonesianMonth,
   formatOffDaysSummary,
   getCurrentYearMonth,
   getDaysInMonth,
   getDayOfWeekFromDateStr,
+  getEmployeeScheduledShiftsForWeekday,
   getTodayDateStr,
   HARI_WEEKDAYS,
   isEmployeeOffDay,
   ShiftConfig,
+  UNASSIGNED_SHIFT_NAME,
 } from '../types';
 import {
   createEmployee,
@@ -56,9 +59,6 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
   const [editOffDays, setEditOffDays] = useState<number[]>([]);
   const [editCustomDates, setEditCustomDates] = useState<string[]>([]);
   const [newCustomDate, setNewCustomDate] = useState<string>(getTodayDateStr());
-  const [editShiftName, setEditShiftName] = useState<string>('');
-  const [editShiftStart, setEditShiftStart] = useState<string>('08:00');
-  const [editShiftEnd, setEditShiftEnd] = useState<string>('17:00');
   const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
 
@@ -69,9 +69,6 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
   const [empName, setEmpName] = useState<string>('');
   const [empDept, setEmpDept] = useState<string>('Operasional');
   const [empPosition, setEmpPosition] = useState<string>('Staf');
-  const [empShiftName, setEmpShiftName] = useState<string>('Shift Pagi');
-  const [empShiftStart, setEmpShiftStart] = useState<string>('08:00');
-  const [empShiftEnd, setEmpShiftEnd] = useState<string>('17:00');
   const [empOffDays, setEmpOffDays] = useState<number[]>([1]);
   const [empActive, setEmpActive] = useState<boolean>(true);
   const [empSaving, setEmpSaving] = useState<boolean>(false);
@@ -147,9 +144,6 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
     setEditOffDays([...emp.offDays]);
     setEditCustomDates([...(emp.customOffDates || [])]);
     setNewCustomDate(today);
-    setEditShiftName(emp.shiftName);
-    setEditShiftStart(emp.shiftStart);
-    setEditShiftEnd(emp.shiftEnd);
     setScheduleError(null);
   };
 
@@ -184,9 +178,6 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
       await updateEmployee(editingScheduleEmp.id, {
         offDays: editOffDays,
         customOffDates: editCustomDates,
-        shiftName: editShiftName || editingScheduleEmp.shiftName,
-        shiftStart: editShiftStart,
-        shiftEnd: editShiftEnd,
       });
       await onRefresh();
       setEditingScheduleEmp(null);
@@ -201,16 +192,12 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
 
   const openAddEmployeeModal = () => {
     const nextNum = 101 + employees.length;
-    const defaultShift = shifts[0];
     setEditingEmployee(null);
     setEmpCode(`KRY-${nextNum}`);
     setEmpName('');
     setEmpDept('Operasional');
     setEmpPosition('Staf Operasional');
-    setEmpShiftName(defaultShift?.name || 'Shift Pagi');
-    setEmpShiftStart(defaultShift?.startTime || '08:00');
-    setEmpShiftEnd(defaultShift?.endTime || '17:00');
-    setEmpOffDays([1]);
+    setEmpOffDays([]);
     setEmpActive(true);
     setEmpError(null);
     setEmpModalOpen(true);
@@ -222,9 +209,6 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
     setEmpName(emp.name);
     setEmpDept(emp.department);
     setEmpPosition(emp.position);
-    setEmpShiftName(emp.shiftName);
-    setEmpShiftStart(emp.shiftStart);
-    setEmpShiftEnd(emp.shiftEnd);
     setEmpOffDays([...emp.offDays]);
     setEmpActive(emp.active);
     setEmpError(null);
@@ -251,9 +235,6 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
           name: empName.trim(),
           department: empDept.trim() || 'Operasional',
           position: empPosition.trim() || 'Staf',
-          shiftName: empShiftName.trim() || 'Reguler',
-          shiftStart: empShiftStart,
-          shiftEnd: empShiftEnd,
           offDays: empOffDays,
           active: empActive,
         });
@@ -263,9 +244,9 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
           name: empName.trim(),
           department: empDept.trim() || 'Operasional',
           position: empPosition.trim() || 'Staf',
-          shiftName: empShiftName.trim() || 'Reguler',
-          shiftStart: empShiftStart,
-          shiftEnd: empShiftEnd,
+          shiftName: UNASSIGNED_SHIFT_NAME,
+          shiftStart: '00:00',
+          shiftEnd: '00:00',
           offDays: empOffDays,
           customOffDates: [],
           active: empActive,
@@ -495,6 +476,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
               <div className="md:hidden divide-y divide-slate-100">
                 {filteredEmployees.map((emp) => {
                   const todayStatus = isEmployeeOffDay(emp, today);
+                  const shiftDisplay = formatEmployeeShiftForDisplay(emp, today, shifts);
                   return (
                     <div
                       key={emp.id}
@@ -513,10 +495,10 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                             )}
                           </div>
                           <div className="text-xs text-slate-500 mt-0.5 truncate">
-                            <span className="font-mono">{emp.employeeCode}</span> · {emp.department}
+                            <span className="font-mono">{emp.employeeCode}</span> · {emp.department} ({emp.position})
                           </div>
-                          <div className="text-[11px] font-mono text-slate-600 mt-1 tabular-nums">
-                            {emp.shiftName} ({emp.shiftStart}–{emp.shiftEnd})
+                          <div className="text-[11px] text-slate-600 mt-1 tabular-nums">
+                            {shiftDisplay.label}
                           </div>
                         </div>
                         {todayStatus.isOff && emp.active && (
@@ -529,18 +511,25 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                       <div className="grid grid-cols-7 gap-1">
                         {HARI_WEEKDAYS.map((day) => {
                           const isOff = emp.offDays.includes(day.index);
+                          const scheduledDay = getEmployeeScheduledShiftsForWeekday(
+                            emp.id,
+                            day.index,
+                            shifts
+                          )[0];
                           return (
                             <div
                               key={day.index}
                               className={`py-1.5 rounded-md text-center border ${
                                 isOff
                                   ? 'bg-amber-50 border-amber-300 text-amber-900 font-semibold'
-                                  : 'bg-slate-50 border-slate-200/80 text-slate-500'
+                                  : scheduledDay
+                                    ? 'bg-blue-50/70 border-blue-200 text-blue-900'
+                                    : 'bg-slate-50 border-slate-200/80 text-slate-400'
                               }`}
                             >
                               <div className="text-[10px] leading-tight">{day.short}</div>
                               <div className="text-[9px] font-mono mt-0.5">
-                                {isOff ? 'OFF' : emp.shiftStart}
+                                {isOff ? 'OFF' : scheduledDay ? scheduledDay.startTime : '—'}
                               </div>
                             </div>
                           );
@@ -629,6 +618,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {filteredEmployees.map((emp) => {
                     const todayStatus = isEmployeeOffDay(emp, today);
+                    const shiftDisplay = formatEmployeeShiftForDisplay(emp, today, shifts);
                     return (
                       <tr
                         key={emp.id}
@@ -644,10 +634,12 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                             )}
                           </div>
                           <div className="text-xs text-slate-500 mt-0.5">
-                            <span className="font-mono">{emp.employeeCode}</span> · {emp.department}
+                            <span className="font-mono">{emp.employeeCode}</span> · {emp.department} · {emp.position}
                           </div>
-                          <div className="text-xs text-slate-500 font-mono tabular-nums mt-0.5">
-                            {emp.shiftName} ({emp.shiftStart}–{emp.shiftEnd})
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            <span className={shiftDisplay.hasSchedule ? 'font-mono text-slate-700' : 'text-slate-400 italic'}>
+                              {shiftDisplay.label}
+                            </span>
                             {todayStatus.isOff && emp.active && (
                               <span className="ml-2 font-sans text-amber-700 font-medium">
                                 · Libur Hari Ini
@@ -658,6 +650,11 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
 
                         {HARI_WEEKDAYS.map((day) => {
                           const isOff = emp.offDays.includes(day.index);
+                          const scheduledDay = getEmployeeScheduledShiftsForWeekday(
+                            emp.id,
+                            day.index,
+                            shifts
+                          )[0];
                           return (
                             <td key={day.index} className="py-3 px-1.5 text-center">
                               {isOff ? (
@@ -665,9 +662,19 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                                   <CalendarOff className="w-3 h-3 shrink-0" />
                                   <span>Libur</span>
                                 </div>
+                              ) : scheduledDay ? (
+                                <div
+                                  title={`${scheduledDay.name} (${scheduledDay.startTime}–${scheduledDay.endTime})`}
+                                  className="px-1.5 py-1 text-[11px] font-mono text-blue-900 bg-blue-50/70 border border-blue-200/80 rounded-md tabular-nums"
+                                >
+                                  {scheduledDay.startTime}
+                                </div>
                               ) : (
-                                <div className="px-1.5 py-1 text-[11px] font-mono text-slate-600 bg-slate-50 border border-slate-200/80 rounded-md tabular-nums">
-                                  {emp.shiftStart}
+                                <div
+                                  title="Belum dijadwalkan di menu Jadwal Shift"
+                                  className="px-1.5 py-1 text-[11px] font-mono text-slate-400 bg-slate-50 border border-slate-200/80 rounded-md"
+                                >
+                                  —
                                 </div>
                               )}
                             </td>
@@ -982,74 +989,8 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 )}
               </div>
 
-              <div className="pt-3 border-t border-slate-100 space-y-3">
-                {shifts.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Pilih Preset Shift (dari Pengaturan)
-                    </label>
-                    <select
-                      value={
-                        shifts.some((s) => s.name === editShiftName)
-                          ? editShiftName
-                          : ''
-                      }
-                      onChange={(e) => {
-                        const chosen = shifts.find((s) => s.name === e.target.value);
-                        if (chosen) {
-                          setEditShiftName(chosen.name);
-                          setEditShiftStart(chosen.startTime);
-                          setEditShiftEnd(chosen.endTime);
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    >
-                      <option value="">-- Kustom / Pilih Shift --</option>
-                      {shifts.map((s) => (
-                        <option key={s.id} value={s.name}>
-                          {s.name} ({s.startTime}–{s.endTime})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Nama Shift
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={40}
-                      value={editShiftName}
-                      onChange={(e) => setEditShiftName(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Mulai Shift
-                    </label>
-                    <input
-                      type="time"
-                      value={editShiftStart}
-                      onChange={(e) => setEditShiftStart(e.target.value)}
-                      className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Selesai Shift
-                    </label>
-                    <input
-                      type="time"
-                      value={editShiftEnd}
-                      onChange={(e) => setEditShiftEnd(e.target.value)}
-                      className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                </div>
+              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-lg text-xs text-blue-900 leading-relaxed">
+                <strong>Catatan Shift Kerja:</strong> Tidak ada shift default per karyawan. Penempatan shift masuk karyawan diatur penuh melalui menu <strong>Jadwal Shift</strong>.
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
@@ -1158,75 +1099,8 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {shifts.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Pilih Preset Shift (dari Pengaturan)
-                    </label>
-                    <select
-                      value={
-                        shifts.some((s) => s.name === empShiftName)
-                          ? empShiftName
-                          : ''
-                      }
-                      onChange={(e) => {
-                        const chosen = shifts.find((s) => s.name === e.target.value);
-                        if (chosen) {
-                          setEmpShiftName(chosen.name);
-                          setEmpShiftStart(chosen.startTime);
-                          setEmpShiftEnd(chosen.endTime);
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    >
-                      <option value="">-- Kustom / Pilih Shift --</option>
-                      {shifts.map((s) => (
-                        <option key={s.id} value={s.name}>
-                          {s.name} ({s.startTime}–{s.endTime})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Nama Shift
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      maxLength={40}
-                      value={empShiftName}
-                      onChange={(e) => setEmpShiftName(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Jam Mulai
-                    </label>
-                    <input
-                      type="time"
-                      value={empShiftStart}
-                      onChange={(e) => setEmpShiftStart(e.target.value)}
-                      className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Jam Selesai
-                    </label>
-                    <input
-                      type="time"
-                      value={empShiftEnd}
-                      onChange={(e) => setEmpShiftEnd(e.target.value)}
-                      className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                </div>
+              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-lg text-xs text-blue-900 leading-relaxed">
+                <strong>Jadwal Shift:</strong> Karyawan baru tidak memiliki shift default. Penempatan shift harian diatur langsung di halaman <strong>Jadwal Shift</strong>.
               </div>
 
               <div>

@@ -329,14 +329,34 @@ function timestampToIso(val: unknown): string {
 }
 
 function buildAppSettingsDocData(settings: AppSettings) {
+  const normalizeDailyMemberIds = (
+    rawMap: unknown
+  ): Record<string, string[]> | undefined => {
+    if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return undefined;
+    const out: Record<string, string[]> = {};
+    let hasKeys = false;
+    for (const [k, v] of Object.entries(rawMap as Record<string, unknown>)) {
+      if (!/^[0-6]$/.test(k) || !Array.isArray(v)) continue;
+      out[k] = Array.from(
+        new Set(v.map((id) => sanitizeFirestoreId(String(id || ''))).filter(Boolean))
+      ).slice(0, 500);
+      hasKeys = true;
+    }
+    return hasKeys ? out : undefined;
+  };
+
   const shifts: ShiftConfig[] = Array.isArray(settings.shifts)
-    ? settings.shifts.slice(0, 20).map((s, idx) => ({
-        id: sanitizeFirestoreId(s.id || `shift_${idx + 1}`),
-        name: String(s.name || `Shift ${idx + 1}`).slice(0, 40),
-        startTime: normalizeTime(s.startTime, '08:00'),
-        endTime: normalizeTime(s.endTime, '17:00'),
-        lateToleranceMinutes: Math.max(0, Math.min(180, Number(s.lateToleranceMinutes ?? 10))),
-      }))
+    ? settings.shifts.slice(0, 20).map((s, idx) => {
+        const dailyMemberIds = normalizeDailyMemberIds(s.dailyMemberIds);
+        return {
+          id: sanitizeFirestoreId(s.id || `shift_${idx + 1}`),
+          name: String(s.name || `Shift ${idx + 1}`).slice(0, 40),
+          startTime: normalizeTime(s.startTime, '08:00'),
+          endTime: normalizeTime(s.endTime, '17:00'),
+          lateToleranceMinutes: Math.max(0, Math.min(180, Number(s.lateToleranceMinutes ?? 10))),
+          ...(dailyMemberIds ? { dailyMemberIds } : {}),
+        };
+      })
     : [];
 
   const cp: Partial<CompanyProfile> = settings.companyProfile || {};
@@ -400,9 +420,9 @@ function buildEmployeeDocData(emp: Employee, ownerUid: string, existingCreatedAt
     name: (String(emp.name || 'Karyawan').trim() || 'Karyawan').slice(0, 100),
     department: (String(emp.department || 'Operasional').trim() || 'Operasional').slice(0, 60),
     position: (String(emp.position || 'Staf').trim() || 'Staf').slice(0, 60),
-    shiftName: (String(emp.shiftName || 'Reguler').trim() || 'Reguler').slice(0, 40),
-    shiftStart: normalizeTime(emp.shiftStart, '08:00'),
-    shiftEnd: normalizeTime(emp.shiftEnd, '17:00'),
+    shiftName: (String(emp.shiftName || 'Belum Diatur').trim() || 'Belum Diatur').slice(0, 40),
+    shiftStart: normalizeTime(emp.shiftStart, '00:00'),
+    shiftEnd: normalizeTime(emp.shiftEnd, '00:00'),
     offDays: Array.isArray(emp.offDays)
       ? emp.offDays
           .map((d) => Number(d))
@@ -1165,9 +1185,9 @@ export async function fetchAllStateFromFirestore(): Promise<PulledFirestoreState
         name: String(x.name || ''),
         department: String(x.department || ''),
         position: String(x.position || ''),
-        shiftName: String(x.shiftName || 'Reguler'),
-        shiftStart: String(x.shiftStart || '08:00'),
-        shiftEnd: String(x.shiftEnd || '17:00'),
+        shiftName: String(x.shiftName || 'Belum Diatur'),
+        shiftStart: String(x.shiftStart || '00:00'),
+        shiftEnd: String(x.shiftEnd || '00:00'),
         offDays: Array.isArray(x.offDays) ? x.offDays.map(Number) : [],
         customOffDates: Array.isArray(x.customOffDates) ? x.customOffDates.map(String) : [],
         active: x.active !== false,
@@ -1876,9 +1896,9 @@ export function subscribeFirestoreRealtime(
               name: String(x.name || ''),
               department: String(x.department || ''),
               position: String(x.position || ''),
-              shiftName: String(x.shiftName || 'Reguler'),
-              shiftStart: String(x.shiftStart || '08:00'),
-              shiftEnd: String(x.shiftEnd || '17:00'),
+              shiftName: String(x.shiftName || 'Belum Diatur'),
+              shiftStart: String(x.shiftStart || '00:00'),
+              shiftEnd: String(x.shiftEnd || '00:00'),
               offDays: Array.isArray(x.offDays) ? x.offDays.map(Number) : [],
               customOffDates: Array.isArray(x.customOffDates)
                 ? x.customOffDates.map(String)

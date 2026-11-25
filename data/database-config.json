@@ -1,11 +1,11 @@
 {
-  "engine": "firestore",
-  "host": "firestore.googleapis.com",
-  "port": 443,
-  "databaseName": "ai-studio-c96cc586-fde3-4b43-8c17-9fb5facd1904",
-  "schemaName": "firestore",
+  "engine": "supabase",
+  "host": "db.jeewhluiufosnourqvje.supabase.co",
+  "port": 5432,
+  "databaseName": "postgres",
+  "schemaName": "public",
   "tablePrefix": "",
-  "username": "firebase-auth",
+  "username": "postgres",
   "sqliteFilePath": "karyapresensi.db",
   "sslMode": "require",
   "autoCreateMissingTables": true,
@@ -13,7 +13,7 @@
   "supabaseProjectId": "jeewhluiufosnourqvje",
   "supabaseUrl": "https://jeewhluiufosnourqvje.supabase.co",
   "supabasePublishableKey": "sb_publishable_y7OmGDoZSCuffUn6uJIwZQ_xXszVLT7",
-  "lastCheckedAt": "2026-11-24T09:07:39.506Z",
+  "lastCheckedAt": "2026-11-24T15:50:00.000Z",
   "lastAutoInitAt": null,
-  "updatedAt": "2026-11-22T10:30:00.000Z"
+  "updatedAt": "2026-11-24T15:50:00.000Z"
 }

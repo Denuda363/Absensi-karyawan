@@ -26,6 +26,8 @@ import {
   AttendanceRecord,
   calculateDurationHours,
   Employee,
+  getShiftMembersForWeekday,
+  HARI_WEEKDAYS,
   LateSettlement,
   NavSection,
   ResetDataMode,
@@ -89,7 +91,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [lateDeductionPerMinute, setLateDeductionPerMinute] = useState<number>(
     settings.lateDeductionPerMinute ?? 1000
   );
-  const [syncEmployeesOnSave, setSyncEmployeesOnSave] = useState<boolean>(true);
   const [savingShifts, setSavingShifts] = useState<boolean>(false);
   const [shiftNotice, setShiftNotice] = useState<{
     type: 'success' | 'error';
@@ -165,12 +166,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const shiftUsageCount = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const emp of employees) {
-      const key = emp.shiftName.toLowerCase();
-      counts.set(key, (counts.get(key) || 0) + 1);
+    const activeEmployees = employees.filter((e) => e.active);
+    for (const s of shifts) {
+      const uniqueIds = new Set<string>();
+      for (const day of HARI_WEEKDAYS) {
+        const { members } = getShiftMembersForWeekday(s, day.index, activeEmployees);
+        for (const m of members) uniqueIds.add(m.id);
+      }
+      counts.set(s.id, uniqueIds.size);
     }
     return counts;
-  }, [employees]);
+  }, [employees, shifts]);
 
   const handleAddShift = () => {
     const newShift: ShiftConfig = {
@@ -230,14 +236,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       await updateAppSettings({
         shifts,
         lateDeductionPerMinute,
-        syncEmployees: syncEmployeesOnSave,
+        syncEmployees: false,
       });
       await onRefresh();
       setShiftNotice({
         type: 'success',
-        text: syncEmployeesOnSave
-          ? 'Jam kerja shift disimpan dan disinkronkan ke seluruh karyawan terkait.'
-          : 'Pengaturan jam kerja tiap shift berhasil disimpan.',
+        text: 'Pengaturan jam kerja tiap shift berhasil disimpan dan diterapkan ke Jadwal Shift.',
       });
     } catch (err) {
       setShiftNotice({
@@ -719,8 +723,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         shift.startTime,
                         shift.endTime
                       );
-                      const usedCount =
-                        shiftUsageCount.get(shift.name.toLowerCase()) || 0;
+                      const usedCount = shiftUsageCount.get(shift.id) || 0;
 
                       return (
                         <tr key={shift.id} className="hover:bg-slate-50/60">
@@ -833,17 +836,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
-                <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={syncEmployeesOnSave}
-                    onChange={(e) => setSyncEmployeesOnSave(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                  />
-                  <span>
-                    Perbarui otomatis jam shift pada seluruh karyawan dengan nama shift yang sama
-                  </span>
-                </label>
+                <p className="text-xs text-slate-600">
+                  Karyawan tidak memiliki shift default; seluruh penjadwalan mengikuti menu{' '}
+                  <strong className="text-slate-800">Jadwal Shift</strong>.
+                </p>
 
                 <button
                   type="submit"

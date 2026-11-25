@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import fs from 'fs';
@@ -25,7 +26,7 @@ interface SseClientEntry {
 }
 
 const sseClients = new Set<SseClientEntry>();
-let activeRealtimeEngineCache: string = 'firestore';
+let activeRealtimeEngineCache: string = 'supabase';
 
 function broadcastRealtimeEvent(scope: RealtimeScope, action: string): void {
   realtimeRevision += 1;
@@ -108,12 +109,15 @@ const PAYROLL_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 const MAX_PIN_ATTEMPTS = 5;
 const PIN_LOCKOUT_MS = 30 * 1000;
 
-const DEFAULT_SUPABASE_PROJECT_NAME = 'Absensi';
-const DEFAULT_SUPABASE_PROJECT_ID = 'jeewhluiufosnourqvje';
+const DEFAULT_SUPABASE_PROJECT_NAME =
+  process.env.SUPABASE_PROJECT_NAME || 'Absensi';
+const DEFAULT_SUPABASE_PROJECT_ID =
+  process.env.SUPABASE_PROJECT_ID || 'jeewhluiufosnourqvje';
 const DEFAULT_SUPABASE_URL =
   process.env.SUPABASE_URL || 'https://jeewhluiufosnourqvje.supabase.co';
 const DEFAULT_SUPABASE_PUBLISHABLE_KEY =
   process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
   'sb_publishable_y7OmGDoZSCuffUn6uJIwZQ_xXszVLT7';
 
 interface EmployeeData {
@@ -1383,7 +1387,25 @@ function writeDatabaseConfig(
 }
 
 function getEffectiveSupabaseSecretKey(cfg: DatabaseConnectionConfigData): string {
-  return (cfg.supabaseSecretKey || process.env.SUPABASE_SECRET_KEY || '').trim();
+  return (
+    cfg.supabaseSecretKey ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    ''
+  ).trim();
+}
+
+function getEffectiveSupabaseClientKey(cfg: DatabaseConnectionConfigData): string {
+  return (
+    cfg.supabasePublishableKey ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+}
+
+function getEffectiveSupabaseApiKey(cfg: DatabaseConnectionConfigData): string {
+  return getEffectiveSupabaseSecretKey(cfg) || getEffectiveSupabaseClientKey(cfg);
 }
 
 function getEffectiveSupabaseDbUrl(cfg: DatabaseConnectionConfigData): string {
@@ -1775,7 +1797,7 @@ async function runSupabasePostgresDdl(dbUrl: string): Promise<{ ok: boolean; err
 }
 
 function getSupabaseClientForConfig(cfg: DatabaseConnectionConfigData): SupabaseClient {
-  const apiKey = getEffectiveSupabaseSecretKey(cfg) || cfg.supabasePublishableKey;
+  const apiKey = getEffectiveSupabaseApiKey(cfg);
   return createClient(cfg.supabaseUrl, apiKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -2121,7 +2143,7 @@ function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'securi
   if (isBootHydratingSupabase) return;
   try {
     const cfg = readDatabaseConfig();
-    if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !cfg.supabasePublishableKey) return;
+    if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !getEffectiveSupabaseApiKey(cfg)) return;
   } catch {
     return;
   }
@@ -2174,7 +2196,7 @@ async function refreshServerSupabaseRealtimeSubscription(): Promise<void> {
 
   const cfg = readDatabaseConfig();
   activeRealtimeEngineCache = cfg.engine;
-  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !cfg.supabasePublishableKey) {
+  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !getEffectiveSupabaseApiKey(cfg)) {
     return;
   }
 
@@ -2230,7 +2252,7 @@ async function clearSupabaseTablesForReset(
   cfg: DatabaseConnectionConfigData,
   targets: { table: string; pkColumn: string }[]
 ): Promise<void> {
-  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !cfg.supabasePublishableKey) {
+  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !getEffectiveSupabaseApiKey(cfg)) {
     return;
   }
   try {
@@ -2273,20 +2295,65 @@ async function pullAllSupabaseToLocal(): Promise<{
 
   isBootHydratingSupabase = true;
   try {
+    const [
+      settingsRes,
+      empRes,
+      attRes,
+      lsetRes,
+      pSetRes,
+      pProfRes,
+      pAdjRes,
+      pRaiseRes,
+      pStatRes,
+      fAccRes,
+      fCatRes,
+      fTxRes,
+      fTrRes,
+      secRes,
+    ] = await Promise.all([
+      sb.from('app_settings').select('*').eq('id', 'default').limit(1),
+      sb.from('employees').select('*'),
+      sb.from('attendance_records').select('*'),
+      sb.from('late_settlements').select('*'),
+      sb.from('payroll_settings').select('*').eq('id', 'default').limit(1),
+      sb.from('payroll_profiles').select('*'),
+      sb.from('payroll_adjustments').select('*'),
+      sb.from('payroll_raises').select('*'),
+      sb.from('payroll_statuses').select('*'),
+      sb.from('finance_accounts').select('*'),
+      sb.from('finance_categories').select('*'),
+      sb.from('finance_transactions').select('*'),
+      sb.from('finance_transfers').select('*'),
+      sb.from('security_config').select('*').eq('id', 'default').limit(1),
+    ]);
+
+    const totalRemoteRows =
+      (settingsRes.data?.length || 0) +
+      (empRes.data?.length || 0) +
+      (attRes.data?.length || 0) +
+      (lsetRes.data?.length || 0) +
+      (pSetRes.data?.length || 0) +
+      (pProfRes.data?.length || 0) +
+      (pAdjRes.data?.length || 0) +
+      (pRaiseRes.data?.length || 0) +
+      (pStatRes.data?.length || 0) +
+      (fAccRes.data?.length || 0) +
+      (fCatRes.data?.length || 0) +
+      (fTxRes.data?.length || 0) +
+      (fTrRes.data?.length || 0) +
+      (secRes.data?.length || 0);
+    const hasAnyRemoteData = totalRemoteRows > 0;
+
     // 1. Attendance & Settings module
     const curAtt = readDb();
     let attChanged = false;
 
-    const { data: settingsRows, error: settingsErr } = await sb
-      .from('app_settings')
-      .select('*')
-      .eq('id', 'default')
-      .limit(1);
-    if (settingsErr) {
-      failedTables.push({ tableName: 'app_settings', error: settingsErr.message });
+    if (settingsRes.error) {
+      failedTables.push({ tableName: 'app_settings', error: settingsRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'app_settings', rowCount: settingsRows?.length || 0 });
-      if (settingsRows && settingsRows.length > 0) {
+      const settingsRows = settingsRes.data || [];
+      syncedTables.push({ tableName: 'app_settings', rowCount: settingsRows.length });
+      if (settingsRows.length > 0) {
         const s = settingsRows[0] as Record<string, unknown>;
         curAtt.settings = normalizeSettings({
           companyName: String(s.company_name || curAtt.settings.companyName),
@@ -2302,21 +2369,21 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: empRows, error: empErr } = await sb.from('employees').select('*');
-    if (empErr) {
-      failedTables.push({ tableName: 'employees', error: empErr.message });
+    if (empRes.error) {
+      failedTables.push({ tableName: 'employees', error: empRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'employees', rowCount: empRows?.length || 0 });
-      if (empRows && empRows.length > 0) {
+      const empRows = empRes.data || [];
+      syncedTables.push({ tableName: 'employees', rowCount: empRows.length });
+      if (empRows.length > 0 || hasAnyRemoteData) {
         curAtt.employees = empRows.map((e: Record<string, unknown>) => ({
           id: String(e.id),
           employeeCode: String(e.employee_code || ''),
           name: String(e.name || ''),
           department: String(e.department || 'Operasional'),
           position: String(e.position || 'Staf'),
-          shiftName: String(e.shift_name || 'Reguler'),
-          shiftStart: String(e.shift_start || '08:00'),
-          shiftEnd: String(e.shift_end || '17:00'),
+          shiftName: String(e.shift_name || 'Belum Diatur'),
+          shiftStart: String(e.shift_start || '00:00'),
+          shiftEnd: String(e.shift_end || '00:00'),
           offDays: Array.isArray(e.off_days) ? (e.off_days as number[]) : [],
           customOffDates: Array.isArray(e.custom_off_dates)
             ? (e.custom_off_dates as string[])
@@ -2329,12 +2396,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: attRows, error: attErr } = await sb.from('attendance_records').select('*');
-    if (attErr) {
-      failedTables.push({ tableName: 'attendance_records', error: attErr.message });
+    if (attRes.error) {
+      failedTables.push({ tableName: 'attendance_records', error: attRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'attendance_records', rowCount: attRows?.length || 0 });
-      if (attRows && attRows.length > 0) {
+      const attRows = attRes.data || [];
+      syncedTables.push({ tableName: 'attendance_records', rowCount: attRows.length });
+      if (attRows.length > 0 || hasAnyRemoteData) {
         curAtt.attendanceRecords = attRows.map((a: Record<string, unknown>) => {
           const unpacked = unpackShiftFromNotesServer(String(a.notes || ''));
           return {
@@ -2364,12 +2431,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: lsetRows, error: lsetErr } = await sb.from('late_settlements').select('*');
-    if (lsetErr) {
-      failedTables.push({ tableName: 'late_settlements', error: lsetErr.message });
+    if (lsetRes.error) {
+      failedTables.push({ tableName: 'late_settlements', error: lsetRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'late_settlements', rowCount: lsetRows?.length || 0 });
-      if (lsetRows && lsetRows.length > 0) {
+      const lsetRows = lsetRes.data || [];
+      syncedTables.push({ tableName: 'late_settlements', rowCount: lsetRows.length });
+      if (lsetRows.length > 0 || hasAnyRemoteData) {
         curAtt.lateSettlements = lsetRows.map((s: Record<string, unknown>) => ({
           id: String(s.id),
           employeeId: String(s.employee_id),
@@ -2401,16 +2468,12 @@ async function pullAllSupabaseToLocal(): Promise<{
     const curPay = readPayrollDb();
     let payChanged = false;
 
-    const { data: pSetRows, error: pSetErr } = await sb
-      .from('payroll_settings')
-      .select('*')
-      .eq('id', 'default')
-      .limit(1);
-    if (pSetErr) {
-      failedTables.push({ tableName: 'payroll_settings', error: pSetErr.message });
+    if (pSetRes.error) {
+      failedTables.push({ tableName: 'payroll_settings', error: pSetRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'payroll_settings', rowCount: pSetRows?.length || 0 });
-      if (pSetRows && pSetRows.length > 0) {
+      const pSetRows = pSetRes.data || [];
+      syncedTables.push({ tableName: 'payroll_settings', rowCount: pSetRows.length });
+      if (pSetRows.length > 0) {
         const ps = pSetRows[0] as Record<string, unknown>;
         curPay.settings = normalizePayrollSettings({
           defaultOvertimeHourlyRate: Number(ps.default_overtime_hourly_rate ?? 25000),
@@ -2425,12 +2488,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: pProfRows, error: pProfErr } = await sb.from('payroll_profiles').select('*');
-    if (pProfErr) {
-      failedTables.push({ tableName: 'payroll_profiles', error: pProfErr.message });
+    if (pProfRes.error) {
+      failedTables.push({ tableName: 'payroll_profiles', error: pProfRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'payroll_profiles', rowCount: pProfRows?.length || 0 });
-      if (pProfRows && pProfRows.length > 0) {
+      const pProfRows = pProfRes.data || [];
+      syncedTables.push({ tableName: 'payroll_profiles', rowCount: pProfRows.length });
+      if (pProfRows.length > 0 || hasAnyRemoteData) {
         curPay.profiles = pProfRows.map((p: Record<string, unknown>) => ({
           employeeId: String(p.employee_id),
           baseSalary: Number(p.base_salary || 0),
@@ -2450,12 +2513,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: pAdjRows, error: pAdjErr } = await sb.from('payroll_adjustments').select('*');
-    if (pAdjErr) {
-      failedTables.push({ tableName: 'payroll_adjustments', error: pAdjErr.message });
+    if (pAdjRes.error) {
+      failedTables.push({ tableName: 'payroll_adjustments', error: pAdjRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'payroll_adjustments', rowCount: pAdjRows?.length || 0 });
-      if (pAdjRows && pAdjRows.length > 0) {
+      const pAdjRows = pAdjRes.data || [];
+      syncedTables.push({ tableName: 'payroll_adjustments', rowCount: pAdjRows.length });
+      if (pAdjRows.length > 0 || hasAnyRemoteData) {
         curPay.adjustments = pAdjRows.map((a: Record<string, unknown>) => ({
           id: String(a.id),
           employeeId: String(a.employee_id),
@@ -2472,12 +2535,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: pRaiseRows, error: pRaiseErr } = await sb.from('payroll_raises').select('*');
-    if (pRaiseErr) {
-      failedTables.push({ tableName: 'payroll_raises', error: pRaiseErr.message });
+    if (pRaiseRes.error) {
+      failedTables.push({ tableName: 'payroll_raises', error: pRaiseRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'payroll_raises', rowCount: pRaiseRows?.length || 0 });
-      if (pRaiseRows && pRaiseRows.length > 0) {
+      const pRaiseRows = pRaiseRes.data || [];
+      syncedTables.push({ tableName: 'payroll_raises', rowCount: pRaiseRows.length });
+      if (pRaiseRows.length > 0 || hasAnyRemoteData) {
         curPay.salaryRaises = pRaiseRows.map((r: Record<string, unknown>) => ({
           id: String(r.id),
           employeeId: String(r.employee_id),
@@ -2506,12 +2569,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: pStatRows, error: pStatErr } = await sb.from('payroll_statuses').select('*');
-    if (pStatErr) {
-      failedTables.push({ tableName: 'payroll_statuses', error: pStatErr.message });
+    if (pStatRes.error) {
+      failedTables.push({ tableName: 'payroll_statuses', error: pStatRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'payroll_statuses', rowCount: pStatRows?.length || 0 });
-      if (pStatRows && pStatRows.length > 0) {
+      const pStatRows = pStatRes.data || [];
+      syncedTables.push({ tableName: 'payroll_statuses', rowCount: pStatRows.length });
+      if (pStatRows.length > 0 || hasAnyRemoteData) {
         curPay.statuses = pStatRows.map((s: Record<string, unknown>) => ({
           id: String(s.id),
           employeeId: String(s.employee_id),
@@ -2532,12 +2595,12 @@ async function pullAllSupabaseToLocal(): Promise<{
     const curFin = readFinanceDb();
     let finChanged = false;
 
-    const { data: fAccRows, error: fAccErr } = await sb.from('finance_accounts').select('*');
-    if (fAccErr) {
-      failedTables.push({ tableName: 'finance_accounts', error: fAccErr.message });
+    if (fAccRes.error) {
+      failedTables.push({ tableName: 'finance_accounts', error: fAccRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'finance_accounts', rowCount: fAccRows?.length || 0 });
-      if (fAccRows && fAccRows.length > 0) {
+      const fAccRows = fAccRes.data || [];
+      syncedTables.push({ tableName: 'finance_accounts', rowCount: fAccRows.length });
+      if (fAccRows.length > 0) {
         curFin.accounts = fAccRows.map((a: Record<string, unknown>) => ({
           id: String(a.id),
           name: String(a.name || ''),
@@ -2552,12 +2615,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: fCatRows, error: fCatErr } = await sb.from('finance_categories').select('*');
-    if (fCatErr) {
-      failedTables.push({ tableName: 'finance_categories', error: fCatErr.message });
+    if (fCatRes.error) {
+      failedTables.push({ tableName: 'finance_categories', error: fCatRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'finance_categories', rowCount: fCatRows?.length || 0 });
-      if (fCatRows && fCatRows.length > 0) {
+      const fCatRows = fCatRes.data || [];
+      syncedTables.push({ tableName: 'finance_categories', rowCount: fCatRows.length });
+      if (fCatRows.length > 0) {
         curFin.categories = fCatRows.map((c: Record<string, unknown>) => ({
           id: String(c.id),
           name: String(c.name || ''),
@@ -2569,12 +2632,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: fTxRows, error: fTxErr } = await sb.from('finance_transactions').select('*');
-    if (fTxErr) {
-      failedTables.push({ tableName: 'finance_transactions', error: fTxErr.message });
+    if (fTxRes.error) {
+      failedTables.push({ tableName: 'finance_transactions', error: fTxRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'finance_transactions', rowCount: fTxRows?.length || 0 });
-      if (fTxRows && fTxRows.length > 0) {
+      const fTxRows = fTxRes.data || [];
+      syncedTables.push({ tableName: 'finance_transactions', rowCount: fTxRows.length });
+      if (fTxRows.length > 0 || hasAnyRemoteData) {
         curFin.transactions = fTxRows.map((t: Record<string, unknown>) => ({
           id: String(t.id),
           date: String(t.tx_date || '').slice(0, 10),
@@ -2597,12 +2660,12 @@ async function pullAllSupabaseToLocal(): Promise<{
       }
     }
 
-    const { data: fTrRows, error: fTrErr } = await sb.from('finance_transfers').select('*');
-    if (fTrErr) {
-      failedTables.push({ tableName: 'finance_transfers', error: fTrErr.message });
+    if (fTrRes.error) {
+      failedTables.push({ tableName: 'finance_transfers', error: fTrRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'finance_transfers', rowCount: fTrRows?.length || 0 });
-      if (fTrRows && fTrRows.length > 0) {
+      const fTrRows = fTrRes.data || [];
+      syncedTables.push({ tableName: 'finance_transfers', rowCount: fTrRows.length });
+      if (fTrRows.length > 0 || hasAnyRemoteData) {
         curFin.transfers = fTrRows.map((tr: Record<string, unknown>) => ({
           id: String(tr.id),
           date: String(tr.transfer_date || '').slice(0, 10),
@@ -2625,16 +2688,12 @@ async function pullAllSupabaseToLocal(): Promise<{
     }
 
     // 4. Security config
-    const { data: secRows, error: secErr } = await sb
-      .from('security_config')
-      .select('*')
-      .eq('id', 'default')
-      .limit(1);
-    if (secErr) {
-      failedTables.push({ tableName: 'security_config', error: secErr.message });
+    if (secRes.error) {
+      failedTables.push({ tableName: 'security_config', error: secRes.error.message });
     } else {
-      syncedTables.push({ tableName: 'security_config', rowCount: secRows?.length || 0 });
-      if (secRows && secRows.length > 0) {
+      const secRows = secRes.data || [];
+      syncedTables.push({ tableName: 'security_config', rowCount: secRows.length });
+      if (secRows.length > 0) {
         const sr = secRows[0] as Record<string, unknown>;
         if (typeof sr.admin_pin_sha256 === 'string' && /^[a-f0-9]{64}$/i.test(sr.admin_pin_sha256)) {
           writeSecurityConfig({
@@ -2853,7 +2912,7 @@ async function inspectAllDatabaseTablesLive() {
     };
   }
 
-  const apiKey = getEffectiveSupabaseSecretKey(dbCfg) || dbCfg.supabasePublishableKey;
+  const apiKey = getEffectiveSupabaseApiKey(dbCfg);
   const probes = await Promise.all(
     localTables.map((t) => probeSupabaseTable(dbCfg.supabaseUrl, apiKey, t.tableName))
   );
@@ -2965,7 +3024,11 @@ async function autoInitializeMissingDatabaseTablesLive() {
     }
 
     if (missingNames.length === 0) {
-      await pushAllLocalToSupabase();
+      if (before.summary.totalRecords > 0) {
+        await pullAllSupabaseToLocal();
+      } else {
+        await pushAllLocalToSupabase();
+      }
       writeDatabaseConfig({ ...curCfg, lastCheckedAt: nowIso, updatedAt: nowIso });
       const after = await inspectAllDatabaseTablesLive();
       return {
@@ -3452,7 +3515,7 @@ async function startServer() {
   ensureLocalFallbackFiles();
   await Promise.race([
     bootHydrateFromSupabase(),
-    new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+    new Promise<void>((resolve) => setTimeout(resolve, 5000)),
   ]);
 
   const requireAdminModeAuth: express.RequestHandler = (req, res, next) => {
@@ -3624,9 +3687,9 @@ async function startServer() {
       name: cleanName,
       department: String(body.department || 'Operasional').trim().slice(0, 60),
       position: String(body.position || 'Staf').trim().slice(0, 60),
-      shiftName: String(body.shiftName || 'Reguler').trim().slice(0, 40),
-      shiftStart: String(body.shiftStart || '08:00'),
-      shiftEnd: String(body.shiftEnd || '17:00'),
+      shiftName: String(body.shiftName || 'Belum Diatur').trim().slice(0, 40),
+      shiftStart: String(body.shiftStart || '00:00'),
+      shiftEnd: String(body.shiftEnd || '00:00'),
       offDays: Array.isArray(body.offDays) ? body.offDays.slice(0, 7) : [],
       customOffDates: Array.isArray(body.customOffDates) ? body.customOffDates.slice(0, 31) : [],
       active: body.active !== undefined ? Boolean(body.active) : true,
@@ -3977,7 +4040,7 @@ async function startServer() {
       void (async () => {
         try {
           const cfg = readDatabaseConfig();
-          if (cfg.engine === 'supabase' && cfg.supabaseUrl && cfg.supabasePublishableKey) {
+          if (cfg.engine === 'supabase' && cfg.supabaseUrl && getEffectiveSupabaseApiKey(cfg)) {
             const sb = getSupabaseClientForConfig(cfg);
             await sb
               .from('attendance_records')
@@ -4220,6 +4283,9 @@ async function startServer() {
     } else if (mode === 'except_employees') {
       const preservedEmployees: EmployeeData[] = curDb.employees.map((emp) => ({
         ...emp,
+        shiftName: 'Belum Diatur',
+        shiftStart: '00:00',
+        shiftEnd: '00:00',
         offDays: [],
         customOffDates: [],
         updatedAt: nowIso,
@@ -4551,7 +4617,8 @@ async function startServer() {
       const apiKey =
         String(body.supabaseSecretKey || '').trim() ||
         getEffectiveSupabaseSecretKey(cfg) ||
-        String(body.supabasePublishableKey || cfg.supabasePublishableKey).trim();
+        String(body.supabasePublishableKey || '').trim() ||
+        getEffectiveSupabaseClientKey(cfg);
       const probe = await probeSupabaseTable(targetUrl, apiKey, 'app_settings');
       const latencyMs = Date.now() - startedAt;
 
@@ -4876,35 +4943,65 @@ async function startServer() {
         ? extractSupabaseProjectId(nextSupabaseUrl)
         : current.supabaseProjectId;
 
+    const nextEngine: ServerDbEngine = validEngines.includes(body.engine as ServerDbEngine)
+      ? (body.engine as ServerDbEngine)
+      : current.engine;
+
+    const rawHost =
+      body.host !== undefined
+        ? String(body.host).trim().slice(0, 120) || current.host
+        : current.host;
+    const rawPort =
+      body.port !== undefined && Number.isFinite(Number(body.port)) && Number(body.port) > 0
+        ? Math.min(65535, Math.round(Number(body.port)))
+        : current.port;
+    const rawDbName =
+      body.databaseName !== undefined
+        ? String(body.databaseName).trim().slice(0, 80) || current.databaseName
+        : current.databaseName;
+    const rawSchemaName =
+      body.schemaName !== undefined
+        ? String(body.schemaName).trim().slice(0, 60) || current.schemaName
+        : current.schemaName;
+    const rawUsername =
+      body.username !== undefined
+        ? String(body.username).trim().slice(0, 80)
+        : current.username;
+
+    const normalizedHost =
+      nextEngine === 'supabase' &&
+      (!rawHost || rawHost === 'firestore.googleapis.com' || rawHost === '127.0.0.1')
+        ? `db.${nextProjectId}.supabase.co`
+        : rawHost;
+    const normalizedPort =
+      nextEngine === 'supabase' && (rawPort === 443 || rawPort === 3306)
+        ? 5432
+        : rawPort;
+    const normalizedDbName =
+      nextEngine === 'supabase' && (!rawDbName || rawSchemaName === 'firestore')
+        ? 'postgres'
+        : rawDbName;
+    const normalizedSchemaName =
+      nextEngine === 'supabase' && (!rawSchemaName || rawSchemaName === 'firestore')
+        ? 'public'
+        : rawSchemaName;
+    const normalizedUsername =
+      nextEngine === 'supabase' && (!rawUsername || rawUsername === 'firebase-auth')
+        ? 'postgres'
+        : rawUsername;
+
     const nextCfg: DatabaseConnectionConfigData = {
       ...current,
-      engine: validEngines.includes(body.engine as ServerDbEngine)
-        ? (body.engine as ServerDbEngine)
-        : current.engine,
-      host:
-        body.host !== undefined
-          ? String(body.host).trim().slice(0, 120) || current.host
-          : current.host,
-      port:
-        body.port !== undefined && Number.isFinite(Number(body.port)) && Number(body.port) > 0
-          ? Math.min(65535, Math.round(Number(body.port)))
-          : current.port,
-      databaseName:
-        body.databaseName !== undefined
-          ? String(body.databaseName).trim().slice(0, 80) || current.databaseName
-          : current.databaseName,
-      schemaName:
-        body.schemaName !== undefined
-          ? String(body.schemaName).trim().slice(0, 60) || current.schemaName
-          : current.schemaName,
+      engine: nextEngine,
+      host: normalizedHost,
+      port: normalizedPort,
+      databaseName: normalizedDbName,
+      schemaName: normalizedSchemaName,
       tablePrefix:
         body.tablePrefix !== undefined
           ? String(body.tablePrefix).trim().replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20)
           : current.tablePrefix,
-      username:
-        body.username !== undefined
-          ? String(body.username).trim().slice(0, 80)
-          : current.username,
+      username: normalizedUsername,
       databasePassword: body.clearDatabaseSecrets
         ? undefined
         : body.databasePassword !== undefined && String(body.databasePassword).length > 0
@@ -4988,7 +5085,15 @@ async function startServer() {
       await refreshServerSupabaseRealtimeSubscription();
       if (nextCfg.autoCreateMissingTables) {
         await autoInitializeMissingDatabaseTablesLive();
+      } else {
+        const st = await inspectAllDatabaseTablesLive();
+        if (st.summary.existingCount === st.summary.totalRequired && st.summary.totalRecords > 0) {
+          await pullAllSupabaseToLocal();
+        }
       }
+      broadcastRealtimeEvent('attendance', 'supabase_config_sync');
+      broadcastRealtimeEvent('payroll', 'supabase_config_sync');
+      broadcastRealtimeEvent('finance', 'supabase_config_sync');
     } else {
       await refreshServerSupabaseRealtimeSubscription();
       if (nextCfg.autoCreateMissingTables) {
