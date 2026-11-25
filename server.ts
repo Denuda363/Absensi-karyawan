@@ -726,8 +726,11 @@ function writeDb(data: DatabaseSchema): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  queueSupabaseSync('attendance');
-  broadcastRealtimeEvent('attendance', 'write');
+  if (!isBootHydratingSupabase) {
+    markSupabaseWriteActivity('attendance');
+    queueSupabaseSync('attendance');
+    broadcastRealtimeEvent('attendance', 'write');
+  }
 }
 
 interface PayrollSettingsData {
@@ -932,8 +935,11 @@ function writePayrollDb(data: PayrollDatabaseSchema): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(PAYROLL_DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  queueSupabaseSync('payroll');
-  broadcastRealtimeEvent('payroll', 'write');
+  if (!isBootHydratingSupabase) {
+    markSupabaseWriteActivity('payroll');
+    queueSupabaseSync('payroll');
+    broadcastRealtimeEvent('payroll', 'write');
+  }
 }
 
 function hashPinSha256(pin: string): string {
@@ -1003,8 +1009,11 @@ function writeSecurityConfig(cfg: SecurityConfigData): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
-  queueSupabaseSync('security');
-  broadcastRealtimeEvent('security', 'write');
+  if (!isBootHydratingSupabase) {
+    markSupabaseWriteActivity('security');
+    queueSupabaseSync('security');
+    broadcastRealtimeEvent('security', 'write');
+  }
 }
 
 function verifySuperuserPin(pin: string): boolean {
@@ -1767,8 +1776,15 @@ BEGIN
   FOREACH tbl IN ARRAY ARRAY[${allTables}]
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
+    EXECUTE format('ALTER TABLE public.%I REPLICA IDENTITY FULL;', tbl);
     EXECUTE format('DROP POLICY IF EXISTS "karyapresensi_api_access" ON public.%I;', tbl);
     EXECUTE format('CREATE POLICY "karyapresensi_api_access" ON public.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true);', tbl);
+    BEGIN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I;', tbl);
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
+      WHEN OTHERS THEN NULL;
+    END;
   END LOOP;
 END $$;
 
@@ -2129,14 +2145,72 @@ async function syncSecurityModuleToSupabase(cfg?: DatabaseConnectionConfigData):
 
 let isBootHydratingSupabase = false;
 let lastSupabaseWriteAt = 0;
+const lastScopeWriteAt: Record<'attendance' | 'payroll' | 'finance' | 'security', number> = {
+  attendance: 0,
+  payroll: 0,
+  finance: 0,
+  security: 0,
+};
+const lastScopePullAt: Record<'attendance' | 'payroll' | 'finance', number> = {
+  attendance: 0,
+  payroll: 0,
+  finance: 0,
+};
+const inFlightScopePulls: Partial<Record<'attendance' | 'payroll' | 'finance', Promise<void>>> = {};
+let activeSupabaseDeleteCount = 0;
 const pendingSupabaseScopes = new Set<'attendance' | 'payroll' | 'finance' | 'security'>();
 let supabaseSyncTimer: NodeJS.Timeout | null = null;
 let supabaseRealtimeClient: SupabaseClient | null = null;
 let supabaseRealtimeChannel: RealtimeChannel | null = null;
 let supabasePullDebounceTimer: NodeJS.Timeout | null = null;
+let supabaseLivePollerTimer: NodeJS.Timeout | null = null;
+let supabaseReconnectTimer: NodeJS.Timeout | null = null;
+let pullAllInFlight: Promise<{
+  syncedTables: { tableName: string; rowCount: number }[];
+  failedTables: { tableName: string; error: string }[];
+}> | null = null;
 
-function markSupabaseWriteActivity(): void {
-  lastSupabaseWriteAt = Date.now();
+function inferScopeFromTableName(table: string): 'attendance' | 'payroll' | 'finance' | 'security' {
+  if (table.startsWith('payroll_')) return 'payroll';
+  if (table.startsWith('finance_')) return 'finance';
+  if (table === 'security_config') return 'security';
+  return 'attendance';
+}
+
+function markSupabaseWriteActivity(scope?: 'attendance' | 'payroll' | 'finance' | 'security'): void {
+  const now = Date.now();
+  lastSupabaseWriteAt = now;
+  if (scope) {
+    lastScopeWriteAt[scope] = now;
+  }
+}
+
+function canonicalAttendanceSignature(db: DatabaseSchema): string {
+  return JSON.stringify({
+    settings: db.settings,
+    employees: [...db.employees].sort((a, b) => a.id.localeCompare(b.id)),
+    attendanceRecords: [...db.attendanceRecords].sort((a, b) => a.id.localeCompare(b.id)),
+    lateSettlements: [...db.lateSettlements].sort((a, b) => a.id.localeCompare(b.id)),
+  });
+}
+
+function canonicalPayrollSignature(db: PayrollDatabaseSchema): string {
+  return JSON.stringify({
+    settings: db.settings,
+    profiles: [...db.profiles].sort((a, b) => a.employeeId.localeCompare(b.employeeId)),
+    adjustments: [...db.adjustments].sort((a, b) => a.id.localeCompare(b.id)),
+    salaryRaises: [...db.salaryRaises].sort((a, b) => a.id.localeCompare(b.id)),
+    statuses: [...db.statuses].sort((a, b) => a.id.localeCompare(b.id)),
+  });
+}
+
+function canonicalFinanceSignature(db: FinanceDatabaseSchema): string {
+  return JSON.stringify({
+    accounts: [...db.accounts].sort((a, b) => a.id.localeCompare(b.id)),
+    categories: [...db.categories].sort((a, b) => a.id.localeCompare(b.id)),
+    transactions: [...db.transactions].sort((a, b) => a.id.localeCompare(b.id)),
+    transfers: [...db.transfers].sort((a, b) => a.id.localeCompare(b.id)),
+  });
 }
 
 function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'security'): void {
@@ -2147,6 +2221,7 @@ function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'securi
   } catch {
     return;
   }
+  markSupabaseWriteActivity(scope);
   pendingSupabaseScopes.add(scope);
   if (supabaseSyncTimer) return;
   supabaseSyncTimer = setTimeout(async () => {
@@ -2157,6 +2232,7 @@ function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'securi
     if (cfg.engine !== 'supabase') return;
     markSupabaseWriteActivity();
     for (const s of scopes) {
+      markSupabaseWriteActivity(s);
       try {
         if (s === 'attendance') await syncAttendanceModuleToSupabase(cfg);
         else if (s === 'payroll') await syncPayrollModuleToSupabase(cfg);
@@ -2165,25 +2241,480 @@ function queueSupabaseSync(scope: 'attendance' | 'payroll' | 'finance' | 'securi
       } catch {
         // Non-blocking background sync; errors reported in DB diagnostics
       }
+      markSupabaseWriteActivity(s);
     }
     markSupabaseWriteActivity();
-  }, 150);
+  }, 40);
 }
 
 async function deleteSupabaseRowById(table: string, id: string): Promise<void> {
+  const scope = inferScopeFromTableName(table);
+  activeSupabaseDeleteCount += 1;
+  markSupabaseWriteActivity(scope);
   try {
     const cfg = readDatabaseConfig();
     if (cfg.engine !== 'supabase') return;
-    markSupabaseWriteActivity();
     const sb = getSupabaseClientForConfig(cfg);
     await sb.from(table).delete().eq('id', id);
-    markSupabaseWriteActivity();
+    markSupabaseWriteActivity(scope);
   } catch {
     // Non-blocking delete sync
+  } finally {
+    activeSupabaseDeleteCount = Math.max(0, activeSupabaseDeleteCount - 1);
   }
 }
 
+async function pullAttendanceModuleFromSupabase(cfg: DatabaseConnectionConfigData): Promise<boolean> {
+  const sb = getSupabaseClientForConfig(cfg);
+  const [settingsRes, empRes, attRes, lsetRes] = await Promise.all([
+    sb.from('app_settings').select('*').eq('id', 'default').limit(1),
+    sb.from('employees').select('*'),
+    sb.from('attendance_records').select('*'),
+    sb.from('late_settlements').select('*'),
+  ]);
+  if (settingsRes.error || empRes.error || attRes.error || lsetRes.error) {
+    return false;
+  }
+  const settingsRows = settingsRes.data || [];
+  const empRows = empRes.data || [];
+  const attRows = attRes.data || [];
+  const lsetRows = lsetRes.data || [];
+  const hasModuleRemoteData =
+    settingsRows.length > 0 || empRows.length > 0 || attRows.length > 0 || lsetRows.length > 0;
+  if (!hasModuleRemoteData) return false;
+
+  const prevAtt = readDb();
+  const prevSig = canonicalAttendanceSignature(prevAtt);
+  const nextAtt: DatabaseSchema = {
+    settings:
+      settingsRows.length > 0
+        ? normalizeSettings({
+            companyName: String((settingsRows[0] as Record<string, unknown>).company_name || prevAtt.settings.companyName),
+            companySubtitle: String((settingsRows[0] as Record<string, unknown>).company_subtitle || prevAtt.settings.companySubtitle),
+            lateDeductionPerMinute: Number((settingsRows[0] as Record<string, unknown>).late_deduction_per_minute ?? 1000),
+            shifts: Array.isArray((settingsRows[0] as Record<string, unknown>).shifts)
+              ? ((settingsRows[0] as Record<string, unknown>).shifts as ShiftConfigData[])
+              : prevAtt.settings.shifts,
+            companyProfile:
+              (settingsRows[0] as Record<string, unknown>).company_profile &&
+              typeof (settingsRows[0] as Record<string, unknown>).company_profile === 'object'
+                ? ((settingsRows[0] as Record<string, unknown>).company_profile as CompanyProfileData)
+                : prevAtt.settings.companyProfile,
+          })
+        : prevAtt.settings,
+    employees: empRows
+      .map((e: Record<string, unknown>) => ({
+        id: String(e.id),
+        employeeCode: String(e.employee_code || ''),
+        name: String(e.name || ''),
+        department: String(e.department || 'Operasional'),
+        position: String(e.position || 'Staf'),
+        shiftName: String(e.shift_name || 'Belum Diatur'),
+        shiftStart: String(e.shift_start || '00:00'),
+        shiftEnd: String(e.shift_end || '00:00'),
+        offDays: Array.isArray(e.off_days) ? (e.off_days as number[]) : [],
+        customOffDates: Array.isArray(e.custom_off_dates)
+          ? (e.custom_off_dates as string[])
+          : [],
+        active: Boolean(e.active),
+        createdAt: String(e.created_at || new Date().toISOString()),
+        updatedAt: String(e.updated_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.employeeCode.localeCompare(b.employeeCode) || a.id.localeCompare(b.id)),
+    attendanceRecords: attRows
+      .map((a: Record<string, unknown>) => {
+        const unpacked = unpackShiftFromNotesServer(String(a.notes || ''));
+        return {
+          id: String(a.id),
+          employeeId: String(a.employee_id),
+          employeeName: String(a.employee_name || ''),
+          date: String(a.attendance_date || '').slice(0, 10),
+          status: (a.status as AttendanceData['status']) || 'hadir',
+          ...(unpacked.shiftName ? { shiftName: unpacked.shiftName } : {}),
+          checkIn: String(a.check_in || ''),
+          checkOut: String(a.check_out || ''),
+          overtimeHours: Number(a.overtime_hours || 0),
+          notes: unpacked.notes,
+          latePermitReason: a.late_permit_reason ? String(a.late_permit_reason) : undefined,
+          latePermitEstimatedArrival: a.late_permit_estimated_arrival
+            ? String(a.late_permit_estimated_arrival)
+            : undefined,
+          latePermitApprovedBy: a.late_permit_approved_by
+            ? String(a.late_permit_approved_by)
+            : undefined,
+          recordedBy: String(a.recorded_by || 'Admin HR'),
+          createdAt: String(a.created_at || new Date().toISOString()),
+          updatedAt: String(a.updated_at || new Date().toISOString()),
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+    lateSettlements: lsetRows
+      .map((s: Record<string, unknown>) => ({
+        id: String(s.id),
+        employeeId: String(s.employee_id),
+        employeeName: String(s.employee_name || ''),
+        yearMonth: String(s.year_month || ''),
+        date: String(s.settlement_date || '').slice(0, 10),
+        method: s.method === 'potongan_gaji' ? ('potongan_gaji' as const) : ('tambahan_jam_kerja' as const),
+        minutesSettled: Number(s.minutes_settled || 0),
+        extraWorkStart: s.extra_work_start ? String(s.extra_work_start) : undefined,
+        extraWorkEnd: s.extra_work_end ? String(s.extra_work_end) : undefined,
+        deductionAmount:
+          s.deduction_amount !== null && s.deduction_amount !== undefined
+            ? Number(s.deduction_amount)
+            : undefined,
+        notes: String(s.notes || ''),
+        recordedBy: String(s.recorded_by || 'Admin HR'),
+        createdAt: String(s.created_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+  };
+
+  if (prevSig !== canonicalAttendanceSignature(nextAtt)) {
+    const prevBoot = isBootHydratingSupabase;
+    isBootHydratingSupabase = true;
+    try {
+      writeDb(nextAtt);
+    } finally {
+      isBootHydratingSupabase = prevBoot;
+    }
+    return true;
+  }
+  return false;
+}
+
+async function pullPayrollModuleFromSupabase(cfg: DatabaseConnectionConfigData): Promise<boolean> {
+  const sb = getSupabaseClientForConfig(cfg);
+  const [pSetRes, pProfRes, pAdjRes, pRaiseRes, pStatRes] = await Promise.all([
+    sb.from('payroll_settings').select('*').eq('id', 'default').limit(1),
+    sb.from('payroll_profiles').select('*'),
+    sb.from('payroll_adjustments').select('*'),
+    sb.from('payroll_raises').select('*'),
+    sb.from('payroll_statuses').select('*'),
+  ]);
+  if (pSetRes.error || pProfRes.error || pAdjRes.error || pRaiseRes.error || pStatRes.error) {
+    return false;
+  }
+  const pSetRows = pSetRes.data || [];
+  const pProfRows = pProfRes.data || [];
+  const pAdjRows = pAdjRes.data || [];
+  const pRaiseRows = pRaiseRes.data || [];
+  const pStatRows = pStatRes.data || [];
+  const hasModuleRemoteData =
+    pSetRows.length > 0 ||
+    pProfRows.length > 0 ||
+    pAdjRows.length > 0 ||
+    pRaiseRows.length > 0 ||
+    pStatRows.length > 0;
+  if (!hasModuleRemoteData) return false;
+
+  const prevPay = readPayrollDb();
+  const prevSig = canonicalPayrollSignature(prevPay);
+  const nextPay: PayrollDatabaseSchema = {
+    settings:
+      pSetRows.length > 0
+        ? normalizePayrollSettings({
+            defaultOvertimeHourlyRate: Number((pSetRows[0] as Record<string, unknown>).default_overtime_hourly_rate ?? 25000),
+            defaultAlphaDeductionPerDay: Number((pSetRows[0] as Record<string, unknown>).default_alpha_deduction_per_day ?? 150000),
+            defaultIzinDeductionPerDay: Number((pSetRows[0] as Record<string, unknown>).default_izin_deduction_per_day ?? 0),
+            autoDeductRemainingLate: Boolean((pSetRows[0] as Record<string, unknown>).auto_deduct_remaining_late),
+            bpjsKesehatanPct: Number((pSetRows[0] as Record<string, unknown>).bpjs_kesehatan_pct ?? 1),
+            bpjsKetenagakerjaanPct: Number((pSetRows[0] as Record<string, unknown>).bpjs_ketenagakerjaan_pct ?? 2),
+            paydayDayOfMonth: Number((pSetRows[0] as Record<string, unknown>).payday_day_of_month ?? 25),
+          })
+        : prevPay.settings,
+    profiles: pProfRows
+      .map((p: Record<string, unknown>) => ({
+        employeeId: String(p.employee_id),
+        baseSalary: Number(p.base_salary || 0),
+        positionAllowance: Number(p.position_allowance || 0),
+        transportMealAllowance: Number(p.transport_meal_allowance || 0),
+        otherAllowance: Number(p.other_allowance || 0),
+        overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
+        paydayDay: Number(p.payday_day || 25),
+        paymentMethod: p.payment_method === 'tunai' ? ('tunai' as const) : ('transfer' as const),
+        bankName: String(p.bank_name || ''),
+        bankAccountNumber: String(p.bank_account_number || ''),
+        bankAccountHolder: String(p.bank_account_holder || ''),
+        notes: String(p.notes || ''),
+        updatedAt: String(p.updated_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.employeeId.localeCompare(b.employeeId)),
+    adjustments: pAdjRows
+      .map((a: Record<string, unknown>) => ({
+        id: String(a.id),
+        employeeId: String(a.employee_id),
+        employeeName: String(a.employee_name || ''),
+        yearMonth: String(a.year_month || ''),
+        type: (a.type as PayrollAdjustmentData['type']) || 'bonus',
+        title: String(a.title || ''),
+        amount: Number(a.amount || 0),
+        date: String(a.adjustment_date || '').slice(0, 10),
+        notes: String(a.notes || ''),
+        createdAt: String(a.created_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+    salaryRaises: pRaiseRows
+      .map((r: Record<string, unknown>) => ({
+        id: String(r.id),
+        employeeId: String(r.employee_id),
+        employeeName: String(r.employee_name || ''),
+        effectiveMonth: String(r.effective_month || ''),
+        raiseDate: String(r.raise_date || '').slice(0, 10),
+        method: r.method === 'persentase' ? ('persentase' as const) : ('nominal' as const),
+        percentIncrease:
+          r.percent_increase !== null && r.percent_increase !== undefined
+            ? Number(r.percent_increase)
+            : undefined,
+        previousBaseSalary: Number(r.previous_base_salary || 0),
+        newBaseSalary: Number(r.new_base_salary || 0),
+        previousPositionAllowance: Number(r.previous_position_allowance || 0),
+        newPositionAllowance: Number(r.new_position_allowance || 0),
+        previousTransportMealAllowance: Number(r.previous_transport_meal_allowance || 0),
+        newTransportMealAllowance: Number(r.new_transport_meal_allowance || 0),
+        previousOtherAllowance: Number(r.previous_other_allowance || 0),
+        newOtherAllowance: Number(r.new_other_allowance || 0),
+        reason: String(r.reason || ''),
+        notes: String(r.notes || ''),
+        appliedToProfile: Boolean(r.applied_to_profile),
+        createdAt: String(r.created_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.raiseDate.localeCompare(b.raiseDate) || a.id.localeCompare(b.id)),
+    statuses: pStatRows
+      .map((s: Record<string, unknown>) => ({
+        id: String(s.id),
+        employeeId: String(s.employee_id),
+        yearMonth: String(s.year_month || ''),
+        status: (s.status as PayrollMonthlyStatusData['status']) || 'draft',
+        paidAt: s.paid_at ? String(s.paid_at) : undefined,
+        updatedAt: String(s.updated_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  };
+
+  if (prevSig !== canonicalPayrollSignature(nextPay)) {
+    const prevBoot = isBootHydratingSupabase;
+    isBootHydratingSupabase = true;
+    try {
+      writePayrollDb(nextPay);
+    } finally {
+      isBootHydratingSupabase = prevBoot;
+    }
+    return true;
+  }
+  return false;
+}
+
+async function pullFinanceModuleFromSupabase(cfg: DatabaseConnectionConfigData): Promise<boolean> {
+  const sb = getSupabaseClientForConfig(cfg);
+  const [fAccRes, fCatRes, fTxRes, fTrRes] = await Promise.all([
+    sb.from('finance_accounts').select('*'),
+    sb.from('finance_categories').select('*'),
+    sb.from('finance_transactions').select('*'),
+    sb.from('finance_transfers').select('*'),
+  ]);
+  if (fAccRes.error || fCatRes.error || fTxRes.error || fTrRes.error) {
+    return false;
+  }
+  const fAccRows = fAccRes.data || [];
+  const fCatRows = fCatRes.data || [];
+  const fTxRows = fTxRes.data || [];
+  const fTrRows = fTrRes.data || [];
+  const hasModuleRemoteData =
+    fAccRows.length > 0 || fCatRows.length > 0 || fTxRows.length > 0 || fTrRows.length > 0;
+  if (!hasModuleRemoteData) return false;
+
+  const prevFin = readFinanceDb();
+  const prevSig = canonicalFinanceSignature(prevFin);
+  const nextFin = normalizeFinanceDb({
+    accounts:
+      fAccRows.length > 0
+        ? fAccRows
+            .map((a: Record<string, unknown>) => ({
+              id: String(a.id),
+              name: String(a.name || ''),
+              kind: a.kind === 'cash' ? ('cash' as const) : ('rekening' as const),
+              bankName: String(a.bank_name || ''),
+              accountNumber: String(a.account_number || ''),
+              holderName: String(a.holder_name || ''),
+              openingBalance: Number(a.opening_balance || 0),
+              createdAt: String(a.created_at || new Date().toISOString()),
+            }))
+            .sort((a, b) => a.id.localeCompare(b.id))
+        : prevFin.accounts,
+    categories:
+      fCatRows.length > 0
+        ? fCatRows
+            .map((c: Record<string, unknown>) => ({
+              id: String(c.id),
+              name: String(c.name || ''),
+              type: c.type === 'pendapatan' ? ('pendapatan' as const) : ('pengeluaran' as const),
+              description: String(c.description || ''),
+              createdAt: String(c.created_at || new Date().toISOString()),
+            }))
+            .sort((a, b) => a.id.localeCompare(b.id))
+        : prevFin.categories,
+    transactions: fTxRows
+      .map((t: Record<string, unknown>) => ({
+        id: String(t.id),
+        date: String(t.tx_date || '').slice(0, 10),
+        type: t.type === 'pendapatan' ? ('pendapatan' as const) : ('pengeluaran' as const),
+        method: t.method === 'cash' ? ('cash' as const) : ('transfer' as const),
+        categoryId: String(t.category_id || ''),
+        categoryName: String(t.category_name || ''),
+        accountId: t.account_id ? String(t.account_id) : undefined,
+        title: String(t.title || ''),
+        counterparty: String(t.counterparty || ''),
+        bankAccount: String(t.bank_account || ''),
+        referenceNo: String(t.reference_no || ''),
+        amount: Number(t.amount || 0),
+        notes: String(t.notes || ''),
+        recordedBy: String(t.recorded_by || 'Admin Mode'),
+        createdAt: String(t.created_at || new Date().toISOString()),
+        updatedAt: String(t.updated_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+    transfers: fTrRows
+      .map((tr: Record<string, unknown>) => ({
+        id: String(tr.id),
+        date: String(tr.transfer_date || '').slice(0, 10),
+        fromAccountId: String(tr.from_account_id || ''),
+        fromAccountName: String(tr.from_account_name || ''),
+        toAccountId: String(tr.to_account_id || ''),
+        toAccountName: String(tr.to_account_name || ''),
+        amount: Number(tr.amount || 0),
+        referenceNo: String(tr.reference_no || ''),
+        notes: String(tr.notes || ''),
+        recordedBy: String(tr.recorded_by || 'Admin Mode'),
+        createdAt: String(tr.created_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+  });
+
+  if (prevSig !== canonicalFinanceSignature(nextFin)) {
+    const prevBoot = isBootHydratingSupabase;
+    isBootHydratingSupabase = true;
+    try {
+      writeFinanceDb(nextFin);
+    } finally {
+      isBootHydratingSupabase = prevBoot;
+    }
+    return true;
+  }
+  return false;
+}
+
+async function ensureScopeFreshFromSupabase(
+  scope: 'attendance' | 'payroll' | 'finance'
+): Promise<void> {
+  const cfg = readDatabaseConfig();
+  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !getEffectiveSupabaseApiKey(cfg)) {
+    return;
+  }
+  if (
+    pendingSupabaseScopes.has(scope) ||
+    activeSupabaseDeleteCount > 0 ||
+    Date.now() - lastScopeWriteAt[scope] < 1800
+  ) {
+    return;
+  }
+  if (Date.now() - lastScopePullAt[scope] < 650) {
+    return;
+  }
+  const existing = inFlightScopePulls[scope];
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const run = (async () => {
+    try {
+      await Promise.race([
+        (async () => {
+          if (scope === 'attendance') await pullAttendanceModuleFromSupabase(cfg);
+          else if (scope === 'payroll') await pullPayrollModuleFromSupabase(cfg);
+          else if (scope === 'finance') await pullFinanceModuleFromSupabase(cfg);
+          lastScopePullAt[scope] = Date.now();
+        })(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+      ]);
+    } catch {
+      // Non-blocking fallback to local mirror when offline or timed out
+    } finally {
+      delete inFlightScopePulls[scope];
+    }
+  })();
+
+  inFlightScopePulls[scope] = run;
+  await run;
+}
+
+async function syncRemoteChangesFromSupabase(triggerLabel: string): Promise<void> {
+  const cfg = readDatabaseConfig();
+  if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !getEffectiveSupabaseApiKey(cfg)) {
+    return;
+  }
+  if (
+    isBootHydratingSupabase ||
+    pendingSupabaseScopes.size > 0 ||
+    activeSupabaseDeleteCount > 0 ||
+    Date.now() - lastSupabaseWriteAt < 1800
+  ) {
+    return;
+  }
+
+  const prevAttSig = canonicalAttendanceSignature(readDb());
+  const prevPaySig = canonicalPayrollSignature(readPayrollDb());
+  const prevFinSig = canonicalFinanceSignature(readFinanceDb());
+  const prevSecJson = JSON.stringify(readSecurityConfig());
+
+  try {
+    await pullAllSupabaseToLocal();
+  } catch {
+    return;
+  }
+
+  const nextAttSig = canonicalAttendanceSignature(readDb());
+  const nextPaySig = canonicalPayrollSignature(readPayrollDb());
+  const nextFinSig = canonicalFinanceSignature(readFinanceDb());
+  const nextSecJson = JSON.stringify(readSecurityConfig());
+
+  const now = Date.now();
+  lastScopePullAt.attendance = now;
+  lastScopePullAt.payroll = now;
+  lastScopePullAt.finance = now;
+
+  if (prevAttSig !== nextAttSig) {
+    broadcastRealtimeEvent('attendance', triggerLabel);
+  }
+  if (prevPaySig !== nextPaySig) {
+    broadcastRealtimeEvent('payroll', triggerLabel);
+  }
+  if (prevFinSig !== nextFinSig) {
+    broadcastRealtimeEvent('finance', triggerLabel);
+  }
+  if (prevSecJson !== nextSecJson) {
+    broadcastRealtimeEvent('security', triggerLabel);
+  }
+}
+
+function ensureServerSupabaseLivePoller(): void {
+  if (supabaseLivePollerTimer) return;
+  supabaseLivePollerTimer = setInterval(() => {
+    if (sseClients.size === 0) return;
+    const cfg = readDatabaseConfig();
+    if (cfg.engine !== 'supabase' || !cfg.supabaseUrl || !getEffectiveSupabaseApiKey(cfg)) {
+      return;
+    }
+    void syncRemoteChangesFromSupabase('supabase_live_sync');
+  }, 3500);
+}
+
 async function refreshServerSupabaseRealtimeSubscription(): Promise<void> {
+  if (supabaseReconnectTimer) {
+    clearTimeout(supabaseReconnectTimer);
+    supabaseReconnectTimer = null;
+  }
   if (supabaseRealtimeChannel && supabaseRealtimeClient) {
     try {
       await supabaseRealtimeClient.removeChannel(supabaseRealtimeChannel);
@@ -2200,6 +2731,8 @@ async function refreshServerSupabaseRealtimeSubscription(): Promise<void> {
     return;
   }
 
+  ensureServerSupabaseLivePoller();
+
   try {
     const sb = getSupabaseClientForConfig(cfg);
     supabaseRealtimeClient = sb;
@@ -2210,41 +2743,30 @@ async function refreshServerSupabaseRealtimeSubscription(): Promise<void> {
         { event: '*', schema: 'public' },
         (payload) => {
           if (isBootHydratingSupabase) return;
-          if (Date.now() - lastSupabaseWriteAt < 2500) return;
+          if (Date.now() - lastSupabaseWriteAt < 1800) return;
           const tableName = String(payload.table || '');
           if (supabasePullDebounceTimer) {
             clearTimeout(supabasePullDebounceTimer);
           }
-          supabasePullDebounceTimer = setTimeout(async () => {
+          supabasePullDebounceTimer = setTimeout(() => {
             supabasePullDebounceTimer = null;
-            if (Date.now() - lastSupabaseWriteAt < 2000) return;
-            const prevAttJson = JSON.stringify(readDb());
-            const prevPayJson = JSON.stringify(readPayrollDb());
-            const prevFinJson = JSON.stringify(readFinanceDb());
-            try {
-              await pullAllSupabaseToLocal();
-            } catch {
-              return;
-            }
-            const nextAttJson = JSON.stringify(readDb());
-            const nextPayJson = JSON.stringify(readPayrollDb());
-            const nextFinJson = JSON.stringify(readFinanceDb());
-            if (prevAttJson !== nextAttJson) {
-              broadcastRealtimeEvent('attendance', `supabase_remote:${tableName}`);
-            }
-            if (prevPayJson !== nextPayJson) {
-              broadcastRealtimeEvent('payroll', `supabase_remote:${tableName}`);
-            }
-            if (prevFinJson !== nextFinJson) {
-              broadcastRealtimeEvent('finance', `supabase_remote:${tableName}`);
-            }
-          }, 300);
+            void syncRemoteChangesFromSupabase(`supabase_remote:${tableName}`);
+          }, 200);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          if (!supabaseReconnectTimer) {
+            supabaseReconnectTimer = setTimeout(() => {
+              supabaseReconnectTimer = null;
+              void refreshServerSupabaseRealtimeSubscription();
+            }, 5000);
+          }
+        }
+      });
     supabaseRealtimeChannel = channel;
   } catch {
-    // Keep resilient when Supabase Realtime WS cannot connect
+    // Live poller keeps Supabase synchronized even when WebSocket Realtime is unavailable
   }
 }
 
@@ -2288,13 +2810,18 @@ async function pullAllSupabaseToLocal(): Promise<{
   syncedTables: { tableName: string; rowCount: number }[];
   failedTables: { tableName: string; error: string }[];
 }> {
-  const cfg = readDatabaseConfig();
-  const sb = getSupabaseClientForConfig(cfg);
-  const syncedTables: { tableName: string; rowCount: number }[] = [];
-  const failedTables: { tableName: string; error: string }[] = [];
+  if (pullAllInFlight) {
+    return pullAllInFlight;
+  }
 
-  isBootHydratingSupabase = true;
-  try {
+  const run = (async () => {
+    const cfg = readDatabaseConfig();
+    const sb = getSupabaseClientForConfig(cfg);
+    const syncedTables: { tableName: string; rowCount: number }[] = [];
+    const failedTables: { tableName: string; error: string }[] = [];
+
+    isBootHydratingSupabase = true;
+    try {
     const [
       settingsRes,
       empRes,
@@ -2708,11 +3235,21 @@ async function pullAllSupabaseToLocal(): Promise<{
         }
       }
     }
-  } finally {
-    isBootHydratingSupabase = false;
-  }
+    } finally {
+      isBootHydratingSupabase = false;
+    }
 
-  return { syncedTables, failedTables };
+    return { syncedTables, failedTables };
+  })();
+
+  pullAllInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (pullAllInFlight === run) {
+      pullAllInFlight = null;
+    }
+  }
 }
 
 function inspectLocalDatabaseTables() {
@@ -3078,6 +3615,9 @@ async function bootHydrateFromSupabase(): Promise<void> {
   activeRealtimeEngineCache = cfg.engine;
   if (cfg.engine !== 'supabase') return;
   try {
+    const prevAttSig = canonicalAttendanceSignature(readDb());
+    const prevPaySig = canonicalPayrollSignature(readPayrollDb());
+    const prevFinSig = canonicalFinanceSignature(readFinanceDb());
     const status = await inspectAllDatabaseTablesLive();
     if (status.summary.existingCount === status.summary.totalRequired) {
       if (status.summary.totalRecords > 0) {
@@ -3087,6 +3627,21 @@ async function bootHydrateFromSupabase(): Promise<void> {
       }
     } else if (cfg.autoCreateMissingTables && getEffectiveSupabaseDbUrl(cfg)) {
       await autoInitializeMissingDatabaseTablesLive();
+    }
+    const now = Date.now();
+    lastScopePullAt.attendance = now;
+    lastScopePullAt.payroll = now;
+    lastScopePullAt.finance = now;
+    if (sseClients.size > 0) {
+      if (prevAttSig !== canonicalAttendanceSignature(readDb())) {
+        broadcastRealtimeEvent('attendance', 'supabase_boot_sync');
+      }
+      if (prevPaySig !== canonicalPayrollSignature(readPayrollDb())) {
+        broadcastRealtimeEvent('payroll', 'supabase_boot_sync');
+      }
+      if (prevFinSig !== canonicalFinanceSignature(readFinanceDb())) {
+        broadcastRealtimeEvent('finance', 'supabase_boot_sync');
+      }
     }
     await refreshServerSupabaseRealtimeSubscription();
   } catch {
@@ -3481,8 +4036,11 @@ function writeFinanceDb(data: FinanceDatabaseSchema): void {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   fs.writeFileSync(FINANCE_DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  queueSupabaseSync('finance');
-  broadcastRealtimeEvent('finance', 'write');
+  if (!isBootHydratingSupabase) {
+    markSupabaseWriteActivity('finance');
+    queueSupabaseSync('finance');
+    broadcastRealtimeEvent('finance', 'write');
+  }
 }
 
 async function startServer() {
@@ -3582,7 +4140,8 @@ async function startServer() {
   };
 
   // API Routes
-  app.get('/api/state', (_req, res) => {
+  app.get('/api/state', async (_req, res) => {
+    await ensureScopeFreshFromSupabase('attendance');
     const db = readDb();
     res.json(db);
   });
@@ -5155,7 +5714,8 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.get('/api/payroll/state', requirePayrollAuth, (_req, res) => {
+  app.get('/api/payroll/state', requirePayrollAuth, async (_req, res) => {
+    await ensureScopeFreshFromSupabase('payroll');
     const payrollDb = readPayrollDb();
     res.json(payrollDb);
   });
@@ -5465,7 +6025,8 @@ async function startServer() {
   });
 
   // Protected Company Finance Routes (Accessible ONLY in Mode Admin)
-  app.get('/api/finance/state', requireAdminModeAuth, (_req, res) => {
+  app.get('/api/finance/state', requireAdminModeAuth, async (_req, res) => {
+    await ensureScopeFreshFromSupabase('finance');
     const finDb = readFinanceDb();
     res.json(finDb);
   });

@@ -24,7 +24,7 @@ export interface RealtimeChangeEvent {
   revision: number;
   engine: string;
   updatedAt: string;
-  source: 'sse' | 'broadcast' | 'firestore' | 'reconnect';
+  source: 'sse' | 'broadcast' | 'firestore' | 'supabase' | 'reconnect';
 }
 
 type ScopeListener = (evt: RealtimeChangeEvent) => void;
@@ -328,7 +328,12 @@ export function subscribeRealtimeScopes(
   let pendingEvt: RealtimeChangeEvent | null = null;
 
   const wrapped: ScopeListener = (evt) => {
-    if (ignoreSelf && evt.source === 'sse' && wasRecentLocalMutation(evt.scope, 650)) {
+    if (
+      ignoreSelf &&
+      evt.source === 'sse' &&
+      !evt.action.startsWith('supabase_') &&
+      wasRecentLocalMutation(evt.scope, 650)
+    ) {
       return;
     }
     pendingEvt = evt;

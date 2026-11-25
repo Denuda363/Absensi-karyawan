@@ -40,6 +40,7 @@ import {
 } from '../types';
 import { FIREBASE_APPLET_META, testCustomFirebaseConnection } from './firebaseClient';
 import { HttpApiError } from './apiClient';
+import { notifyScopeRefresh } from './realtimeService';
 
 export interface ClientAppDatabaseState {
   employees: Employee[];
@@ -1207,13 +1208,32 @@ function readAttendanceDbSync(): ClientAppDatabaseState {
 }
 
 let attendanceSyncQueue: Promise<void> = Promise.resolve();
+const lastBrowserWriteByScope: Record<'attendance' | 'payroll' | 'finance', number> = {
+  attendance: 0,
+  payroll: 0,
+  finance: 0,
+};
+const lastBrowserPullByScope: Record<'attendance' | 'payroll' | 'finance', number> = {
+  attendance: 0,
+  payroll: 0,
+  finance: 0,
+};
+const inFlightBrowserPulls: Partial<Record<'attendance' | 'payroll' | 'finance', Promise<void>>> = {};
+let activeBrowserDeleteCount = 0;
+
+function markBrowserScopeWrite(scope: 'attendance' | 'payroll' | 'finance'): void {
+  lastBrowserWriteByScope[scope] = Date.now();
+}
 
 function writeAttendanceDbSync(db: ClientAppDatabaseState): void {
+  markBrowserScopeWrite('attendance');
   writeStorageItem(LS_ATTENDANCE_KEY, JSON.stringify(db));
   attendanceSyncQueue = attendanceSyncQueue
     .then(async () => {
+      markBrowserScopeWrite('attendance');
       const latest = readAttendanceDbSync();
       await syncAttendanceToSupabaseBrowser(latest);
+      markBrowserScopeWrite('attendance');
     })
     .catch(() => {
       // non-blocking serialized sync
@@ -1243,8 +1263,11 @@ function readPayrollDbSync(): PayrollDatabaseState {
 }
 
 function writePayrollDbSync(db: PayrollDatabaseState): void {
+  markBrowserScopeWrite('payroll');
   writeStorageItem(LS_PAYROLL_KEY, JSON.stringify(db));
-  void syncPayrollToSupabaseBrowser(db);
+  void syncPayrollToSupabaseBrowser(db).finally(() => {
+    markBrowserScopeWrite('payroll');
+  });
 }
 
 function readFinanceDbSync(): FinanceDatabaseState {
@@ -1265,8 +1288,11 @@ function readFinanceDbSync(): FinanceDatabaseState {
 }
 
 function writeFinanceDbSync(db: FinanceDatabaseState): void {
+  markBrowserScopeWrite('finance');
   writeStorageItem(LS_FINANCE_KEY, JSON.stringify(db));
-  void syncFinanceToSupabaseBrowser(db);
+  void syncFinanceToSupabaseBrowser(db).finally(() => {
+    markBrowserScopeWrite('finance');
+  });
 }
 
 function getBrowserSupabaseClient(cfg?: DatabaseConnectionConfig): SupabaseClient | null {
@@ -1299,12 +1325,22 @@ async function upsertBrowserSupabase(
 }
 
 async function deleteBrowserSupabaseRow(table: string, id: string): Promise<void> {
+  const scope: 'attendance' | 'payroll' | 'finance' = table.startsWith('payroll_')
+    ? 'payroll'
+    : table.startsWith('finance_')
+      ? 'finance'
+      : 'attendance';
+  activeBrowserDeleteCount += 1;
+  markBrowserScopeWrite(scope);
   try {
     const sb = getBrowserSupabaseClient();
     if (!sb) return;
     await sb.from(table).delete().eq('id', id);
+    markBrowserScopeWrite(scope);
   } catch {
     // non-blocking remote delete
+  } finally {
+    activeBrowserDeleteCount = Math.max(0, activeBrowserDeleteCount - 1);
   }
 }
 
@@ -2021,8 +2057,428 @@ async function pullAllFromSupabaseBrowser(): Promise<{
   return { syncedTables, failedTables };
 }
 
+function canonicalClientAttSig(db: ClientAppDatabaseState): string {
+  return JSON.stringify({
+    settings: db.settings,
+    employees: [...db.employees].sort((a, b) => a.id.localeCompare(b.id)),
+    attendanceRecords: [...db.attendanceRecords].sort((a, b) => a.id.localeCompare(b.id)),
+    lateSettlements: [...db.lateSettlements].sort((a, b) => a.id.localeCompare(b.id)),
+  });
+}
+
+function canonicalClientPaySig(db: PayrollDatabaseState): string {
+  return JSON.stringify({
+    settings: db.settings,
+    profiles: [...db.profiles].sort((a, b) => a.employeeId.localeCompare(b.employeeId)),
+    adjustments: [...db.adjustments].sort((a, b) => a.id.localeCompare(b.id)),
+    salaryRaises: [...db.salaryRaises].sort((a, b) => a.id.localeCompare(b.id)),
+    statuses: [...db.statuses].sort((a, b) => a.id.localeCompare(b.id)),
+  });
+}
+
+function canonicalClientFinSig(db: FinanceDatabaseState): string {
+  return JSON.stringify({
+    accounts: [...db.accounts].sort((a, b) => a.id.localeCompare(b.id)),
+    categories: [...db.categories].sort((a, b) => a.id.localeCompare(b.id)),
+    transactions: [...db.transactions].sort((a, b) => a.id.localeCompare(b.id)),
+    transfers: [...db.transfers].sort((a, b) => a.id.localeCompare(b.id)),
+  });
+}
+
+async function pullBrowserScopeFromSupabase(
+  scope: 'attendance' | 'payroll' | 'finance',
+  notifyOnChange = false
+): Promise<boolean> {
+  const sb = getBrowserSupabaseClient();
+  if (!sb) return false;
+
+  if (scope === 'attendance') {
+    const [settingsRes, empRes, attRes, lsetRes] = await Promise.all([
+      sb.from('app_settings').select('*').eq('id', 'default').limit(1),
+      sb.from('employees').select('*'),
+      sb.from('attendance_records').select('*'),
+      sb.from('late_settlements').select('*'),
+    ]);
+    if (settingsRes.error || empRes.error || attRes.error || lsetRes.error) return false;
+    const sRows = settingsRes.data || [];
+    const eRows = empRes.data || [];
+    const aRows = attRes.data || [];
+    const lRows = lsetRes.data || [];
+    if (sRows.length === 0 && eRows.length === 0 && aRows.length === 0 && lRows.length === 0) {
+      return false;
+    }
+    const prev = readAttendanceDbSync();
+    const next: ClientAppDatabaseState = {
+      settings:
+        sRows.length > 0
+          ? normalizeSettings({
+              companyName: String((sRows[0] as Record<string, unknown>).company_name || prev.settings.companyName),
+              companySubtitle: String((sRows[0] as Record<string, unknown>).company_subtitle || prev.settings.companySubtitle),
+              lateDeductionPerMinute: Number((sRows[0] as Record<string, unknown>).late_deduction_per_minute ?? 1000),
+              shifts: Array.isArray((sRows[0] as Record<string, unknown>).shifts)
+                ? ((sRows[0] as Record<string, unknown>).shifts as ShiftConfig[])
+                : prev.settings.shifts,
+              companyProfile:
+                (sRows[0] as Record<string, unknown>).company_profile &&
+                typeof (sRows[0] as Record<string, unknown>).company_profile === 'object'
+                  ? ((sRows[0] as Record<string, unknown>).company_profile as CompanyProfile)
+                  : prev.settings.companyProfile,
+            })
+          : prev.settings,
+      employees: eRows
+        .map((e: Record<string, unknown>) => ({
+          id: String(e.id),
+          employeeCode: String(e.employee_code || ''),
+          name: String(e.name || ''),
+          department: String(e.department || 'Operasional'),
+          position: String(e.position || 'Staf'),
+          shiftName: String(e.shift_name || 'Reguler'),
+          shiftStart: String(e.shift_start || '08:00'),
+          shiftEnd: String(e.shift_end || '17:00'),
+          offDays: Array.isArray(e.off_days) ? (e.off_days as number[]) : [],
+          customOffDates: Array.isArray(e.custom_off_dates)
+            ? (e.custom_off_dates as string[])
+            : [],
+          active: Boolean(e.active),
+          createdAt: String(e.created_at || new Date().toISOString()),
+          updatedAt: String(e.updated_at || new Date().toISOString()),
+        }))
+        .sort((a, b) => a.employeeCode.localeCompare(b.employeeCode) || a.id.localeCompare(b.id)),
+      attendanceRecords: aRows
+        .map((a: Record<string, unknown>) => {
+          const unpacked = unpackShiftFromNotes(String(a.notes || ''));
+          return {
+            id: String(a.id),
+            employeeId: String(a.employee_id),
+            employeeName: String(a.employee_name || ''),
+            date: String(a.attendance_date || '').slice(0, 10),
+            status: (a.status as AttendanceStatus) || 'hadir',
+            ...(unpacked.shiftName ? { shiftName: unpacked.shiftName } : {}),
+            checkIn: String(a.check_in || ''),
+            checkOut: String(a.check_out || ''),
+            overtimeHours: Number(a.overtime_hours || 0),
+            notes: unpacked.notes,
+            latePermitReason: a.late_permit_reason ? String(a.late_permit_reason) : undefined,
+            latePermitEstimatedArrival: a.late_permit_estimated_arrival
+              ? String(a.late_permit_estimated_arrival)
+              : undefined,
+            latePermitApprovedBy: a.late_permit_approved_by
+              ? String(a.late_permit_approved_by)
+              : undefined,
+            recordedBy: String(a.recorded_by || 'Admin HR'),
+            createdAt: String(a.created_at || new Date().toISOString()),
+            updatedAt: String(a.updated_at || new Date().toISOString()),
+          };
+        })
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+      lateSettlements: lRows
+        .map((s: Record<string, unknown>) => ({
+          id: String(s.id),
+          employeeId: String(s.employee_id),
+          employeeName: String(s.employee_name || ''),
+          yearMonth: String(s.year_month || ''),
+          date: String(s.settlement_date || '').slice(0, 10),
+          method: s.method === 'potongan_gaji' ? ('potongan_gaji' as const) : ('tambahan_jam_kerja' as const),
+          minutesSettled: Number(s.minutes_settled || 0),
+          extraWorkStart: s.extra_work_start ? String(s.extra_work_start) : undefined,
+          extraWorkEnd: s.extra_work_end ? String(s.extra_work_end) : undefined,
+          deductionAmount:
+            s.deduction_amount !== null && s.deduction_amount !== undefined
+              ? Number(s.deduction_amount)
+              : undefined,
+          notes: String(s.notes || ''),
+          recordedBy: String(s.recorded_by || 'Admin HR'),
+          createdAt: String(s.created_at || new Date().toISOString()),
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+    };
+    if (canonicalClientAttSig(prev) !== canonicalClientAttSig(next)) {
+      writeStorageItem(LS_ATTENDANCE_KEY, JSON.stringify(next));
+      if (notifyOnChange) notifyScopeRefresh('attendance', 'supabase');
+      return true;
+    }
+    return false;
+  }
+
+  if (scope === 'payroll') {
+    const [pSetRes, pProfRes, pAdjRes, pRaiseRes, pStatRes] = await Promise.all([
+      sb.from('payroll_settings').select('*').eq('id', 'default').limit(1),
+      sb.from('payroll_profiles').select('*'),
+      sb.from('payroll_adjustments').select('*'),
+      sb.from('payroll_raises').select('*'),
+      sb.from('payroll_statuses').select('*'),
+    ]);
+    if (pSetRes.error || pProfRes.error || pAdjRes.error || pRaiseRes.error || pStatRes.error) return false;
+    const pSetRows = pSetRes.data || [];
+    const pProfRows = pProfRes.data || [];
+    const pAdjRows = pAdjRes.data || [];
+    const pRaiseRows = pRaiseRes.data || [];
+    const pStatRows = pStatRes.data || [];
+    if (
+      pSetRows.length === 0 &&
+      pProfRows.length === 0 &&
+      pAdjRows.length === 0 &&
+      pRaiseRows.length === 0 &&
+      pStatRows.length === 0
+    ) {
+      return false;
+    }
+    const prev = readPayrollDbSync();
+    const next: PayrollDatabaseState = {
+      settings:
+        pSetRows.length > 0
+          ? normalizePayrollSettings({
+              defaultOvertimeHourlyRate: Number((pSetRows[0] as Record<string, unknown>).default_overtime_hourly_rate ?? 25000),
+              defaultAlphaDeductionPerDay: Number((pSetRows[0] as Record<string, unknown>).default_alpha_deduction_per_day ?? 150000),
+              defaultIzinDeductionPerDay: Number((pSetRows[0] as Record<string, unknown>).default_izin_deduction_per_day ?? 0),
+              autoDeductRemainingLate: Boolean((pSetRows[0] as Record<string, unknown>).auto_deduct_remaining_late),
+              bpjsKesehatanPct: Number((pSetRows[0] as Record<string, unknown>).bpjs_kesehatan_pct ?? 1),
+              bpjsKetenagakerjaanPct: Number((pSetRows[0] as Record<string, unknown>).bpjs_ketenagakerjaan_pct ?? 2),
+              paydayDayOfMonth: Number((pSetRows[0] as Record<string, unknown>).payday_day_of_month ?? 25),
+            })
+          : prev.settings,
+      profiles: pProfRows
+        .map((p: Record<string, unknown>) => ({
+          employeeId: String(p.employee_id),
+          baseSalary: Number(p.base_salary || 0),
+          positionAllowance: Number(p.position_allowance || 0),
+          transportMealAllowance: Number(p.transport_meal_allowance || 0),
+          otherAllowance: Number(p.other_allowance || 0),
+          overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
+          paydayDay: Number(p.payday_day || 25),
+          paymentMethod: p.payment_method === 'tunai' ? ('tunai' as const) : ('transfer' as const),
+          bankName: String(p.bank_name || ''),
+          bankAccountNumber: String(p.bank_account_number || ''),
+          bankAccountHolder: String(p.bank_account_holder || ''),
+          notes: String(p.notes || ''),
+          updatedAt: String(p.updated_at || new Date().toISOString()),
+        }))
+        .sort((a, b) => a.employeeId.localeCompare(b.employeeId)),
+      adjustments: pAdjRows
+        .map((a: Record<string, unknown>) => ({
+          id: String(a.id),
+          employeeId: String(a.employee_id),
+          employeeName: String(a.employee_name || ''),
+          yearMonth: String(a.year_month || ''),
+          type: (a.type as PayrollAdjustmentType) || 'bonus',
+          title: String(a.title || ''),
+          amount: Number(a.amount || 0),
+          date: String(a.adjustment_date || '').slice(0, 10),
+          notes: String(a.notes || ''),
+          createdAt: String(a.created_at || new Date().toISOString()),
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+      salaryRaises: pRaiseRows
+        .map((r: Record<string, unknown>) => ({
+          id: String(r.id),
+          employeeId: String(r.employee_id),
+          employeeName: String(r.employee_name || ''),
+          effectiveMonth: String(r.effective_month || ''),
+          raiseDate: String(r.raise_date || '').slice(0, 10),
+          method: r.method === 'persentase' ? ('persentase' as const) : ('nominal' as const),
+          percentIncrease:
+            r.percent_increase !== null && r.percent_increase !== undefined
+              ? Number(r.percent_increase)
+              : undefined,
+          previousBaseSalary: Number(r.previous_base_salary || 0),
+          newBaseSalary: Number(r.new_base_salary || 0),
+          previousPositionAllowance: Number(r.previous_position_allowance || 0),
+          newPositionAllowance: Number(r.new_position_allowance || 0),
+          previousTransportMealAllowance: Number(r.previous_transport_meal_allowance || 0),
+          newTransportMealAllowance: Number(r.new_transport_meal_allowance || 0),
+          previousOtherAllowance: Number(r.previous_other_allowance || 0),
+          newOtherAllowance: Number(r.new_other_allowance || 0),
+          reason: String(r.reason || ''),
+          notes: String(r.notes || ''),
+          appliedToProfile: Boolean(r.applied_to_profile),
+          createdAt: String(r.created_at || new Date().toISOString()),
+        }))
+        .sort((a, b) => a.raiseDate.localeCompare(b.raiseDate) || a.id.localeCompare(b.id)),
+      statuses: pStatRows
+        .map((s: Record<string, unknown>) => ({
+          id: String(s.id),
+          employeeId: String(s.employee_id),
+          yearMonth: String(s.year_month || ''),
+          status: (s.status as PayrollRecordStatus) || 'draft',
+          paidAt: s.paid_at ? String(s.paid_at) : undefined,
+          updatedAt: String(s.updated_at || new Date().toISOString()),
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    };
+    if (canonicalClientPaySig(prev) !== canonicalClientPaySig(next)) {
+      writeStorageItem(LS_PAYROLL_KEY, JSON.stringify(next));
+      if (notifyOnChange) notifyScopeRefresh('payroll', 'supabase');
+      return true;
+    }
+    return false;
+  }
+
+  const [fAccRes, fCatRes, fTxRes, fTrRes] = await Promise.all([
+    sb.from('finance_accounts').select('*'),
+    sb.from('finance_categories').select('*'),
+    sb.from('finance_transactions').select('*'),
+    sb.from('finance_transfers').select('*'),
+  ]);
+  if (fAccRes.error || fCatRes.error || fTxRes.error || fTrRes.error) return false;
+  const fAccRows = fAccRes.data || [];
+  const fCatRows = fCatRes.data || [];
+  const fTxRows = fTxRes.data || [];
+  const fTrRows = fTrRes.data || [];
+  if (fAccRows.length === 0 && fCatRows.length === 0 && fTxRows.length === 0 && fTrRows.length === 0) {
+    return false;
+  }
+  const prev = readFinanceDbSync();
+  const next = normalizeFinanceDb({
+    accounts:
+      fAccRows.length > 0
+        ? fAccRows
+            .map((a: Record<string, unknown>) => ({
+              id: String(a.id),
+              name: String(a.name || ''),
+              kind: a.kind === 'cash' ? ('cash' as const) : ('rekening' as const),
+              bankName: String(a.bank_name || ''),
+              accountNumber: String(a.account_number || ''),
+              holderName: String(a.holder_name || ''),
+              openingBalance: Number(a.opening_balance || 0),
+              createdAt: String(a.created_at || new Date().toISOString()),
+            }))
+            .sort((a, b) => a.id.localeCompare(b.id))
+        : prev.accounts,
+    categories:
+      fCatRows.length > 0
+        ? fCatRows
+            .map((c: Record<string, unknown>) => ({
+              id: String(c.id),
+              name: String(c.name || ''),
+              type: c.type === 'pendapatan' ? ('pendapatan' as const) : ('pengeluaran' as const),
+              description: String(c.description || ''),
+              createdAt: String(c.created_at || new Date().toISOString()),
+            }))
+            .sort((a, b) => a.id.localeCompare(b.id))
+        : prev.categories,
+    transactions: fTxRows
+      .map((t: Record<string, unknown>) => ({
+        id: String(t.id),
+        date: String(t.tx_date || '').slice(0, 10),
+        type: t.type === 'pendapatan' ? ('pendapatan' as const) : ('pengeluaran' as const),
+        method: t.method === 'cash' ? ('cash' as const) : ('transfer' as const),
+        categoryId: String(t.category_id || ''),
+        categoryName: String(t.category_name || ''),
+        accountId: t.account_id ? String(t.account_id) : undefined,
+        title: String(t.title || ''),
+        counterparty: String(t.counterparty || ''),
+        bankAccount: String(t.bank_account || ''),
+        referenceNo: String(t.reference_no || ''),
+        amount: Number(t.amount || 0),
+        notes: String(t.notes || ''),
+        recordedBy: String(t.recorded_by || 'Admin Mode'),
+        createdAt: String(t.created_at || new Date().toISOString()),
+        updatedAt: String(t.updated_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+    transfers: fTrRows
+      .map((tr: Record<string, unknown>) => ({
+        id: String(tr.id),
+        date: String(tr.transfer_date || '').slice(0, 10),
+        fromAccountId: String(tr.from_account_id || ''),
+        fromAccountName: String(tr.from_account_name || ''),
+        toAccountId: String(tr.to_account_id || ''),
+        toAccountName: String(tr.to_account_name || ''),
+        amount: Number(tr.amount || 0),
+        referenceNo: String(tr.reference_no || ''),
+        notes: String(tr.notes || ''),
+        recordedBy: String(tr.recorded_by || 'Admin Mode'),
+        createdAt: String(tr.created_at || new Date().toISOString()),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)),
+  });
+  if (canonicalClientFinSig(prev) !== canonicalClientFinSig(next)) {
+    writeStorageItem(LS_FINANCE_KEY, JSON.stringify(next));
+    if (notifyOnChange) notifyScopeRefresh('finance', 'supabase');
+    return true;
+  }
+  return false;
+}
+
+let browserRealtimeStarted = false;
+function startBrowserSupabaseRealtimeSync(): void {
+  if (browserRealtimeStarted || typeof window === 'undefined') return;
+  const sb = getBrowserSupabaseClient();
+  if (!sb) return;
+  browserRealtimeStarted = true;
+
+  try {
+    sb.channel('karyapresensi-browser-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+        const tbl = String(payload.table || '');
+        const scope: 'attendance' | 'payroll' | 'finance' = tbl.startsWith('payroll_')
+          ? 'payroll'
+          : tbl.startsWith('finance_')
+            ? 'finance'
+            : 'attendance';
+        if (activeBrowserDeleteCount > 0 || Date.now() - lastBrowserWriteByScope[scope] < 1800) {
+          return;
+        }
+        void pullBrowserScopeFromSupabase(scope, true).catch(() => undefined);
+      })
+      .subscribe();
+  } catch {
+    // Non-blocking fallback to poller below
+  }
+
+  window.setInterval(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    const cfg = readDbConfig();
+    if (cfg.engine !== 'supabase') return;
+    for (const scope of ['attendance', 'payroll', 'finance'] as const) {
+      if (activeBrowserDeleteCount === 0 && Date.now() - lastBrowserWriteByScope[scope] >= 1800) {
+        void pullBrowserScopeFromSupabase(scope, true).catch(() => undefined);
+      }
+    }
+  }, 4500);
+}
+
+async function ensureBrowserScopeFreshFromSupabase(
+  scope: 'attendance' | 'payroll' | 'finance'
+): Promise<void> {
+  startBrowserSupabaseRealtimeSync();
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  if (activeBrowserDeleteCount > 0 || Date.now() - lastBrowserWriteByScope[scope] < 1800) {
+    return;
+  }
+  if (Date.now() - lastBrowserPullByScope[scope] < 650) {
+    return;
+  }
+  const existing = inFlightBrowserPulls[scope];
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const run = (async () => {
+    try {
+      await Promise.race([
+        (async () => {
+          await pullBrowserScopeFromSupabase(scope, false);
+          lastBrowserPullByScope[scope] = Date.now();
+        })(),
+        new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+      ]);
+    } catch {
+      // Fallback cleanly to local storage cache
+    } finally {
+      delete inFlightBrowserPulls[scope];
+    }
+  })();
+
+  inFlightBrowserPulls[scope] = run;
+  await run;
+}
+
 let initialHydrationPromise: Promise<void> | null = null;
 async function ensureClientHydratedOnce(): Promise<void> {
+  startBrowserSupabaseRealtimeSync();
   if (readStorageItem(LS_ATTENDANCE_KEY)) return;
   if (!initialHydrationPromise) {
     initialHydrationPromise = (async () => {
@@ -2046,6 +2502,7 @@ async function ensureClientHydratedOnce(): Promise<void> {
 
 export async function clientFetchDatabaseState(): Promise<ClientAppDatabaseState> {
   await ensureClientHydratedOnce();
+  await ensureBrowserScopeFreshFromSupabase('attendance');
   return readAttendanceDbSync();
 }
 
@@ -2836,6 +3293,7 @@ function assertPayrollSession(token: string): void {
 export async function clientFetchPayrollState(token: string): Promise<PayrollDatabaseState> {
   await ensureClientHydratedOnce();
   assertPayrollSession(token);
+  await ensureBrowserScopeFreshFromSupabase('payroll');
   return readPayrollDbSync();
 }
 
@@ -3137,6 +3595,7 @@ export async function clientFetchFinanceState(
 ): Promise<FinanceDatabaseState> {
   await ensureClientHydratedOnce();
   assertAdminSession(adminToken);
+  await ensureBrowserScopeFreshFromSupabase('finance');
   return readFinanceDbSync();
 }
 
