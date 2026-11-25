@@ -37,6 +37,7 @@ import {
   clientRestorePayrollBackup,
   clientSaveEmployeeSalaryProfile,
   clientUnlockAdminModeWithPin,
+  clientUnlockPayrollFromAdmin,
   clientUnlockPayrollWithPin,
   clientUpdatePayrollMonthlyStatus,
   clientUpdatePayrollSettings,
@@ -156,6 +157,28 @@ export async function unlockPayrollWithPin(
     module: 'gaji',
     severity: 'info',
     actionType: 'unlock_payroll',
+    targetNav: 'rekap-gaji',
+  });
+  return session;
+}
+
+export async function unlockPayrollWithAdminSession(
+  adminToken: string
+): Promise<{ token: string; expiresAt: number }> {
+  const session = await runPayrollApi(
+    () =>
+      fetch('/api/payroll/unlock-from-admin', {
+        method: 'POST',
+        headers: { 'X-Admin-Token': adminToken },
+      }),
+    () => clientUnlockPayrollFromAdmin(adminToken)
+  );
+  emitAppNotification({
+    title: 'Akses Rekap Gaji Dibuka',
+    message: 'Rekap Gaji dibuka menggunakan otorisasi sesi Mode Admin.',
+    module: 'gaji',
+    severity: 'info',
+    actionType: 'unlock_payroll_admin',
     targetNav: 'rekap-gaji',
   });
   return session;

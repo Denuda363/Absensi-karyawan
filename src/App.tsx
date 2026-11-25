@@ -85,7 +85,7 @@ const PAGE_TITLES: Record<NavSection, { title: string; subtitle: string }> = {
   },
   'rekap-gaji': {
     title: 'Rekap Gaji Karyawan',
-    subtitle: 'Data penggajian rahasia dilindungi otorisasi PIN Superuser',
+    subtitle: 'Data penggajian rahasia dilindungi otorisasi PIN Admin / Superuser',
   },
   'profil-perusahaan': {
     title: 'Profil Perusahaan',
@@ -488,6 +488,8 @@ function AppWorkspace() {
               adminToken={adminToken}
               settings={settings}
               employees={employees}
+              attendanceRecords={attendanceRecords}
+              lateSettlements={lateSettlements}
               onExitAdminMode={handleExitAdminMode}
             />
           )}
@@ -498,6 +500,7 @@ function AppWorkspace() {
               attendanceRecords={attendanceRecords}
               lateSettlements={lateSettlements}
               settings={settings}
+              adminToken={adminToken}
             />
           )}
 

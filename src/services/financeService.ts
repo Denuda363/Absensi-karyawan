@@ -7,6 +7,8 @@ import {
   FinanceTransaction,
   FinanceTransactionType,
   FinanceTransfer,
+  PayrollDatabaseState,
+  PayrollMonthlyStatus,
 } from '../types';
 import { executeApiWithFallback, HttpApiError } from './apiClient';
 import {
@@ -18,6 +20,7 @@ import {
   upsertFinanceCategoryToFirestore,
   upsertFinanceTransactionToFirestore,
   upsertFinanceTransferToFirestore,
+  upsertPayrollStatusToFirestore,
 } from './firebaseClient';
 import { isFirestoreEngineActive, notifyLocalScopeMutation } from './realtimeService';
 import {
@@ -33,8 +36,10 @@ import {
   clientDeleteFinanceCategory,
   clientDeleteFinanceTransaction,
   clientDeleteFinanceTransfer,
+  clientFetchFinancePayrollOverview,
   clientFetchFinanceState,
   clientGetFinanceBackupPayload,
+  clientPayEmployeeSalary,
   clientRestoreFinanceBackup,
   clientUpdateFinanceAccount,
   clientUpdateFinanceCategory,
@@ -72,6 +77,80 @@ export async function fetchFinanceState(
       }),
     () => clientFetchFinanceState(adminToken)
   );
+}
+
+export async function fetchFinancePayrollOverview(
+  adminToken: string
+): Promise<PayrollDatabaseState> {
+  return runFinanceApi(
+    () =>
+      fetch('/api/finance/payroll-overview', {
+        headers: { 'X-Admin-Token': adminToken },
+      }),
+    () => clientFetchFinancePayrollOverview(adminToken)
+  );
+}
+
+export async function payEmployeeSalaryFromFinance(
+  adminToken: string,
+  payload: {
+    employeeId: string;
+    yearMonth: string;
+    date?: string;
+    method: FinancePaymentMethod;
+    accountId?: string;
+    categoryId?: string;
+    title?: string;
+    referenceNo?: string;
+    amount: number;
+    notes?: string;
+    markPayrollPaid?: boolean;
+  }
+): Promise<{
+  transaction: FinanceTransaction;
+  categoryCreated?: FinanceCategory;
+  payrollStatus?: PayrollMonthlyStatus;
+}> {
+  const result = await runFinanceApi(
+    () =>
+      fetch('/api/finance/pay-salary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Token': adminToken,
+        },
+        body: JSON.stringify(payload),
+      }),
+    () => clientPayEmployeeSalary(adminToken, payload)
+  );
+
+  notifyLocalScopeMutation('finance', 'pay_employee_salary');
+  if (result.payrollStatus) {
+    notifyLocalScopeMutation('payroll', 'pay_employee_salary');
+  }
+  if (isFirestoreEngineActive()) {
+    if (result.categoryCreated) {
+      void upsertFinanceCategoryToFirestore(result.categoryCreated).catch(() => undefined);
+    }
+    void upsertFinanceTransactionToFirestore(result.transaction).catch(() => undefined);
+    if (result.payrollStatus) {
+      void upsertPayrollStatusToFirestore(result.payrollStatus).catch(() => undefined);
+    }
+  }
+
+  emitAppNotification({
+    title: `Pembayaran Gaji: ${result.transaction.counterparty || result.transaction.title}`,
+    message: `${result.transaction.title} · ${result.transaction.bankAccount} (${result.transaction.date})`,
+    module: 'keuangan',
+    severity: 'warning',
+    actionType: 'pay_employee_salary',
+    amountValue: result.transaction.amount,
+    amountLabel: `-${formatRupiahNotif(result.transaction.amount)}`,
+    targetLabel: result.transaction.counterparty || result.transaction.categoryName,
+    targetNav: 'keuangan',
+  });
+
+  return result;
 }
 
 export async function createFinanceAccount(

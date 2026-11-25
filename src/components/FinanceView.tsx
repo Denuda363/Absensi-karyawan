@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import {
   AppSettings,
+  AttendanceRecord,
   Employee,
   FinanceAccount,
   FinanceAccountKind,
@@ -43,6 +44,8 @@ import {
   getCurrentYearMonth,
   getDaysInMonth,
   getTodayDateStr,
+  LateSettlement,
+  PayrollDatabaseState,
 } from '../types';
 import {
   AdminModeUnauthorizedError,
@@ -55,20 +58,28 @@ import {
   deleteFinanceTransaction,
   deleteFinanceTransfer,
   downloadFinanceBackupJson,
+  fetchFinancePayrollOverview,
   fetchFinanceState,
+  payEmployeeSalaryFromFinance,
   restoreFinanceBackup,
   updateFinanceAccount,
   updateFinanceCategory,
   updateFinanceTransaction,
 } from '../services/financeService';
 import { subscribeRealtimeScopes } from '../services/realtimeService';
-import { formatRupiah } from '../utils/payrollCalculator';
+import {
+  calculateEmployeePayroll,
+  EmployeePayrollCalculation,
+  formatRupiah,
+} from '../utils/payrollCalculator';
 import { exportFinanceToExcel } from '../utils/excelFinanceExport';
 
 interface FinanceViewProps {
   adminToken: string;
   settings: AppSettings;
   employees?: Employee[];
+  attendanceRecords?: AttendanceRecord[];
+  lateSettlements?: LateSettlement[];
   onExitAdminMode: () => void;
 }
 
@@ -123,9 +134,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   adminToken,
   settings,
   employees = [],
+  attendanceRecords = [],
+  lateSettlements = [],
   onExitAdminMode,
 }) => {
   const [financeData, setFinanceData] = useState<FinanceDatabaseState | null>(null);
+  const [payrollOverview, setPayrollOverview] = useState<PayrollDatabaseState | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -215,6 +229,22 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [restoring, setRestoring] = useState<boolean>(false);
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Pay Employee Salary Modal (Bayar Gaji Karyawan)
+  const [salaryModalOpen, setSalaryModalOpen] = useState<boolean>(false);
+  const [salaryYearMonth, setSalaryYearMonth] = useState<string>(getCurrentYearMonth());
+  const [salaryEmpId, setSalaryEmpId] = useState<string>('');
+  const [salaryDate, setSalaryDate] = useState<string>(getTodayDateStr());
+  const [salaryMethod, setSalaryMethod] = useState<FinancePaymentMethod>('transfer');
+  const [salaryAccountId, setSalaryAccountId] = useState<string>('');
+  const [salaryCategoryId, setSalaryCategoryId] = useState<string>('__auto_gaji__');
+  const [salaryAmount, setSalaryAmount] = useState<number>(0);
+  const [salaryTitle, setSalaryTitle] = useState<string>('');
+  const [salaryReferenceNo, setSalaryReferenceNo] = useState<string>('');
+  const [salaryNotes, setSalaryNotes] = useState<string>('');
+  const [salaryMarkPaid, setSalaryMarkPaid] = useState<boolean>(true);
+  const [savingSalary, setSavingSalary] = useState<boolean>(false);
+  const [salaryModalError, setSalaryModalError] = useState<string | null>(null);
+
   const handleApiError = useCallback(
     (err: unknown, fallback: string) => {
       if (err instanceof AdminModeUnauthorizedError) {
@@ -226,6 +256,17 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     [onExitAdminMode]
   );
 
+  const loadPayrollOverview = useCallback(async () => {
+    try {
+      const pData = await fetchFinancePayrollOverview(adminToken);
+      setPayrollOverview(pData);
+    } catch (err) {
+      if (err instanceof AdminModeUnauthorizedError) {
+        onExitAdminMode();
+      }
+    }
+  }, [adminToken, onExitAdminMode]);
+
   const loadFinanceData = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!options?.silent) {
@@ -233,8 +274,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         setErrorMessage(null);
       }
       try {
-        const data = await fetchFinanceState(adminToken);
+        const [data, pData] = await Promise.all([
+          fetchFinanceState(adminToken),
+          fetchFinancePayrollOverview(adminToken).catch((err) => {
+            if (err instanceof AdminModeUnauthorizedError) throw err;
+            return null;
+          }),
+        ]);
         setFinanceData(data);
+        if (pData) setPayrollOverview(pData);
         if (options?.silent) {
           setErrorMessage(null);
         }
@@ -257,14 +305,18 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   useEffect(() => {
     const unsub = subscribeRealtimeScopes(
-      ['finance'],
-      () => {
-        void loadFinanceData({ silent: true });
+      ['finance', 'payroll'],
+      (evt) => {
+        if (evt.scope === 'finance') {
+          void loadFinanceData({ silent: true });
+        } else {
+          void loadPayrollOverview();
+        }
       },
       { ignoreImmediateLocalEcho: true }
     );
     return () => unsub();
-  }, [loadFinanceData]);
+  }, [loadFinanceData, loadPayrollOverview]);
 
   const accounts = useMemo(() => financeData?.accounts ?? [], [financeData]);
   const categories = useMemo(() => financeData?.categories ?? [], [financeData]);
@@ -279,6 +331,80 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     () => accounts.filter((a) => a.kind === 'rekening'),
     [accounts]
   );
+  const expenseCategories = useMemo(
+    () => categories.filter((c) => c.type === 'pengeluaran'),
+    [categories]
+  );
+
+  const activeEmployees = useMemo(
+    () =>
+      employees
+        .filter((e) => e.active)
+        .sort((a, b) => a.employeeCode.localeCompare(b.employeeCode)),
+    [employees]
+  );
+
+  const computeSalaryMapForMonth = useCallback(
+    (ym: string) => {
+      const map = new Map<string, EmployeePayrollCalculation>();
+      const pSettings = payrollOverview?.settings ?? {
+        defaultOvertimeHourlyRate: 25000,
+        defaultAlphaDeductionPerDay: 150000,
+        defaultIzinDeductionPerDay: 0,
+        autoDeductRemainingLate: true,
+        bpjsKesehatanPct: 1,
+        bpjsKetenagakerjaanPct: 2,
+        paydayDayOfMonth: 25,
+      };
+      const profiles = payrollOverview?.profiles ?? [];
+      const adjustments = payrollOverview?.adjustments ?? [];
+      const salaryRaises = payrollOverview?.salaryRaises ?? [];
+      const statuses = payrollOverview?.statuses ?? [];
+
+      for (const emp of activeEmployees) {
+        const prof = profiles.find((p) => p.employeeId === emp.id);
+        const monthlyStatus = statuses.find(
+          (s) => s.employeeId === emp.id && s.yearMonth === ym
+        );
+        const calc = calculateEmployeePayroll({
+          employee: emp,
+          attendanceRecords,
+          lateSettlements,
+          shifts: settings.shifts ?? [],
+          lateDeductionPerMinute: settings.lateDeductionPerMinute ?? 1000,
+          payrollSettings: pSettings,
+          salaryProfile: prof,
+          adjustments,
+          salaryRaises,
+          monthlyStatus,
+          yearMonth: ym,
+        });
+        map.set(emp.id, calc);
+      }
+      return map;
+    },
+    [activeEmployees, attendanceRecords, lateSettlements, payrollOverview, settings]
+  );
+
+  const salaryCalcMap = useMemo(
+    () => computeSalaryMapForMonth(salaryYearMonth),
+    [computeSalaryMapForMonth, salaryYearMonth]
+  );
+
+  const selectedSalaryCalc = useMemo(
+    () => (salaryEmpId ? salaryCalcMap.get(salaryEmpId) ?? null : null),
+    [salaryCalcMap, salaryEmpId]
+  );
+
+  const salaryPaidSummary = useMemo(() => {
+    let paid = 0;
+    let unpaid = 0;
+    for (const calc of salaryCalcMap.values()) {
+      if (calc.status === 'dibayar') paid += 1;
+      else unpaid += 1;
+    }
+    return { paid, unpaid };
+  }, [salaryCalcMap]);
 
   // Live Account Balances (Opening + All Income - All Expense + Transfers In - Transfers Out)
   const accountBalances = useMemo(() => {
@@ -1035,6 +1161,173 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     }
   };
 
+  // Pay Employee Salary Modal Helpers
+  const applySalaryDefaults = useCallback(
+    (empId: string, ym: string, calcMap: Map<string, EmployeePayrollCalculation>) => {
+      const emp = activeEmployees.find((e) => e.id === empId);
+      const calc = calcMap.get(empId);
+      const preferredMethod: FinancePaymentMethod =
+        calc?.profile.paymentMethod === 'tunai' && cashAccounts.length > 0
+          ? 'cash'
+          : bankAccounts.length > 0
+          ? 'transfer'
+          : 'cash';
+      const accList = preferredMethod === 'cash' ? cashAccounts : bankAccounts;
+      setSalaryMethod(preferredMethod);
+      setSalaryAccountId(accList[0]?.id || accounts[0]?.id || '');
+      setSalaryAmount(calc?.netSalary ?? 0);
+      setSalaryTitle(
+        emp ? `Pembayaran Gaji ${formatIndonesianMonth(ym)} — ${emp.name}` : ''
+      );
+      if (calc?.profile.paymentMethod === 'transfer' && calc.profile.bankName) {
+        const destInfo = [
+          calc.profile.bankName,
+          calc.profile.bankAccountNumber,
+          calc.profile.bankAccountHolder ? `a/n ${calc.profile.bankAccountHolder}` : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        setSalaryNotes(`Transfer gaji ke ${destInfo}`);
+      } else {
+        setSalaryNotes(
+          emp ? `Pembayaran gaji ${emp.name} periode ${formatIndonesianMonth(ym)}` : ''
+        );
+      }
+    },
+    [activeEmployees, accounts, bankAccounts, cashAccounts]
+  );
+
+  const openPaySalaryModal = (presetEmpId?: string) => {
+    if (!payrollOverview) {
+      void loadPayrollOverview();
+    }
+    const defaultYm = periodMode === 'month' ? selectedMonth : getCurrentYearMonth();
+    const calcMap = computeSalaryMapForMonth(defaultYm);
+    const chosenEmpId =
+      presetEmpId && activeEmployees.some((e) => e.id === presetEmpId)
+        ? presetEmpId
+        : activeEmployees.find((e) => calcMap.get(e.id)?.status !== 'dibayar')?.id ||
+          activeEmployees[0]?.id ||
+          '';
+    const matchedSalaryCat = expenseCategories.find(
+      (c) => c.id === 'fcat_exp_gaji' || c.name.toLowerCase().includes('gaji')
+    );
+
+    setSalaryYearMonth(defaultYm);
+    setSalaryEmpId(chosenEmpId);
+    setSalaryDate(getTodayDateStr());
+    setSalaryCategoryId(matchedSalaryCat?.id || '__auto_gaji__');
+    setSalaryReferenceNo('');
+    setSalaryMarkPaid(true);
+    setSalaryModalError(null);
+    applySalaryDefaults(chosenEmpId, defaultYm, calcMap);
+    setSalaryModalOpen(true);
+  };
+
+  const handleSalaryEmployeeOrMonthChange = (nextEmpId: string, nextYm: string) => {
+    const calcMap = computeSalaryMapForMonth(nextYm);
+    setSalaryEmpId(nextEmpId);
+    setSalaryYearMonth(nextYm);
+    setSalaryModalError(null);
+    applySalaryDefaults(nextEmpId, nextYm, calcMap);
+  };
+
+  const handleSalaryMethodSwitch = (nextMethod: FinancePaymentMethod) => {
+    setSalaryMethod(nextMethod);
+    const accList = nextMethod === 'cash' ? cashAccounts : bankAccounts;
+    if (!accList.some((a) => a.id === salaryAccountId)) {
+      setSalaryAccountId(accList[0]?.id || '');
+    }
+  };
+
+  const handleSubmitPaySalary = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!salaryEmpId) {
+      setSalaryModalError('Pilih karyawan yang akan dibayarkan gajinya.');
+      return;
+    }
+    if (!salaryAccountId) {
+      setSalaryModalError('Pilih sumber Kas Tunai atau Rekening Bank perusahaan.');
+      return;
+    }
+    if (!salaryAmount || salaryAmount <= 0) {
+      setSalaryModalError('Nominal gaji yang dibayarkan harus lebih dari Rp 0.');
+      return;
+    }
+
+    setSavingSalary(true);
+    setSalaryModalError(null);
+    setErrorMessage(null);
+    setBannerMessage(null);
+    try {
+      const result = await payEmployeeSalaryFromFinance(adminToken, {
+        employeeId: salaryEmpId,
+        yearMonth: salaryYearMonth,
+        date: salaryDate,
+        method: salaryMethod,
+        accountId: salaryAccountId,
+        categoryId:
+          salaryCategoryId && salaryCategoryId !== '__auto_gaji__'
+            ? salaryCategoryId
+            : undefined,
+        title: salaryTitle.trim() || undefined,
+        referenceNo: salaryReferenceNo.trim() || undefined,
+        amount: Math.round(salaryAmount),
+        notes: salaryNotes.trim() || undefined,
+        markPayrollPaid: salaryMarkPaid,
+      });
+
+      setFinanceData((prev) =>
+        prev
+          ? {
+              ...prev,
+              categories: result.categoryCreated
+                ? [...prev.categories, result.categoryCreated]
+                : prev.categories,
+              transactions: [...prev.transactions, result.transaction],
+            }
+          : prev
+      );
+
+      if (result.payrollStatus) {
+        const updatedStatus = result.payrollStatus;
+        setPayrollOverview((prev) => {
+          if (!prev) return prev;
+          const idx = prev.statuses.findIndex(
+            (s) =>
+              s.employeeId === updatedStatus.employeeId &&
+              s.yearMonth === updatedStatus.yearMonth
+          );
+          const nextStatuses = [...prev.statuses];
+          if (idx >= 0) nextStatuses[idx] = updatedStatus;
+          else nextStatuses.push(updatedStatus);
+          return { ...prev, statuses: nextStatuses };
+        });
+      }
+
+      const empName =
+        activeEmployees.find((e) => e.id === salaryEmpId)?.name || 'Karyawan';
+      setBannerMessage(
+        `Pembayaran gaji ${empName} (${formatIndonesianMonth(
+          salaryYearMonth
+        )}) sebesar ${formatRupiah(result.transaction.amount)} tercatat di Pengeluaran${
+          result.payrollStatus ? ' & status Rekap Gaji ditandai Dibayar' : ''
+        }.`
+      );
+      setSalaryModalOpen(false);
+    } catch (err) {
+      if (err instanceof AdminModeUnauthorizedError) {
+        onExitAdminMode();
+        return;
+      }
+      setSalaryModalError(
+        err instanceof Error ? err.message : 'Gagal menyimpan pembayaran gaji karyawan.'
+      );
+    } finally {
+      setSavingSalary(false);
+    }
+  };
+
   // Internal Transfer Modal Helpers
   const applyTransferPreset = (preset: TransferPreset) => {
     setTransferPreset(preset);
@@ -1557,7 +1850,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Catat Pengeluaran</span>
+            <span className="truncate">Input Pengeluaran</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openPaySalaryModal()}
+            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+          >
+            <Banknote className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Bayar Gaji Karyawan</span>
           </button>
 
           <button
@@ -1572,7 +1874,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           <button
             type="button"
             onClick={() => openManageModal('rekening')}
-            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            className="col-span-2 sm:col-span-1 px-3 sm:px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
             <FolderCog className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">Rekening &amp; Kategori</span>
@@ -4405,6 +4707,24 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
               </div>
 
+              {!editingTx && txType === 'pengeluaran' && (
+                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-indigo-900">
+                    Ingin membayar gaji karyawan dengan nominal THP otomatis &amp; sinkron status <strong>Dibayar</strong>?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTxModalOpen(false);
+                      openPaySalaryModal();
+                    }}
+                    className="px-2.5 py-1.5 text-[11px] font-semibold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    Bayar Gaji Karyawan →
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -4602,6 +4922,389 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     : editingTx
                     ? 'Simpan Perubahan'
                     : `Simpan ${txType === 'pendapatan' ? 'Pendapatan' : 'Pengeluaran'}`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL BAYAR GAJI KARYAWAN (TERHUBUNG KE PENGELUARAN & REKAP GAJI) */}
+      {/* =================================================================== */}
+      {salaryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+          <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+            <div className="bg-slate-950 px-4 sm:px-5 py-4 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 shrink-0">
+                  <Banknote className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-display text-sm font-bold text-white truncate">
+                    Bayar Gaji Karyawan
+                  </h3>
+                  <p className="text-[11px] text-slate-400 truncate">
+                    Tercatat otomatis sebagai pengeluaran keuangan &amp; menandai slip Rekap Gaji Dibayar
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSalaryModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-md cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSubmitPaySalary}
+              className="p-4 sm:p-5 space-y-4 overflow-y-auto pb-safe"
+            >
+              {salaryModalError && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-medium text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{salaryModalError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <div className="sm:col-span-4">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Periode Bulan Gaji
+                  </label>
+                  <input
+                    type="month"
+                    required
+                    value={salaryYearMonth}
+                    onChange={(e) =>
+                      handleSalaryEmployeeOrMonthChange(salaryEmpId, e.target.value)
+                    }
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  />
+                  <div className="mt-1 text-[11px] text-slate-500 font-mono tabular-nums">
+                    {salaryPaidSummary.unpaid} belum · {salaryPaidSummary.paid} dibayar
+                  </div>
+                </div>
+
+                <div className="sm:col-span-8">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Pilih Karyawan
+                  </label>
+                  <select
+                    required
+                    value={salaryEmpId}
+                    onChange={(e) =>
+                      handleSalaryEmployeeOrMonthChange(e.target.value, salaryYearMonth)
+                    }
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  >
+                    {activeEmployees.length === 0 ? (
+                      <option value="">Tidak ada karyawan aktif</option>
+                    ) : (
+                      activeEmployees.map((emp) => {
+                        const calc = salaryCalcMap.get(emp.id);
+                        const thpLabel = calc ? formatRupiah(calc.netSalary) : 'Rp 0';
+                        const statusLabel =
+                          calc?.status === 'dibayar'
+                            ? 'Sudah Dibayar'
+                            : calc?.status === 'disetujui'
+                            ? 'Disetujui'
+                            : 'Belum Dibayar';
+                        return (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.name} ({emp.employeeCode}) — THP {thpLabel} [{statusLabel}]
+                          </option>
+                        );
+                      })
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {selectedSalaryCalc && (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-semibold text-slate-900">
+                        {selectedSalaryCalc.employee.name}
+                      </span>{' '}
+                      <span className="text-slate-500">
+                        · {selectedSalaryCalc.employee.department} · Tgl gajian tgl{' '}
+                        {selectedSalaryCalc.paydayDay}
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 text-[11px] font-semibold rounded border ${
+                        selectedSalaryCalc.status === 'dibayar'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : selectedSalaryCalc.status === 'disetujui'
+                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}
+                    >
+                      {selectedSalaryCalc.status === 'dibayar'
+                        ? 'Status Slip: Sudah Dibayar'
+                        : selectedSalaryCalc.status === 'disetujui'
+                        ? 'Status Slip: Disetujui'
+                        : 'Status Slip: Draft'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/80 text-[11px]">
+                    <div>
+                      <div className="text-slate-500">Gaji + Tunj.</div>
+                      <div className="font-mono font-semibold text-slate-800 tabular-nums mt-0.5">
+                        {formatRupiah(
+                          selectedSalaryCalc.baseSalary +
+                            selectedSalaryCalc.positionAllowance +
+                            selectedSalaryCalc.transportMealAllowance +
+                            selectedSalaryCalc.otherAllowance +
+                            selectedSalaryCalc.totalExtraAllowance
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Lembur + Bonus</div>
+                      <div className="font-mono font-semibold text-emerald-700 tabular-nums mt-0.5">
+                        +{formatRupiah(selectedSalaryCalc.overtimePay + selectedSalaryCalc.totalBonus)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Potongan</div>
+                      <div className="font-mono font-semibold text-red-700 tabular-nums mt-0.5">
+                        -{formatRupiah(selectedSalaryCalc.totalDeductions)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Gaji Bersih (THP)</div>
+                      <div className="font-mono font-bold text-indigo-800 tabular-nums mt-0.5">
+                        {formatRupiah(selectedSalaryCalc.netSalary)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedSalaryCalc.status === 'dibayar' && (
+                    <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-700" />
+                      <span>
+                        Gaji periode {formatIndonesianMonth(salaryYearMonth)} untuk karyawan ini sudah berstatus <strong>Dibayar</strong>. Pastikan tidak terjadi pembayaran ganda jika Anda tetap melanjutkan.
+                      </span>
+                    </div>
+                  )}
+
+                  {selectedSalaryCalc.netSalary === 0 && (
+                    <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-900">
+                      Profil gaji karyawan ini belum diatur atau THP Rp 0. Anda dapat langsung mengisi nominal gaji yang dibayarkan di kolom bawah.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Tanggal Pembayaran
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={salaryDate}
+                    onChange={(e) => setSalaryDate(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  />
+                </div>
+
+                <div>
+                  <span className="block text-xs font-semibold text-slate-700 mb-1">
+                    Metode Pembayaran
+                  </span>
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => handleSalaryMethodSwitch('transfer')}
+                      className={`py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-colors ${
+                        salaryMethod === 'transfer'
+                          ? 'bg-blue-700 text-white'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Transfer Bank
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSalaryMethodSwitch('cash')}
+                      className={`py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-colors ${
+                        salaryMethod === 'cash'
+                          ? 'bg-slate-900 text-white'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Cash (Tunai)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Sumber Kas / Rekening Perusahaan
+                  </label>
+                  <select
+                    required
+                    value={salaryAccountId}
+                    onChange={(e) => setSalaryAccountId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  >
+                    {(salaryMethod === 'cash' ? cashAccounts : bankAccounts).map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.kind === 'cash'
+                          ? `${acc.name} (Saldo: ${formatSignedRupiah(
+                              accountBalanceMap.get(acc.id) ?? 0
+                            )})`
+                          : `${acc.bankName} — ${acc.name} · Saldo: ${formatSignedRupiah(
+                              accountBalanceMap.get(acc.id) ?? 0
+                            )}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Kategori Pengeluaran
+                  </label>
+                  <select
+                    value={salaryCategoryId}
+                    onChange={(e) => setSalaryCategoryId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  >
+                    {!expenseCategories.some(
+                      (c) =>
+                        c.id === 'fcat_exp_gaji' || c.name.toLowerCase().includes('gaji')
+                    ) && (
+                      <option value="__auto_gaji__">
+                        Gaji &amp; Tunjangan Karyawan (Otomatis)
+                      </option>
+                    )}
+                    {expenseCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Nominal Gaji Dibayar (Rp)
+                    </label>
+                    {selectedSalaryCalc &&
+                      selectedSalaryCalc.netSalary > 0 &&
+                      salaryAmount !== selectedSalaryCalc.netSalary && (
+                        <button
+                          type="button"
+                          onClick={() => setSalaryAmount(selectedSalaryCalc.netSalary)}
+                          className="text-[11px] font-semibold text-indigo-700 hover:underline cursor-pointer"
+                        >
+                          Isi Sesuai THP
+                        </button>
+                      )}
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    value={salaryAmount > 0 ? String(salaryAmount) : ''}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      setSalaryAmount(digits ? Number(digits) : 0);
+                    }}
+                    placeholder="0"
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  />
+                  {salaryAmount > 0 && (
+                    <div className="text-[11px] font-mono text-indigo-700 mt-1 tabular-nums">
+                      {formatRupiah(salaryAmount)}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    No. Bukti / Referensi Slip
+                  </label>
+                  <input
+                    type="text"
+                    value={salaryReferenceNo}
+                    onChange={(e) => setSalaryReferenceNo(e.target.value)}
+                    placeholder={`Opsional (PAY-${salaryYearMonth.replace('-', '')})`}
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Keterangan Pengeluaran
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={salaryTitle}
+                  onChange={(e) => setSalaryTitle(e.target.value)}
+                  placeholder="Contoh: Pembayaran Gaji November 2026 — Nama Karyawan"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Catatan / Rekening Penerima Karyawan
+                </label>
+                <input
+                  type="text"
+                  value={salaryNotes}
+                  onChange={(e) => setSalaryNotes(e.target.value)}
+                  placeholder="Rekening tujuan karyawan atau catatan pembayaran"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                />
+              </div>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={salaryMarkPaid}
+                  onChange={(e) => setSalaryMarkPaid(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-700 focus:ring-indigo-600"
+                />
+                <span className="text-xs text-slate-700 leading-relaxed">
+                  Tandai status Rekap Gaji karyawan untuk periode{' '}
+                  <strong>{formatIndonesianMonth(salaryYearMonth)}</strong> sebagai{' '}
+                  <strong className="text-emerald-700">Dibayar</strong> secara otomatis
+                </span>
+              </label>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSalaryModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingSalary || activeEmployees.length === 0}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-400 rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Banknote className="w-3.5 h-3.5" />
+                  <span>{savingSalary ? 'Memproses...' : 'Bayar & Catat Pengeluaran'}</span>
                 </button>
               </div>
             </form>

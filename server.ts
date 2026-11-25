@@ -3313,7 +3313,7 @@ function inspectLocalDatabaseTables() {
       tableName: 'payroll_profiles',
       firestoreCollection: '(server-protected)',
       module: 'Penggajian' as const,
-      description: 'Gaji pokok, tunjangan, dan rekening payroll tiap karyawan (PIN Superuser)',
+      description: 'Gaji pokok, tunjangan, dan rekening payroll tiap karyawan (PIN Admin / Superuser)',
       storageFile: 'data/payroll-db.json',
       exists: Boolean(payRaw && Array.isArray(payRaw.profiles)),
       recordCount: payRaw && Array.isArray(payRaw.profiles) ? payRaw.profiles.length : 0,
@@ -3796,6 +3796,13 @@ function buildDefaultFinanceDb(): FinanceDatabaseSchema {
       name: 'Pendapatan Lain-lain',
       type: 'pendapatan',
       description: 'Pendapatan jasa tambahan, komisi, atau pengembalian dana',
+      createdAt: nowIso,
+    },
+    {
+      id: 'fcat_exp_gaji',
+      name: 'Gaji & Tunjangan Karyawan',
+      type: 'pengeluaran',
+      description: 'Pembayaran gaji bulanan, lembur, tunjangan, dan bonus karyawan',
       createdAt: nowIso,
     },
     {
@@ -5706,6 +5713,15 @@ async function startServer() {
     res.json({ token, expiresAt });
   });
 
+  app.post('/api/payroll/unlock-from-admin', requireAdminModeAuth, (_req, res) => {
+    cleanupExpiredPayrollSessions();
+    const now = Date.now();
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = now + PAYROLL_TOKEN_TTL_MS;
+    activePayrollSessions.set(token, { expiresAt });
+    res.json({ token, expiresAt });
+  });
+
   app.post('/api/payroll/lock', (req, res) => {
     const token = String(req.headers['x-payroll-token'] || '');
     if (token) {
@@ -6029,6 +6045,154 @@ async function startServer() {
     await ensureScopeFreshFromSupabase('finance');
     const finDb = readFinanceDb();
     res.json(finDb);
+  });
+
+  app.get('/api/finance/payroll-overview', requireAdminModeAuth, async (_req, res) => {
+    await ensureScopeFreshFromSupabase('payroll');
+    const payrollDb = readPayrollDb();
+    res.json(payrollDb);
+  });
+
+  app.post('/api/finance/pay-salary', requireAdminModeAuth, (req, res) => {
+    const db = readDb();
+    const finDb = readFinanceDb();
+    const payrollDb = readPayrollDb();
+    const body = (req.body || {}) as {
+      employeeId?: string;
+      yearMonth?: string;
+      date?: string;
+      method?: 'cash' | 'transfer';
+      accountId?: string;
+      categoryId?: string;
+      title?: string;
+      referenceNo?: string;
+      amount?: number;
+      notes?: string;
+      markPayrollPaid?: boolean;
+    };
+
+    const employeeId = String(body.employeeId || '').trim();
+    const emp = db.employees.find((e) => e.id === employeeId);
+    if (!emp) {
+      res.status(404).json({ error: 'Karyawan tidak ditemukan.' });
+      return;
+    }
+
+    const ym = String(body.yearMonth || '').trim().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(ym)) {
+      res.status(400).json({ error: 'Periode bulan gaji (YYYY-MM) tidak valid.' });
+      return;
+    }
+
+    const dateStr = String(body.date || formatDateLocal(new Date())).trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      res.status(400).json({ error: 'Tanggal pembayaran gaji (YYYY-MM-DD) tidak valid.' });
+      return;
+    }
+
+    const method: 'cash' | 'transfer' = body.method === 'cash' ? 'cash' : 'transfer';
+    const amount = Math.round(Number(body.amount || 0));
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000000) {
+      res.status(400).json({ error: 'Nominal pembayaran gaji harus lebih dari Rp 0.' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    let createdCategory: FinanceCategoryData | undefined;
+    let cat = body.categoryId
+      ? finDb.categories.find((c) => c.id === body.categoryId && c.type === 'pengeluaran')
+      : undefined;
+    if (!cat) {
+      cat =
+        finDb.categories.find(
+          (c) =>
+            c.type === 'pengeluaran' &&
+            (c.id === 'fcat_exp_gaji' || c.name.toLowerCase().includes('gaji'))
+        ) || undefined;
+    }
+    if (!cat) {
+      const hasDefaultId = finDb.categories.some((c) => c.id === 'fcat_exp_gaji');
+      createdCategory = {
+        id: hasDefaultId
+          ? `fcat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+          : 'fcat_exp_gaji',
+        name: 'Gaji & Tunjangan Karyawan',
+        type: 'pengeluaran',
+        description: 'Pembayaran gaji bulanan, lembur, tunjangan, dan bonus karyawan',
+        createdAt: nowIso,
+      };
+      finDb.categories.push(createdCategory);
+      cat = createdCategory;
+    }
+
+    const targetKind: 'cash' | 'rekening' = method === 'cash' ? 'cash' : 'rekening';
+    const candidateAccount = body.accountId
+      ? finDb.accounts.find((a) => a.id === body.accountId && a.kind === targetKind)
+      : undefined;
+    const matchedAccount =
+      candidateAccount || finDb.accounts.find((a) => a.kind === targetKind);
+
+    const resolvedAccountLabel = matchedAccount
+      ? formatFinanceAccountDisplay(matchedAccount)
+      : method === 'cash'
+      ? 'Kas Tunai Utama'
+      : 'Transfer Bank';
+
+    const cleanTitle =
+      String(body.title || '').trim().slice(0, 100) ||
+      `Pembayaran Gaji ${ym} — ${emp.name}`;
+    const cleanRef = String(body.referenceNo || '').trim().slice(0, 40);
+    const cleanNotes = String(body.notes || '').trim().slice(0, 300);
+
+    const tx: FinanceTransactionData = {
+      id: `ftx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      date: dateStr,
+      type: 'pengeluaran',
+      method,
+      categoryId: cat.id,
+      categoryName: cat.name,
+      accountId: matchedAccount?.id,
+      title: cleanTitle,
+      counterparty: `${emp.name} (${emp.employeeCode})`.slice(0, 80),
+      bankAccount: resolvedAccountLabel,
+      referenceNo: cleanRef,
+      amount,
+      notes: cleanNotes || `Pembayaran gaji karyawan periode ${ym}`,
+      recordedBy: 'Admin Mode',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    finDb.transactions.push(tx);
+    writeFinanceDb(finDb);
+
+    let payrollStatus: PayrollMonthlyStatusData | undefined;
+    if (body.markPayrollPaid !== false) {
+      const statusId = `${emp.id}__${ym}`;
+      payrollStatus = {
+        id: statusId,
+        employeeId: emp.id,
+        yearMonth: ym,
+        status: 'dibayar',
+        paidAt: nowIso,
+        updatedAt: nowIso,
+      };
+      const stIdx = payrollDb.statuses.findIndex(
+        (s) => s.employeeId === emp.id && s.yearMonth === ym
+      );
+      if (stIdx >= 0) {
+        payrollDb.statuses[stIdx] = payrollStatus;
+      } else {
+        payrollDb.statuses.push(payrollStatus);
+      }
+      writePayrollDb(payrollDb);
+    }
+
+    res.status(201).json({
+      transaction: tx,
+      ...(createdCategory ? { categoryCreated: createdCategory } : {}),
+      ...(payrollStatus ? { payrollStatus } : {}),
+    });
   });
 
   app.post('/api/finance/categories', requireAdminModeAuth, (req, res) => {

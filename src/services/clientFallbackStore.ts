@@ -851,6 +851,13 @@ function buildDefaultFinanceDb(): FinanceDatabaseState {
       createdAt: nowIso,
     },
     {
+      id: 'fcat_exp_gaji',
+      name: 'Gaji & Tunjangan Karyawan',
+      type: 'pengeluaran',
+      description: 'Pembayaran gaji bulanan, lembur, tunjangan, dan bonus karyawan',
+      createdAt: nowIso,
+    },
+    {
       id: 'fcat_exp_operasional',
       name: 'Operasional & ATK Kantor',
       type: 'pengeluaran',
@@ -3271,9 +3278,17 @@ export async function clientUnlockPayrollWithPin(
   pin: string
 ): Promise<{ token: string; expiresAt: number }> {
   await ensureClientHydratedOnce();
-  if (!(await verifySuperuserPinHash(pin))) {
-    throw new HttpApiError(401, 'PIN Superuser tidak valid. Akses data gaji ditolak.');
+  if (!(await verifyAdminPinHash(pin))) {
+    throw new HttpApiError(401, 'PIN tidak valid. Gunakan PIN standar Admin atau PIN Superuser.');
   }
+  return issueClientSession('payroll', 'kp_payroll');
+}
+
+export async function clientUnlockPayrollFromAdmin(
+  adminToken: string
+): Promise<{ token: string; expiresAt: number }> {
+  await ensureClientHydratedOnce();
+  assertAdminSession(adminToken);
   return issueClientSession('payroll', 'kp_payroll');
 }
 
@@ -3285,8 +3300,8 @@ function assertPayrollSession(token: string): void {
   requireClientSession(
     'payroll',
     token,
-    'Akses gaji terkunci. Masukkan PIN Superuser terlebih dahulu.',
-    'Sesi Superuser telah kedaluwarsa. Masukkan kembali PIN Superuser.'
+    'Akses gaji terkunci. Masukkan PIN Admin atau PIN Superuser terlebih dahulu.',
+    'Sesi akses gaji telah kedaluwarsa. Masukkan kembali PIN Admin atau PIN Superuser.'
   );
 }
 
@@ -3597,6 +3612,151 @@ export async function clientFetchFinanceState(
   assertAdminSession(adminToken);
   await ensureBrowserScopeFreshFromSupabase('finance');
   return readFinanceDbSync();
+}
+
+export async function clientFetchFinancePayrollOverview(
+  adminToken: string
+): Promise<PayrollDatabaseState> {
+  await ensureClientHydratedOnce();
+  assertAdminSession(adminToken);
+  await ensureBrowserScopeFreshFromSupabase('payroll');
+  return readPayrollDbSync();
+}
+
+export async function clientPayEmployeeSalary(
+  adminToken: string,
+  payload: {
+    employeeId: string;
+    yearMonth: string;
+    date?: string;
+    method: FinancePaymentMethod;
+    accountId?: string;
+    categoryId?: string;
+    title?: string;
+    referenceNo?: string;
+    amount: number;
+    notes?: string;
+    markPayrollPaid?: boolean;
+  }
+): Promise<{
+  transaction: FinanceTransaction;
+  categoryCreated?: FinanceCategory;
+  payrollStatus?: PayrollMonthlyStatus;
+}> {
+  await ensureClientHydratedOnce();
+  assertAdminSession(adminToken);
+  const mainDb = readAttendanceDbSync();
+  const finDb = readFinanceDbSync();
+  const payDb = readPayrollDbSync();
+
+  const emp = mainDb.employees.find((e) => e.id === String(payload.employeeId || '').trim());
+  if (!emp) {
+    throw new HttpApiError(404, 'Karyawan tidak ditemukan.');
+  }
+
+  const ym = String(payload.yearMonth || '').trim().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) {
+    throw new HttpApiError(400, 'Periode bulan gaji (YYYY-MM) tidak valid.');
+  }
+
+  const dateStr = String(payload.date || formatDateLocal(new Date())).trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new HttpApiError(400, 'Tanggal pembayaran gaji (YYYY-MM-DD) tidak valid.');
+  }
+
+  const method: FinancePaymentMethod = payload.method === 'cash' ? 'cash' : 'transfer';
+  const amount = Math.round(Number(payload.amount || 0));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000000) {
+    throw new HttpApiError(400, 'Nominal pembayaran gaji harus lebih dari Rp 0.');
+  }
+
+  const nowIso = new Date().toISOString();
+  let createdCategory: FinanceCategory | undefined;
+  let cat = payload.categoryId
+    ? finDb.categories.find((c) => c.id === payload.categoryId && c.type === 'pengeluaran')
+    : undefined;
+  if (!cat) {
+    cat = finDb.categories.find(
+      (c) =>
+        c.type === 'pengeluaran' &&
+        (c.id === 'fcat_exp_gaji' || c.name.toLowerCase().includes('gaji'))
+    );
+  }
+  if (!cat) {
+    const hasDefaultId = finDb.categories.some((c) => c.id === 'fcat_exp_gaji');
+    createdCategory = {
+      id: hasDefaultId
+        ? `fcat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+        : 'fcat_exp_gaji',
+      name: 'Gaji & Tunjangan Karyawan',
+      type: 'pengeluaran',
+      description: 'Pembayaran gaji bulanan, lembur, tunjangan, dan bonus karyawan',
+      createdAt: nowIso,
+    };
+    finDb.categories.push(createdCategory);
+    cat = createdCategory;
+  }
+
+  const targetKind: FinanceAccountKind = method === 'cash' ? 'cash' : 'rekening';
+  const candidateAccount = payload.accountId
+    ? finDb.accounts.find((a) => a.id === payload.accountId && a.kind === targetKind)
+    : undefined;
+  const matchedAccount =
+    candidateAccount || finDb.accounts.find((a) => a.kind === targetKind);
+
+  const tx: FinanceTransaction = {
+    id: `ftx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    date: dateStr,
+    type: 'pengeluaran',
+    method,
+    categoryId: cat.id,
+    categoryName: cat.name,
+    accountId: matchedAccount?.id,
+    title:
+      String(payload.title || '').trim().slice(0, 100) ||
+      `Pembayaran Gaji ${ym} — ${emp.name}`,
+    counterparty: `${emp.name} (${emp.employeeCode})`.slice(0, 80),
+    bankAccount: matchedAccount
+      ? formatFinanceAccountDisplay(matchedAccount)
+      : method === 'cash'
+      ? 'Kas Tunai Utama'
+      : 'Transfer Bank',
+    referenceNo: String(payload.referenceNo || '').trim().slice(0, 40),
+    amount,
+    notes:
+      String(payload.notes || '').trim().slice(0, 300) ||
+      `Pembayaran gaji karyawan periode ${ym}`,
+    recordedBy: 'Admin Mode',
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  finDb.transactions.push(tx);
+  writeFinanceDbSync(finDb);
+
+  let payrollStatus: PayrollMonthlyStatus | undefined;
+  if (payload.markPayrollPaid !== false) {
+    payrollStatus = {
+      id: `${emp.id}__${ym}`,
+      employeeId: emp.id,
+      yearMonth: ym,
+      status: 'dibayar',
+      paidAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const stIdx = payDb.statuses.findIndex(
+      (s) => s.employeeId === emp.id && s.yearMonth === ym
+    );
+    if (stIdx >= 0) payDb.statuses[stIdx] = payrollStatus;
+    else payDb.statuses.push(payrollStatus);
+    writePayrollDbSync(payDb);
+  }
+
+  return {
+    transaction: tx,
+    ...(createdCategory ? { categoryCreated: createdCategory } : {}),
+    ...(payrollStatus ? { payrollStatus } : {}),
+  };
 }
 
 export async function clientCreateFinanceAccount(
@@ -4159,7 +4319,7 @@ const CLIENT_REQUIRED_TABLES: {
     tableName: 'payroll_profiles',
     firestoreCollection: '(server-protected)',
     module: 'Penggajian',
-    description: 'Gaji pokok, tunjangan, dan rekening payroll tiap karyawan (PIN Superuser)',
+    description: 'Gaji pokok, tunjangan, dan rekening payroll tiap karyawan (PIN Admin / Superuser)',
     requiredColumns: ['employee_id', 'base_salary', 'position_allowance', 'transport_meal_allowance', 'bank_account_number'],
     getLocalCount: () => readPayrollDbSync().profiles.length,
   },

@@ -16,6 +16,7 @@ import {
   Printer,
   Settings2,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   Trash2,
   TrendingUp,
@@ -50,6 +51,7 @@ import {
   PayrollUnauthorizedError,
   restorePayrollBackup,
   saveEmployeeSalaryProfile,
+  unlockPayrollWithAdminSession,
   unlockPayrollWithPin,
   updatePayrollMonthlyStatus,
   updatePayrollSettings,
@@ -71,6 +73,7 @@ interface PayrollRecapViewProps {
   attendanceRecords: AttendanceRecord[];
   lateSettlements: LateSettlement[];
   settings: AppSettings;
+  adminToken?: string | null;
 }
 
 const DEFAULT_PAYROLL_SETTINGS: PayrollSettings = {
@@ -94,6 +97,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
   attendanceRecords,
   lateSettlements,
   settings,
+  adminToken,
 }) => {
   // Security Gate State (token lives strictly in React memory; cleared on lock/unmount)
   const [payrollToken, setPayrollToken] = useState<string | null>(null);
@@ -284,6 +288,27 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
           : 'PIN tidak valid. Gunakan PIN standar Admin atau PIN Superuser.'
       );
       setPinInput('');
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
+  const handleUnlockWithAdminSession = async () => {
+    if (!adminToken) return;
+    setUnlocking(true);
+    setUnlockError(null);
+    try {
+      const result = await unlockPayrollWithAdminSession(adminToken);
+      setPayrollToken(result.token);
+      setPinInput('');
+      setShowPin(false);
+      await loadPayrollData(result.token);
+    } catch (err) {
+      setUnlockError(
+        err instanceof Error
+          ? err.message
+          : 'Gagal membuka Rekap Gaji dengan sesi Mode Admin.'
+      );
     } finally {
       setUnlocking(false);
     }
@@ -911,6 +936,23 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               <Lock className="w-4 h-4" />
               <span>{unlocking ? 'Memverifikasi PIN...' : 'Buka Rekap Gaji Karyawan'}</span>
             </button>
+
+            {adminToken && (
+              <div className="pt-3 border-t border-slate-100 space-y-2">
+                <button
+                  type="button"
+                  disabled={unlocking}
+                  onClick={handleUnlockWithAdminSession}
+                  className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>Masuk Langsung (Sesi Mode Admin Aktif)</span>
+                </button>
+                <p className="text-[11px] text-center text-slate-500">
+                  Mode Admin sudah terverifikasi — Anda dapat langsung masuk atau memasukkan PIN Admin / Superuser di atas.
+                </p>
+              </div>
+            )}
           </form>
         </div>
       </div>
