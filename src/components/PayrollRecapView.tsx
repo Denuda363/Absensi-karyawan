@@ -27,7 +27,9 @@ import {
 import {
   AppSettings,
   AttendanceRecord,
+  BpjsDeductionMode,
   Employee,
+  EmployeeFixedDeductionItem,
   EmployeeSalaryProfile,
   formatIndonesianMonth,
   getCurrentYearMonth,
@@ -61,6 +63,7 @@ import {
   calculateEmployeePayroll,
   EmployeePayrollCalculation,
   formatRupiah,
+  resolveBpjsComponentDeduction,
 } from '../utils/payrollCalculator';
 import { exportPayrollToExcel } from '../utils/excelPayrollExport';
 import {
@@ -89,8 +92,25 @@ const DEFAULT_PAYROLL_SETTINGS: PayrollSettings = {
 const ADJUSTMENT_PRESETS: Record<PayrollAdjustmentType, string[]> = {
   bonus: ['Bonus Target', 'Uang Kerajinan', 'Komisi Penjualan', 'THR / Bonus Tahunan'],
   tunjangan: ['Tunjangan Operasional', 'Uang Makan Tambahan', 'Tunjangan Kesehatan', 'Reimburse Tugas'],
-  potongan: ['Cicilan Kasbon', 'Pinjaman Karyawan', 'Potongan Seragam / Inventaris'],
+  potongan: [
+    'Cicilan Kasbon',
+    'Pinjaman Karyawan',
+    'Potongan BPJS Tambahan',
+    'PPh 21 / Pajak',
+    'Iuran Koperasi',
+    'Potongan Seragam / Inventaris',
+    'Denda / Potongan Lainnya',
+  ],
 };
+
+const FIXED_DEDUCTION_PRESETS = [
+  'PPh 21',
+  'Iuran Koperasi',
+  'Asuransi Kesehatan Tambahan',
+  'Potongan BPJS Keluarga',
+  'Cicilan Pinjaman Tetap',
+  'Iuran Seragam / Inventaris',
+];
 
 export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
   employees,
@@ -121,8 +141,9 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
   const [exportingExcel, setExportingExcel] = useState<boolean>(false);
   const [lowerTab, setLowerTab] = useState<'penyesuaian' | 'kenaikan'>('penyesuaian');
 
-  // Edit Salary Profile Modal
+  // Edit Salary Profile & Deductions Modal
   const [editingProfileEmp, setEditingProfileEmp] = useState<Employee | null>(null);
+  const [profileModalTab, setProfileModalTab] = useState<'gaji' | 'potongan'>('gaji');
   const [profileForm, setProfileForm] = useState<{
     baseSalary: number;
     positionAllowance: number;
@@ -130,6 +151,11 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
     otherAllowance: number;
     overtimeHourlyRate: number;
     paydayDay: number;
+    bpjsKesehatanMode: BpjsDeductionMode;
+    bpjsKesehatanValue: number;
+    bpjsTkMode: BpjsDeductionMode;
+    bpjsTkValue: number;
+    fixedDeductions: EmployeeFixedDeductionItem[];
     paymentMethod: PayrollPaymentMethod;
     bankName: string;
     bankAccountNumber: string;
@@ -142,12 +168,19 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
     otherAllowance: 0,
     overtimeHourlyRate: 25000,
     paydayDay: 25,
+    bpjsKesehatanMode: 'default_pct',
+    bpjsKesehatanValue: 0,
+    bpjsTkMode: 'default_pct',
+    bpjsTkValue: 0,
+    fixedDeductions: [],
     paymentMethod: 'transfer',
     bankName: 'BCA',
     bankAccountNumber: '',
     bankAccountHolder: '',
     notes: '',
   });
+  const [newFixedDedTitle, setNewFixedDedTitle] = useState<string>('');
+  const [newFixedDedAmount, setNewFixedDedAmount] = useState<number>(0);
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
 
   // Bonus / Tunjangan / Potongan Modal
@@ -440,9 +473,15 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       .sort((a, b) => (b.raiseDate || '').localeCompare(a.raiseDate || ''));
   }, [payrollData, filteredRows]);
 
-  // Handlers: Salary Profile
-  const openEditProfile = (row: EmployeePayrollCalculation) => {
+  // Handlers: Salary Profile & Deductions
+  const openEditProfile = (
+    row: EmployeePayrollCalculation,
+    initialTab: 'gaji' | 'potongan' = 'gaji'
+  ) => {
     setEditingProfileEmp(row.employee);
+    setProfileModalTab(initialTab);
+    setNewFixedDedTitle('');
+    setNewFixedDedAmount(0);
     setProfileForm({
       baseSalary: row.profile.baseSalary,
       positionAllowance: row.profile.positionAllowance,
@@ -453,6 +492,11 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
         payrollData?.settings.defaultOvertimeHourlyRate ??
         25000,
       paydayDay: row.paydayDay,
+      bpjsKesehatanMode: row.profile.bpjsKesehatanMode ?? 'default_pct',
+      bpjsKesehatanValue: row.profile.bpjsKesehatanValue ?? 0,
+      bpjsTkMode: row.profile.bpjsTkMode ?? 'default_pct',
+      bpjsTkValue: row.profile.bpjsTkValue ?? 0,
+      fixedDeductions: (row.profile.fixedDeductions || []).map((fd) => ({ ...fd })),
       paymentMethod: row.profile.paymentMethod || 'transfer',
       bankName: row.profile.bankName || 'BCA',
       bankAccountNumber: row.profile.bankAccountNumber || '',
@@ -461,16 +505,50 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
     });
   };
 
+  const handleAddFixedDeductionDraft = () => {
+    const title = newFixedDedTitle.trim().slice(0, 80);
+    const amount = Math.max(0, Math.round(Number(newFixedDedAmount) || 0));
+    if (!title || amount <= 0) {
+      setErrorMessage('Isi nama potongan tetap dan nominal lebih dari Rp 0.');
+      return;
+    }
+    setErrorMessage(null);
+    const id = `fd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    setProfileForm((p) => ({
+      ...p,
+      fixedDeductions: [...p.fixedDeductions, { id, title, amount }],
+    }));
+    setNewFixedDedTitle('');
+    setNewFixedDedAmount(0);
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payrollToken || !editingProfileEmp) return;
     setSavingProfile(true);
     setErrorMessage(null);
     try {
-      await saveEmployeeSalaryProfile(payrollToken, editingProfileEmp.id, profileForm);
+      const pendingTitle = newFixedDedTitle.trim().slice(0, 80);
+      const pendingAmount = Math.max(0, Math.round(Number(newFixedDedAmount) || 0));
+      const finalFixedDeductions =
+        pendingTitle && pendingAmount > 0
+          ? [
+              ...profileForm.fixedDeductions,
+              {
+                id: `fd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                title: pendingTitle,
+                amount: pendingAmount,
+              },
+            ]
+          : profileForm.fixedDeductions;
+
+      await saveEmployeeSalaryProfile(payrollToken, editingProfileEmp.id, {
+        ...profileForm,
+        fixedDeductions: finalFixedDeductions,
+      });
       await loadPayrollData(payrollToken);
       setBannerMessage(
-        `Komponen gaji & tanggal gajian (Tgl ${profileForm.paydayDay}) untuk ${editingProfileEmp.name} berhasil disimpan.`
+        `Komponen gaji & potongan (BPJS & rutin) untuk ${editingProfileEmp.name} berhasil disimpan.`
       );
       setEditingProfileEmp(null);
     } catch (err) {
@@ -800,7 +878,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       r.totalLateDeduction,
       r.alphaDeduction + r.izinDeduction,
       r.bpjsKesehatanDeduction + r.bpjsTkDeduction,
-      r.totalOtherDeduction,
+      r.totalFixedDeduction + r.totalOtherDeduction,
       r.netSalary,
       r.status,
     ]);
@@ -1240,7 +1318,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               {formatRupiah(kpiTotals.deductions)}
             </div>
             <div className="mt-1.5 text-xs text-slate-500">
-              Termasuk telat, alpha, BPJS &amp; kasbon
+              Telat, alpha, BPJS, potongan tetap &amp; kasbon
             </div>
           </div>
 
@@ -1399,7 +1477,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
                         <button
                           type="button"
                           onClick={() => setPayslipRow(row)}
@@ -1409,10 +1487,17 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => openEditProfile(row)}
+                          onClick={() => openEditProfile(row, 'gaji')}
                           className="min-h-[38px] px-2 py-1.5 text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg cursor-pointer"
                         >
-                          Atur
+                          Atur Gaji
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditProfile(row, 'potongan')}
+                          className="min-h-[38px] px-2 py-1.5 text-xs font-medium bg-red-50/70 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg cursor-pointer"
+                        >
+                          Potongan
                         </button>
                         <button
                           type="button"
@@ -1420,15 +1505,15 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                           className="min-h-[38px] px-2 py-1.5 text-xs font-medium bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <TrendingUp className="w-3.5 h-3.5" />
-                          <span>Naik</span>
+                          <span>Naik Gaji</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => openAdjustmentModal(row.employee.id)}
-                          className="min-h-[38px] px-2 py-1.5 text-xs font-medium bg-white hover:bg-blue-50 text-blue-700 border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 cursor-pointer"
+                          className="col-span-2 sm:col-span-1 min-h-[38px] px-2 py-1.5 text-xs font-medium bg-white hover:bg-blue-50 text-blue-700 border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Adj</span>
+                          <span>Bonus / Kasbon</span>
                         </button>
                       </div>
                     </div>
@@ -1590,6 +1675,9 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                               </div>
                             )}
                             {bpjsTotal > 0 && <div>BPJS {formatRupiah(bpjsTotal)}</div>}
+                            {row.totalFixedDeduction > 0 && (
+                              <div>Pot. Tetap {formatRupiah(row.totalFixedDeduction)}</div>
+                            )}
                             {row.totalOtherDeduction > 0 && (
                               <div>Kasbon/Lain {formatRupiah(row.totalOtherDeduction)}</div>
                             )}
@@ -1641,10 +1729,18 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => openEditProfile(row)}
+                              onClick={() => openEditProfile(row, 'gaji')}
                               className="px-2.5 py-1.5 text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg cursor-pointer"
                             >
                               Atur Gaji
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditProfile(row, 'potongan')}
+                              title="Atur potongan BPJS & potongan tetap karyawan"
+                              className="px-2.5 py-1.5 text-xs font-medium bg-red-50/70 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg cursor-pointer"
+                            >
+                              Potongan
                             </button>
                             <button
                               type="button"
@@ -2110,14 +2206,28 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                     )}
                     <div className="flex justify-between">
                       <span className="text-slate-600">
-                        Iuran BPJS Kesehatan &amp; TK
+                        BPJS Kesehatan ({payslipRow.bpjsKesehatanLabel})
                       </span>
                       <span className="font-mono font-semibold text-red-700 tabular-nums">
-                        {formatRupiah(
-                          payslipRow.bpjsKesehatanDeduction + payslipRow.bpjsTkDeduction
-                        )}
+                        {formatRupiah(payslipRow.bpjsKesehatanDeduction)}
                       </span>
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">
+                        BPJS Ketenagakerjaan ({payslipRow.bpjsTkLabel})
+                      </span>
+                      <span className="font-mono font-semibold text-red-700 tabular-nums">
+                        {formatRupiah(payslipRow.bpjsTkDeduction)}
+                      </span>
+                    </div>
+                    {payslipRow.fixedDeductionItems.map((fd) => (
+                      <div key={fd.id} className="flex justify-between">
+                        <span className="text-slate-600">{fd.title} (Rutin)</span>
+                        <span className="font-mono font-semibold text-red-700 tabular-nums">
+                          {formatRupiah(fd.amount)}
+                        </span>
+                      </div>
+                    ))}
                     {payslipRow.otherDeductionItems.map((d) => (
                       <div key={d.id} className="flex justify-between">
                         <span className="text-slate-600">{d.title}</span>
@@ -2178,233 +2288,578 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL: ATUR KOMPONEN GAJI & TANGGAL GAJIAN PER KARYAWAN               */}
+      {/* MODAL: ATUR GAJI, POTONGAN (BPJS & LAINNYA) & TANGGAL GAJIAN          */}
       {/* ===================================================================== */}
-      {editingProfileEmp && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto no-print">
-          <div className="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
-            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-              <div className="min-w-0">
-                <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 truncate">
-                  Atur Gaji &amp; Tanggal Gajian — {editingProfileEmp.name}
-                </h3>
-                <p className="text-xs text-slate-500 truncate">
-                  {editingProfileEmp.employeeCode} • {editingProfileEmp.department} ({editingProfileEmp.position})
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingProfileEmp(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {editingProfileEmp && (() => {
+        const activePayrollSettings = payrollData?.settings || DEFAULT_PAYROLL_SETTINGS;
+        const previewBpjsKes = resolveBpjsComponentDeduction({
+          baseSalary: profileForm.baseSalary,
+          defaultPct: activePayrollSettings.bpjsKesehatanPct,
+          mode: profileForm.bpjsKesehatanMode,
+          value: profileForm.bpjsKesehatanValue,
+        });
+        const previewBpjsTk = resolveBpjsComponentDeduction({
+          baseSalary: profileForm.baseSalary,
+          defaultPct: activePayrollSettings.bpjsKetenagakerjaanPct,
+          mode: profileForm.bpjsTkMode,
+          value: profileForm.bpjsTkValue,
+        });
+        const pendingFixedAmt =
+          newFixedDedTitle.trim() && newFixedDedAmount > 0
+            ? Math.round(newFixedDedAmount)
+            : 0;
+        const previewFixedTotal =
+          profileForm.fixedDeductions.reduce((acc, item) => acc + item.amount, 0) +
+          pendingFixedAmt;
+        const previewRoutineDeductionTotal =
+          previewBpjsKes.amount + previewBpjsTk.amount + previewFixedTotal;
 
-            <form onSubmit={handleSaveProfile} className="p-4 sm:p-6 space-y-4 overflow-y-auto pb-safe">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Gaji Pokok (Rp / Bulan)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={50000}
-                    value={profileForm.baseSalary}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        baseSalary: Number(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
-                  />
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto no-print">
+            <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden max-h-[92dvh] flex flex-col">
+              <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+                <div className="min-w-0">
+                  <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 truncate">
+                    Atur Gaji &amp; Potongan — {editingProfileEmp.name}
+                  </h3>
+                  <p className="text-xs text-slate-500 truncate">
+                    {editingProfileEmp.employeeCode} • {editingProfileEmp.department} ({editingProfileEmp.position})
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tunjangan Jabatan (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={25000}
-                    value={profileForm.positionAllowance}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        positionAllowance: Number(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tunjangan Transport &amp; Makan (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={25000}
-                    value={profileForm.transportMealAllowance}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        transportMealAllowance: Number(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tunjangan Tetap Lainnya (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={25000}
-                    value={profileForm.otherAllowance}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        otherAllowance: Number(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tarif Lembur Khusus (Rp / Jam)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={5000}
-                    value={profileForm.overtimeHourlyRate}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        overtimeHourlyRate: Number(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tanggal Gajian Karyawan (1–31)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={profileForm.paydayDay}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        paydayDay: Math.max(
-                          1,
-                          Math.min(31, Number(e.target.value) || 1)
-                        ),
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm font-mono border border-blue-300 bg-blue-50/40 rounded-lg font-semibold text-blue-900"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Metode Bayar
-                  </label>
-                  <select
-                    value={profileForm.paymentMethod}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        paymentMethod: e.target.value as PayrollPaymentMethod,
-                      }))
-                    }
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
-                  >
-                    <option value="transfer">Transfer Bank</option>
-                    <option value="tunai">Tunai</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nama Bank
-                  </label>
-                  <input
-                    type="text"
-                    disabled={profileForm.paymentMethod === 'tunai'}
-                    value={profileForm.bankName}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({ ...p, bankName: e.target.value }))
-                    }
-                    placeholder="BCA / Mandiri"
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg disabled:bg-slate-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    No. Rekening
-                  </label>
-                  <input
-                    type="text"
-                    disabled={profileForm.paymentMethod === 'tunai'}
-                    value={profileForm.bankAccountNumber}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        bankAccountNumber: e.target.value,
-                      }))
-                    }
-                    placeholder="Nomor rekening"
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg disabled:bg-slate-100"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Catatan Gaji
-                </label>
-                <input
-                  type="text"
-                  value={profileForm.notes}
-                  onChange={(e) =>
-                    setProfileForm((p) => ({ ...p, notes: e.target.value }))
-                  }
-                  placeholder="Contoh: Gajian tiap tgl 1 mengikuti kontrak proyek"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
-                />
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingProfileEmp(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer shrink-0"
                 >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingProfile}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer"
-                >
-                  {savingProfile ? 'Menyimpan...' : 'Simpan Gaji & Tgl Gajian'}
+                  <X className="w-4 h-4" />
                 </button>
               </div>
-            </form>
+
+              {/* Clean Tab Switcher */}
+              <div className="px-4 sm:px-6 pt-3 pb-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setProfileModalTab('gaji')}
+                  className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    profileModalTab === 'gaji'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Komponen Gaji &amp; Jadwal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProfileModalTab('potongan')}
+                  className={`px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+                    profileModalTab === 'potongan'
+                      ? 'bg-red-700 text-white'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-red-50 hover:text-red-700'
+                  }`}
+                >
+                  <span>Potongan (BPJS &amp; Lainnya)</span>
+                  <span
+                    className={`px-1.5 py-0.5 text-[10px] font-mono rounded ${
+                      profileModalTab === 'potongan'
+                        ? 'bg-red-800 text-red-100'
+                        : 'bg-red-50 text-red-700'
+                    }`}
+                  >
+                    {formatRupiah(previewRoutineDeductionTotal)}
+                  </span>
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveProfile} className="p-4 sm:p-6 space-y-4 overflow-y-auto pb-safe">
+                {profileModalTab === 'gaji' ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Gaji Pokok (Rp / Bulan)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={50000}
+                          value={profileForm.baseSalary}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              baseSalary: Number(e.target.value) || 0,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Tunjangan Jabatan (Rp)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={25000}
+                          value={profileForm.positionAllowance}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              positionAllowance: Number(e.target.value) || 0,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Tunjangan Transport &amp; Makan (Rp)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={25000}
+                          value={profileForm.transportMealAllowance}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              transportMealAllowance: Number(e.target.value) || 0,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Tunjangan Tetap Lainnya (Rp)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={25000}
+                          value={profileForm.otherAllowance}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              otherAllowance: Number(e.target.value) || 0,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Tarif Lembur Khusus (Rp / Jam)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={5000}
+                          value={profileForm.overtimeHourlyRate}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              overtimeHourlyRate: Number(e.target.value) || 0,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Tanggal Gajian Karyawan (1–31)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={31}
+                          value={profileForm.paydayDay}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              paydayDay: Math.max(
+                                1,
+                                Math.min(31, Number(e.target.value) || 1)
+                              ),
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-sm font-mono border border-blue-300 bg-blue-50/40 rounded-lg font-semibold text-blue-900"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Metode Bayar
+                        </label>
+                        <select
+                          value={profileForm.paymentMethod}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              paymentMethod: e.target.value as PayrollPaymentMethod,
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
+                        >
+                          <option value="transfer">Transfer Bank</option>
+                          <option value="tunai">Tunai</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nama Bank
+                        </label>
+                        <input
+                          type="text"
+                          disabled={profileForm.paymentMethod === 'tunai'}
+                          value={profileForm.bankName}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({ ...p, bankName: e.target.value }))
+                          }
+                          placeholder="BCA / Mandiri"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg disabled:bg-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          No. Rekening
+                        </label>
+                        <input
+                          type="text"
+                          disabled={profileForm.paymentMethod === 'tunai'}
+                          value={profileForm.bankAccountNumber}
+                          onChange={(e) =>
+                            setProfileForm((p) => ({
+                              ...p,
+                              bankAccountNumber: e.target.value,
+                            }))
+                          }
+                          placeholder="Nomor rekening"
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg disabled:bg-slate-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Catatan Gaji
+                      </label>
+                      <input
+                        type="text"
+                        value={profileForm.notes}
+                        onChange={(e) =>
+                          setProfileForm((p) => ({ ...p, notes: e.target.value }))
+                        }
+                        placeholder="Contoh: Gajian tiap tgl 1 mengikuti kontrak proyek"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-4">
+                    {/* BPJS Kesehatan & BPJS Ketenagakerjaan per employee */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-slate-900">
+                            BPJS Kesehatan
+                          </span>
+                          <span className="font-mono text-xs font-bold text-red-700 tabular-nums">
+                            -{formatRupiah(previewBpjsKes.amount)}
+                          </span>
+                        </div>
+                        <select
+                          aria-label="Mode BPJS Kesehatan"
+                          value={profileForm.bpjsKesehatanMode}
+                          onChange={(e) => {
+                            const nextMode = e.target.value as BpjsDeductionMode;
+                            setProfileForm((p) => ({
+                              ...p,
+                              bpjsKesehatanMode: nextMode,
+                              bpjsKesehatanValue:
+                                nextMode === 'custom_pct' && p.bpjsKesehatanValue === 0
+                                  ? activePayrollSettings.bpjsKesehatanPct
+                                  : nextMode === 'custom_nominal' && p.bpjsKesehatanValue === 0
+                                  ? Math.round(
+                                      (p.baseSalary * activePayrollSettings.bpjsKesehatanPct) / 100
+                                    )
+                                  : p.bpjsKesehatanValue,
+                            }));
+                          }}
+                          className="w-full px-2.5 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg"
+                        >
+                          <option value="default_pct">
+                            Ikuti Tarif Global ({activePayrollSettings.bpjsKesehatanPct}% Pokok)
+                          </option>
+                          <option value="custom_pct">Persentase Khusus (% Gaji Pokok)</option>
+                          <option value="custom_nominal">Nominal Tetap Khusus (Rp / Bulan)</option>
+                          <option value="nonaktif">Nonaktif / Tidak Dipotong (Rp 0)</option>
+                        </select>
+                        {(profileForm.bpjsKesehatanMode === 'custom_pct' ||
+                          profileForm.bpjsKesehatanMode === 'custom_nominal') && (
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              {profileForm.bpjsKesehatanMode === 'custom_pct'
+                                ? 'Persentase Khusus (% dari Gaji Pokok)'
+                                : 'Nominal Tetap BPJS Kesehatan (Rp)'}
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={profileForm.bpjsKesehatanMode === 'custom_pct' ? 50 : 100000000}
+                              step={profileForm.bpjsKesehatanMode === 'custom_pct' ? 0.5 : 5000}
+                              value={profileForm.bpjsKesehatanValue}
+                              onChange={(e) =>
+                                setProfileForm((p) => ({
+                                  ...p,
+                                  bpjsKesehatanValue: Math.max(0, Number(e.target.value) || 0),
+                                }))
+                              }
+                              className="w-full px-3 py-1.5 text-sm font-mono bg-white border border-slate-200 rounded-lg"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-slate-900">
+                            BPJS Ketenagakerjaan
+                          </span>
+                          <span className="font-mono text-xs font-bold text-red-700 tabular-nums">
+                            -{formatRupiah(previewBpjsTk.amount)}
+                          </span>
+                        </div>
+                        <select
+                          aria-label="Mode BPJS Ketenagakerjaan"
+                          value={profileForm.bpjsTkMode}
+                          onChange={(e) => {
+                            const nextMode = e.target.value as BpjsDeductionMode;
+                            setProfileForm((p) => ({
+                              ...p,
+                              bpjsTkMode: nextMode,
+                              bpjsTkValue:
+                                nextMode === 'custom_pct' && p.bpjsTkValue === 0
+                                  ? activePayrollSettings.bpjsKetenagakerjaanPct
+                                  : nextMode === 'custom_nominal' && p.bpjsTkValue === 0
+                                  ? Math.round(
+                                      (p.baseSalary * activePayrollSettings.bpjsKetenagakerjaanPct) /
+                                        100
+                                    )
+                                  : p.bpjsTkValue,
+                            }));
+                          }}
+                          className="w-full px-2.5 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg"
+                        >
+                          <option value="default_pct">
+                            Ikuti Tarif Global ({activePayrollSettings.bpjsKetenagakerjaanPct}% Pokok)
+                          </option>
+                          <option value="custom_pct">Persentase Khusus (% Gaji Pokok)</option>
+                          <option value="custom_nominal">Nominal Tetap Khusus (Rp / Bulan)</option>
+                          <option value="nonaktif">Nonaktif / Tidak Dipotong (Rp 0)</option>
+                        </select>
+                        {(profileForm.bpjsTkMode === 'custom_pct' ||
+                          profileForm.bpjsTkMode === 'custom_nominal') && (
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              {profileForm.bpjsTkMode === 'custom_pct'
+                                ? 'Persentase Khusus (% dari Gaji Pokok)'
+                                : 'Nominal Tetap BPJS TK (Rp)'}
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={profileForm.bpjsTkMode === 'custom_pct' ? 50 : 100000000}
+                              step={profileForm.bpjsTkMode === 'custom_pct' ? 0.5 : 5000}
+                              value={profileForm.bpjsTkValue}
+                              onChange={(e) =>
+                                setProfileForm((p) => ({
+                                  ...p,
+                                  bpjsTkValue: Math.max(0, Number(e.target.value) || 0),
+                                }))
+                              }
+                              className="w-full px-3 py-1.5 text-sm font-mono bg-white border border-slate-200 rounded-lg"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Potongan Tetap Lainnya (Rutin per bulan) */}
+                    <div className="p-3.5 rounded-xl border border-slate-200 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-bold text-slate-900">
+                            Potongan Tetap Lainnya (Otomatis Tiap Bulan)
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Atur potongan rutin seperti PPh 21, iuran koperasi, asuransi tambahan, atau cicilan tetap.
+                          </div>
+                        </div>
+                        <span className="font-mono text-xs font-bold text-red-700 tabular-nums">
+                          Total: -{formatRupiah(previewFixedTotal)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {FIXED_DEDUCTION_PRESETS.map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setNewFixedDedTitle(preset)}
+                            className="px-2 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md cursor-pointer"
+                          >
+                            + {preset}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                        <div className="sm:col-span-6">
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            Nama Potongan
+                          </label>
+                          <input
+                            type="text"
+                            value={newFixedDedTitle}
+                            onChange={(e) => setNewFixedDedTitle(e.target.value)}
+                            placeholder="Contoh: PPh 21 / Iuran Koperasi"
+                            className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg"
+                          />
+                        </div>
+                        <div className="sm:col-span-4">
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            Nominal (Rp / Bulan)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={5000}
+                            value={newFixedDedAmount || ''}
+                            onChange={(e) => setNewFixedDedAmount(Number(e.target.value) || 0)}
+                            placeholder="100000"
+                            className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-lg"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <button
+                            type="button"
+                            onClick={handleAddFixedDeductionDraft}
+                            className="w-full px-3 py-2 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg inline-flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Tambah</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {profileForm.fixedDeductions.length === 0 ? (
+                        <div className="text-[11px] text-slate-400 italic py-1">
+                          Belum ada potongan tetap tambahan untuk karyawan ini.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+                          {profileForm.fixedDeductions.map((item) => (
+                            <div
+                              key={item.id}
+                              className="px-3 py-2 bg-white flex flex-wrap sm:flex-nowrap items-center gap-2"
+                            >
+                              <input
+                                type="text"
+                                aria-label={`Nama potongan ${item.title}`}
+                                value={item.title}
+                                onChange={(e) =>
+                                  setProfileForm((p) => ({
+                                    ...p,
+                                    fixedDeductions: p.fixedDeductions.map((x) =>
+                                      x.id === item.id ? { ...x, title: e.target.value } : x
+                                    ),
+                                  }))
+                                }
+                                className="flex-1 min-w-[140px] px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-md"
+                              />
+                              <input
+                                type="number"
+                                aria-label={`Nominal potongan ${item.title}`}
+                                min={0}
+                                step={5000}
+                                value={item.amount}
+                                onChange={(e) =>
+                                  setProfileForm((p) => ({
+                                    ...p,
+                                    fixedDeductions: p.fixedDeductions.map((x) =>
+                                      x.id === item.id
+                                        ? {
+                                            ...x,
+                                            amount: Math.max(0, Number(e.target.value) || 0),
+                                          }
+                                        : x
+                                    ),
+                                  }))
+                                }
+                                className="w-32 px-2.5 py-1.5 text-xs font-mono text-right border border-slate-200 rounded-md"
+                              />
+                              <button
+                                type="button"
+                                aria-label={`Hapus potongan ${item.title}`}
+                                onClick={() =>
+                                  setProfileForm((p) => ({
+                                    ...p,
+                                    fixedDeductions: p.fixedDeductions.filter(
+                                      (x) => x.id !== item.id
+                                    ),
+                                  }))
+                                }
+                                className="p-1.5 text-slate-400 hover:text-red-600 rounded-md cursor-pointer shrink-0"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Summary Strip */}
+                    <div className="p-3.5 rounded-xl bg-red-50/70 border border-red-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div>
+                        <div className="font-semibold text-red-900">
+                          Total Potongan Rutin (BPJS + Potongan Tetap)
+                        </div>
+                        <div className="text-[11px] text-red-700/80">
+                          Untuk potongan insidental bulan ini (kasbon/denda), gunakan tombol{' '}
+                          <strong>+ Bonus / Potongan</strong>.
+                        </div>
+                      </div>
+                      <div className="font-mono text-base font-bold text-red-700 tabular-nums">
+                        -{formatRupiah(previewRoutineDeductionTotal)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProfileEmp(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingProfile}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer"
+                  >
+                    {savingProfile ? 'Menyimpan...' : 'Simpan Gaji & Potongan'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ===================================================================== */}
       {/* MODAL: ATUR KENAIKAN GAJI KARYAWAN                                    */}
@@ -2781,8 +3236,8 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   <input
                     type="number"
                     required
-                    min={1000}
-                    step={5000}
+                    min={1}
+                    step={1000}
                     value={adjAmount || ''}
                     onChange={(e) => setAdjAmount(Number(e.target.value) || 0)}
                     placeholder="100000"
@@ -2934,7 +3389,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Potongan BPJS Kesehatan (% Pokok)
+                    BPJS Kesehatan Default (% Pokok)
                   </label>
                   <input
                     type="number"
@@ -2953,7 +3408,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Potongan BPJS TK (% Pokok)
+                    BPJS TK Default (% Pokok)
                   </label>
                   <input
                     type="number"
@@ -2971,6 +3426,9 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   />
                 </div>
               </div>
+              <p className="text-[11px] text-slate-500">
+                Tarif BPJS default berlaku untuk semua karyawan kecuali diatur khusus atau dinonaktifkan lewat tombol <strong>Potongan</strong> per karyawan.
+              </p>
 
               <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
                 <input

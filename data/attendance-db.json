@@ -1,211 +1,11 @@
 {
   "employees": [
     {
-      "id": "emp_1795349413570_384ib",
-      "employeeCode": "KRY-125",
-      "name": "Dimas",
-      "department": "Operasional",
-      "position": "logistik",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        2
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:10:13.57+00:00",
-      "updatedAt": "2026-11-22T12:39:47.731+00:00"
-    },
-    {
-      "id": "emp_1795349469807_poa2j",
-      "employeeCode": "KRY-127",
-      "name": "salsabila",
-      "department": "Operasional",
-      "position": "leader",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:11:09.807+00:00",
-      "updatedAt": "2026-11-22T12:39:40.018+00:00"
-    },
-    {
-      "id": "emp_1795351115538_mlhpk",
-      "employeeCode": "KRY-128",
-      "name": "Rijal",
-      "department": "Operasional",
-      "position": "dispensing",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:38:35.538+00:00",
-      "updatedAt": "2026-11-22T12:39:29.555+00:00"
-    },
-    {
-      "id": "emp_1795349161120_jgeou",
-      "employeeCode": "KRY-114",
-      "name": "irfan",
-      "department": "Operasional",
-      "position": "dispensing",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        4
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:06:01.12+00:00",
-      "updatedAt": "2026-11-22T12:06:01.12+00:00"
-    },
-    {
-      "id": "emp_1795349175449_czgbg",
-      "employeeCode": "KRY-115",
-      "name": "jejen",
-      "department": "Operasional",
-      "position": "deliver",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        0
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:06:15.449+00:00",
-      "updatedAt": "2026-11-22T12:06:15.449+00:00"
-    },
-    {
-      "id": "emp_1795349196305_kp5t7",
-      "employeeCode": "KRY-116",
-      "name": "kowi",
-      "department": "Operasional",
-      "position": "logistik",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        0
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:06:36.305+00:00",
-      "updatedAt": "2026-11-22T12:06:36.305+00:00"
-    },
-    {
-      "id": "emp_1795349224760_3h74r",
-      "employeeCode": "KRY-117",
-      "name": "Lia",
-      "department": "Operasional",
-      "position": "purchase",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        0
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:07:04.76+00:00",
-      "updatedAt": "2026-11-22T12:07:04.76+00:00"
-    },
-    {
-      "id": "emp_1795349263304_cst7d",
-      "employeeCode": "KRY-118",
-      "name": "Maman",
-      "department": "Operasional",
-      "position": "deliver",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        4
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:07:43.304+00:00",
-      "updatedAt": "2026-11-22T12:07:43.304+00:00"
-    },
-    {
-      "id": "emp_1795349285776_ipars",
-      "employeeCode": "KRY-119",
-      "name": "nida",
-      "department": "Operasional",
-      "position": "FL",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        2
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:08:05.776+00:00",
-      "updatedAt": "2026-11-22T12:08:05.776+00:00"
-    },
-    {
-      "id": "emp_1795349298608_5gr1j",
-      "employeeCode": "KRY-120",
-      "name": "resa",
-      "department": "Operasional",
-      "position": "deliver",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        5
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:08:18.608+00:00",
-      "updatedAt": "2026-11-22T12:08:18.608+00:00"
-    },
-    {
-      "id": "emp_1795349323751_msmr5",
-      "employeeCode": "KRY-121",
-      "name": "susi",
-      "department": "Operasional",
-      "position": "dispensing",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        4
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:08:43.751+00:00",
-      "updatedAt": "2026-11-22T12:08:43.751+00:00"
-    },
-    {
-      "id": "emp_1795349345712_tnjgy",
-      "employeeCode": "KRY-122",
-      "name": "syifa",
-      "department": "Operasional",
-      "position": "FL",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        5
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:09:05.712+00:00",
-      "updatedAt": "2026-11-22T12:09:05.712+00:00"
-    },
-    {
       "id": "emp_1795349370064_je84j",
       "employeeCode": "KRY-123",
-      "name": "zulfa",
+      "name": "ZULFA",
       "department": "Operasional",
-      "position": "fakturis",
+      "position": "FAKTURIS",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
@@ -215,114 +15,14 @@
       "customOffDates": [],
       "active": true,
       "createdAt": "2026-11-22T12:09:30.064+00:00",
-      "updatedAt": "2026-11-22T12:09:30.064+00:00"
+      "updatedAt": "2026-11-25T11:02:45.464+00:00"
     },
     {
-      "id": "emp_1795348555753_fibyr",
-      "employeeCode": "KRY-103",
-      "name": "Abil",
+      "id": "emp_1795349413570_384ib",
+      "employeeCode": "KRY-125",
+      "name": "DIMAS",
       "department": "Operasional",
-      "position": "fakturis",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        3
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T11:55:55.753+00:00",
-      "updatedAt": "2026-11-22T11:55:55.753+00:00"
-    },
-    {
-      "id": "emp_1795348618537_elql6",
-      "employeeCode": "KRY-104",
-      "name": "Ace",
-      "department": "Operasional",
-      "position": "logistik",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        5
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T11:56:58.536+00:00",
-      "updatedAt": "2026-11-22T11:56:58.536+00:00"
-    },
-    {
-      "id": "emp_1795348659576_w1922",
-      "employeeCode": "KRY-105",
-      "name": "Bayu",
-      "department": "Operasional",
-      "position": "logistik",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        4
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T11:57:39.576+00:00",
-      "updatedAt": "2026-11-22T11:57:55.353+00:00"
-    },
-    {
-      "id": "emp_1795348702569_y30va",
-      "employeeCode": "KRY-106",
-      "name": "Agung",
-      "department": "Operasional",
-      "position": "dispen",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        3
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T11:58:22.569+00:00",
-      "updatedAt": "2026-11-22T11:58:22.569+00:00"
-    },
-    {
-      "id": "emp_1795348723624_5hkl8",
-      "employeeCode": "KRY-107",
-      "name": "Ayu",
-      "department": "Operasional",
-      "position": "FL",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        1
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T11:58:43.624+00:00",
-      "updatedAt": "2026-11-22T11:58:43.624+00:00"
-    },
-    {
-      "id": "emp_1795349389952_82ela",
-      "employeeCode": "KRY-124",
-      "name": "Tsabita",
-      "department": "Operasional",
-      "position": "FL",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:09:49.952+00:00",
-      "updatedAt": "2026-11-22T12:09:49.952+00:00"
-    },
-    {
-      "id": "emp_1795349432440_w4z3b",
-      "employeeCode": "KRY-126",
-      "name": "adrian",
-      "department": "Operasional",
-      "position": "dispensing",
+      "position": "LOGISTIK",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
@@ -331,30 +31,32 @@
       ],
       "customOffDates": [],
       "active": true,
-      "createdAt": "2026-11-22T12:10:32.44+00:00",
-      "updatedAt": "2026-11-22T12:10:32.44+00:00"
+      "createdAt": "2026-11-22T12:10:13.57+00:00",
+      "updatedAt": "2026-11-25T11:03:14.334+00:00"
     },
     {
-      "id": "emp_1795351129412_2pwny",
-      "employeeCode": "KRY-129",
-      "name": "deani",
+      "id": "emp_1795349469807_poa2j",
+      "employeeCode": "KRY-127",
+      "name": "SALSABILA",
       "department": "Operasional",
-      "position": "FL",
+      "position": "LEADER",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
-      "offDays": [],
+      "offDays": [
+        6
+      ],
       "customOffDates": [],
       "active": true,
-      "createdAt": "2026-11-22T12:38:49.412+00:00",
-      "updatedAt": "2026-11-22T12:39:33.194+00:00"
+      "createdAt": "2026-11-22T12:11:09.807+00:00",
+      "updatedAt": "2026-11-25T11:03:46.421+00:00"
     },
     {
       "id": "emp_1795347862603_njxms",
       "employeeCode": "KRY-101",
-      "name": "Vanesa",
+      "name": "VANESSA",
       "department": "Operasional",
-      "position": "fa",
+      "position": "FA",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
@@ -364,12 +66,12 @@
       "customOffDates": [],
       "active": true,
       "createdAt": "2026-11-22T11:44:22.603+00:00",
-      "updatedAt": "2026-11-22T11:56:11.842+00:00"
+      "updatedAt": "2026-11-25T11:04:10.064+00:00"
     },
     {
       "id": "emp_1795347876852_akxij",
       "employeeCode": "KRY-102",
-      "name": "Lindri",
+      "name": "BU LINDRI",
       "department": "Operasional",
       "position": "FA",
       "shiftName": "Shift Pagi",
@@ -381,31 +83,14 @@
       "customOffDates": [],
       "active": true,
       "createdAt": "2026-11-22T11:44:36.851+00:00",
-      "updatedAt": "2026-11-22T11:56:30.346+00:00"
+      "updatedAt": "2026-11-25T11:00:10.324+00:00"
     },
     {
-      "id": "emp_1795348996937_kbsza",
-      "employeeCode": "KRY-109",
-      "name": "DEDE",
+      "id": "emp_1795349161120_jgeou",
+      "employeeCode": "KRY-114",
+      "name": "IRFAN",
       "department": "Operasional",
-      "position": "logistik",
-      "shiftName": "Shift Pagi",
-      "shiftStart": "07:00",
-      "shiftEnd": "17:00",
-      "offDays": [
-        6
-      ],
-      "customOffDates": [],
-      "active": true,
-      "createdAt": "2026-11-22T12:03:16.937+00:00",
-      "updatedAt": "2026-11-22T12:03:16.937+00:00"
-    },
-    {
-      "id": "emp_1795349015792_4wl55",
-      "employeeCode": "KRY-110",
-      "name": "Fajar",
-      "department": "Operasional",
-      "position": "admin",
+      "position": "DISPENSING",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
@@ -414,49 +99,83 @@
       ],
       "customOffDates": [],
       "active": true,
-      "createdAt": "2026-11-22T12:03:35.792+00:00",
-      "updatedAt": "2026-11-22T12:03:35.792+00:00"
+      "createdAt": "2026-11-22T12:06:01.12+00:00",
+      "updatedAt": "2026-11-25T11:05:03.807+00:00"
     },
     {
-      "id": "emp_1795349100760_mg0bk",
-      "employeeCode": "KRY-111",
-      "name": "Fauza",
+      "id": "emp_1795349175449_czgbg",
+      "employeeCode": "KRY-115",
+      "name": "JEJEN",
       "department": "Operasional",
-      "position": "dispensing",
+      "position": "DELIVERY",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
       "offDays": [
-        5
+        0
       ],
       "customOffDates": [],
       "active": true,
-      "createdAt": "2026-11-22T12:05:00.76+00:00",
-      "updatedAt": "2026-11-22T12:05:00.76+00:00"
+      "createdAt": "2026-11-22T12:06:15.449+00:00",
+      "updatedAt": "2026-11-25T11:05:15.777+00:00"
     },
     {
-      "id": "emp_1795349120352_mac5h",
-      "employeeCode": "KRY-112",
-      "name": "Heri",
+      "id": "emp_1795349196305_kp5t7",
+      "employeeCode": "KRY-116",
+      "name": "KOWI",
       "department": "Operasional",
-      "position": "logistik",
+      "position": "LOGISTIK",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
       "offDays": [
-        1
+        0
       ],
       "customOffDates": [],
       "active": true,
-      "createdAt": "2026-11-22T12:05:20.352+00:00",
-      "updatedAt": "2026-11-22T12:05:20.352+00:00"
+      "createdAt": "2026-11-22T12:06:36.305+00:00",
+      "updatedAt": "2026-11-25T11:05:33.633+00:00"
     },
     {
-      "id": "emp_1795349134752_itprz",
-      "employeeCode": "KRY-113",
-      "name": "indri",
+      "id": "emp_1795349224760_3h74r",
+      "employeeCode": "KRY-117",
+      "name": "LIA",
       "department": "Operasional",
-      "position": "admin",
+      "position": "PURCHASE",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        0
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:07:04.76+00:00",
+      "updatedAt": "2026-11-25T11:05:40.116+00:00"
+    },
+    {
+      "id": "emp_1795349263304_cst7d",
+      "employeeCode": "KRY-118",
+      "name": "MAMAN",
+      "department": "Operasional",
+      "position": "DELIVERY",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        4
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:07:43.304+00:00",
+      "updatedAt": "2026-11-25T11:05:44.765+00:00"
+    },
+    {
+      "id": "emp_1795349285776_ipars",
+      "employeeCode": "KRY-119",
+      "name": "NIDA",
+      "department": "Operasional",
+      "position": "FL",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
@@ -465,15 +184,132 @@
       ],
       "customOffDates": [],
       "active": true,
-      "createdAt": "2026-11-22T12:05:34.752+00:00",
-      "updatedAt": "2026-11-22T12:05:34.752+00:00"
+      "createdAt": "2026-11-22T12:08:05.776+00:00",
+      "updatedAt": "2026-11-25T11:02:00.772+00:00"
+    },
+    {
+      "id": "emp_1795349298608_5gr1j",
+      "employeeCode": "KRY-120",
+      "name": "RESHA",
+      "department": "Operasional",
+      "position": "DELIVERY",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        5
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:08:18.608+00:00",
+      "updatedAt": "2026-11-25T11:05:50.844+00:00"
+    },
+    {
+      "id": "emp_1795349323751_msmr5",
+      "employeeCode": "KRY-121",
+      "name": "SUSI",
+      "department": "Operasional",
+      "position": "DISPENSING",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        4
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:08:43.751+00:00",
+      "updatedAt": "2026-11-25T11:02:58.663+00:00"
+    },
+    {
+      "id": "emp_1795348555753_fibyr",
+      "employeeCode": "KRY-103",
+      "name": "ABIL",
+      "department": "Operasional",
+      "position": "FAKTURIS",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        3
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T11:55:55.753+00:00",
+      "updatedAt": "2026-11-25T11:04:16.932+00:00"
+    },
+    {
+      "id": "emp_1795348618537_elql6",
+      "employeeCode": "KRY-104",
+      "name": "ACE",
+      "department": "Operasional",
+      "position": "LOGISTIK",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        5
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T11:56:58.536+00:00",
+      "updatedAt": "2026-11-25T11:04:21.872+00:00"
+    },
+    {
+      "id": "emp_1795348659576_w1922",
+      "employeeCode": "KRY-105",
+      "name": "BAYU",
+      "department": "Operasional",
+      "position": "LOGISTIK",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T11:57:39.576+00:00",
+      "updatedAt": "2026-11-25T11:11:45.516+00:00"
+    },
+    {
+      "id": "emp_1795348702569_y30va",
+      "employeeCode": "KRY-106",
+      "name": "AGUNG",
+      "department": "Operasional",
+      "position": "DISPENSING",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        3
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T11:58:22.569+00:00",
+      "updatedAt": "2026-11-25T11:04:30.061+00:00"
+    },
+    {
+      "id": "emp_1795348723624_5hkl8",
+      "employeeCode": "KRY-107",
+      "name": "AYU",
+      "department": "Operasional",
+      "position": "FL",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        1
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T11:58:43.624+00:00",
+      "updatedAt": "2026-11-25T11:00:46.424+00:00"
     },
     {
       "id": "emp_1795348781792_soo2e",
       "employeeCode": "KRY-108",
-      "name": "Ega",
+      "name": "EGA",
       "department": "Operasional",
-      "position": "dispen",
+      "position": "DISPENSING",
       "shiftName": "Shift Pagi",
       "shiftStart": "07:00",
       "shiftEnd": "17:00",
@@ -483,611 +319,380 @@
       "customOffDates": [],
       "active": true,
       "createdAt": "2026-11-22T11:59:41.792+00:00",
-      "updatedAt": "2026-11-22T11:59:54.873+00:00"
+      "updatedAt": "2026-11-25T11:04:34.502+00:00"
+    },
+    {
+      "id": "emp_1795349345712_tnjgy",
+      "employeeCode": "KRY-122",
+      "name": "SYIFA",
+      "department": "Operasional",
+      "position": "FL",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        5
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:09:05.712+00:00",
+      "updatedAt": "2026-11-25T11:02:28.332+00:00"
+    },
+    {
+      "id": "emp_1795351115538_mlhpk",
+      "employeeCode": "KRY-128",
+      "name": "RIJAL",
+      "department": "Operasional",
+      "position": "DISPENSING",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:38:35.538+00:00",
+      "updatedAt": "2026-11-25T11:03:53.836+00:00"
+    },
+    {
+      "id": "emp_1795348996937_kbsza",
+      "employeeCode": "KRY-109",
+      "name": "A DEDE",
+      "department": "Operasional",
+      "position": "LOGISTIK",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        6
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:03:16.937+00:00",
+      "updatedAt": "2026-11-25T11:04:38.893+00:00"
+    },
+    {
+      "id": "emp_1795349015792_4wl55",
+      "employeeCode": "KRY-110",
+      "name": "FAJAR",
+      "department": "Operasional",
+      "position": "ADMIN",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        4
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:03:35.792+00:00",
+      "updatedAt": "2026-11-25T11:04:44.943+00:00"
+    },
+    {
+      "id": "emp_1795349100760_mg0bk",
+      "employeeCode": "KRY-111",
+      "name": "FAUZA",
+      "department": "Operasional",
+      "position": "DISPENSING",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        5
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:05:00.76+00:00",
+      "updatedAt": "2026-11-25T11:04:51.941+00:00"
+    },
+    {
+      "id": "emp_1795349120352_mac5h",
+      "employeeCode": "KRY-112",
+      "name": "HERI",
+      "department": "Operasional",
+      "position": "LOGISTIK",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        1
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:05:20.352+00:00",
+      "updatedAt": "2026-11-25T11:04:55.74+00:00"
+    },
+    {
+      "id": "emp_1795349134752_itprz",
+      "employeeCode": "KRY-113",
+      "name": "INDRI",
+      "department": "Operasional",
+      "position": "ADMIN",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        2
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:05:34.752+00:00",
+      "updatedAt": "2026-11-25T11:04:59.888+00:00"
+    },
+    {
+      "id": "emp_1795349389952_82ela",
+      "employeeCode": "KRY-124",
+      "name": "TSABITA",
+      "department": "Operasional",
+      "position": "FL",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:09:49.952+00:00",
+      "updatedAt": "2026-11-25T11:18:56.754+00:00"
+    },
+    {
+      "id": "emp_1795349432440_w4z3b",
+      "employeeCode": "KRY-126",
+      "name": "ADRIAN",
+      "department": "Operasional",
+      "position": "DISPENSING",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [
+        2
+      ],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:10:32.44+00:00",
+      "updatedAt": "2026-11-25T11:03:33.787+00:00"
+    },
+    {
+      "id": "emp_1795351129412_2pwny",
+      "employeeCode": "KRY-129",
+      "name": "DEANI",
+      "department": "Operasional",
+      "position": "FL",
+      "shiftName": "Shift Pagi",
+      "shiftStart": "07:00",
+      "shiftEnd": "17:00",
+      "offDays": [],
+      "customOffDates": [],
+      "active": true,
+      "createdAt": "2026-11-22T12:38:49.412+00:00",
+      "updatedAt": "2026-11-25T11:04:02.1+00:00"
     }
   ],
   "attendanceRecords": [
     {
-      "id": "att_off_1795356982039_8klkj",
-      "employeeId": "emp_1795349175449_czgbg",
-      "employeeName": "jejen",
-      "date": "2026-11-22",
-      "status": "libur",
-      "checkIn": "",
-      "checkOut": "",
-      "overtimeHours": 0,
-      "notes": "Libur mingguan terjadwal (otomatis admin)",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T14:16:22.039+00:00",
-      "updatedAt": "2026-11-22T14:16:22.039+00:00"
-    },
-    {
-      "id": "att_off_1795356982039_71dr6",
-      "employeeId": "emp_1795349196305_kp5t7",
-      "employeeName": "kowi",
-      "date": "2026-11-22",
-      "status": "libur",
-      "checkIn": "",
-      "checkOut": "",
-      "overtimeHours": 0,
-      "notes": "Libur mingguan terjadwal (otomatis admin)",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T14:16:22.039+00:00",
-      "updatedAt": "2026-11-22T14:16:22.039+00:00"
-    },
-    {
-      "id": "att_off_1795356982039_psvmb",
-      "employeeId": "emp_1795349224760_3h74r",
-      "employeeName": "Lia",
-      "date": "2026-11-22",
-      "status": "libur",
-      "checkIn": "",
-      "checkOut": "",
-      "overtimeHours": 0,
-      "notes": "Libur mingguan terjadwal (otomatis admin)",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T14:16:22.039+00:00",
-      "updatedAt": "2026-11-22T14:16:22.039+00:00"
-    },
-    {
-      "id": "att_1795422222428_g40z4",
+      "id": "att_1795605630993_avkg4",
       "employeeId": "emp_1795347862603_njxms",
-      "employeeName": "Vanesa",
-      "date": "2026-11-08",
+      "employeeName": "VANESSA",
+      "date": "2026-11-25",
       "status": "hadir",
+      "shiftName": "Shift Pagi",
       "checkIn": "07:00",
       "checkOut": "17:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-23T08:23:42.428+00:00",
-      "updatedAt": "2026-11-23T08:23:42.428+00:00"
+      "createdAt": "2026-11-25T11:20:30.993+00:00",
+      "updatedAt": "2026-11-25T11:20:30.993+00:00"
     },
     {
-      "id": "att_1795349524227_g52gg",
-      "employeeId": "emp_1795347862603_njxms",
-      "employeeName": "Vanesa",
-      "date": "2026-11-01",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:12:04.227+00:00",
-      "updatedAt": "2026-11-22T12:12:04.227+00:00"
-    },
-    {
-      "id": "att_1795349566025_7tmhd",
+      "id": "att_1795605644460_o5xja",
       "employeeId": "emp_1795347876852_akxij",
-      "employeeName": "Lindri",
-      "date": "2026-11-01",
-      "status": "terlambat",
+      "employeeName": "BU LINDRI",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Siang",
       "checkIn": "14:00",
       "checkOut": "22:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:12:46.025+00:00",
-      "updatedAt": "2026-11-22T12:12:46.025+00:00"
+      "createdAt": "2026-11-25T11:20:44.46+00:00",
+      "updatedAt": "2026-11-25T11:20:44.46+00:00"
     },
     {
-      "id": "att_1795349634160_9qtqt",
+      "id": "att_1795605659749_wr44s",
+      "employeeId": "emp_1795348555753_fibyr",
+      "employeeName": "ABIL",
+      "date": "2026-11-25",
+      "status": "libur",
+      "checkIn": "",
+      "checkOut": "",
+      "overtimeHours": 0,
+      "notes": "",
+      "recordedBy": "Admin HR",
+      "createdAt": "2026-11-25T11:20:59.749+00:00",
+      "updatedAt": "2026-11-25T11:20:59.749+00:00"
+    },
+    {
+      "id": "att_1795605670207_ocm0k",
+      "employeeId": "emp_1795348618537_elql6",
+      "employeeName": "ACE",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Sela",
+      "checkIn": "10:00",
+      "checkOut": "20:00",
+      "overtimeHours": 0,
+      "notes": "",
+      "recordedBy": "Admin HR",
+      "createdAt": "2026-11-25T11:21:10.206+00:00",
+      "updatedAt": "2026-11-25T11:21:10.206+00:00"
+    },
+    {
+      "id": "att_1795605723718_xo1jn",
+      "employeeId": "emp_1795348659576_w1922",
+      "employeeName": "BAYU",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Pagi",
+      "checkIn": "07:00",
+      "checkOut": "17:00",
+      "overtimeHours": 0,
+      "notes": "",
+      "recordedBy": "Admin HR",
+      "createdAt": "2026-11-25T11:22:03.718+00:00",
+      "updatedAt": "2026-11-25T11:22:03.718+00:00"
+    },
+    {
+      "id": "att_1795605754505_28d4d",
+      "employeeId": "emp_1795348702569_y30va",
+      "employeeName": "AGUNG",
+      "date": "2026-11-25",
+      "status": "libur",
+      "checkIn": "",
+      "checkOut": "",
+      "overtimeHours": 0,
+      "notes": "",
+      "recordedBy": "Admin HR",
+      "createdAt": "2026-11-25T11:22:34.505+00:00",
+      "updatedAt": "2026-11-25T11:22:34.505+00:00"
+    },
+    {
+      "id": "att_1795605797116_32zwq",
+      "employeeId": "emp_1795349015792_4wl55",
+      "employeeName": "FAJAR",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Pagi",
+      "checkIn": "07:00",
+      "checkOut": "17:00",
+      "overtimeHours": 0,
+      "notes": "",
+      "recordedBy": "Admin HR",
+      "createdAt": "2026-11-25T11:23:17.116+00:00",
+      "updatedAt": "2026-11-25T11:23:17.116+00:00"
+    },
+    {
+      "id": "att_1795601895492_e3lwf",
+      "employeeId": "emp_1795347862603_njxms",
+      "employeeName": "VANESSA",
+      "date": "2026-12-09",
+      "status": "libur",
+      "checkIn": "",
+      "checkOut": "",
+      "overtimeHours": 0,
+      "notes": "",
+      "recordedBy": "Admin HR",
+      "createdAt": "2026-11-25T10:18:15.492+00:00",
+      "updatedAt": "2026-11-25T10:18:15.492+00:00"
+    },
+    {
+      "id": "att_1795605761422_30a7u",
       "employeeId": "emp_1795348723624_5hkl8",
-      "employeeName": "Ayu",
-      "date": "2026-11-01",
+      "employeeName": "AYU",
+      "date": "2026-11-25",
       "status": "hadir",
+      "shiftName": "Shift Pagi",
       "checkIn": "07:00",
       "checkOut": "17:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:13:54.16+00:00",
-      "updatedAt": "2026-11-22T12:13:54.16+00:00"
+      "createdAt": "2026-11-25T11:22:41.422+00:00",
+      "updatedAt": "2026-11-25T11:22:41.422+00:00"
     },
     {
-      "id": "att_1795349646576_m9sko",
-      "employeeId": "emp_1795349120352_mac5h",
-      "employeeName": "Heri",
-      "date": "2026-11-01",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:14:06.576+00:00",
-      "updatedAt": "2026-11-22T12:14:06.576+00:00"
-    },
-    {
-      "id": "att_1795349652584_8orkr",
-      "employeeId": "emp_1795349298608_5gr1j",
-      "employeeName": "resa",
-      "date": "2026-11-01",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:14:12.583+00:00",
-      "updatedAt": "2026-11-22T12:14:12.583+00:00"
-    },
-    {
-      "id": "att_1795349658561_rokt6",
-      "employeeId": "emp_1795349370064_je84j",
-      "employeeName": "zulfa",
-      "date": "2026-11-01",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:14:18.561+00:00",
-      "updatedAt": "2026-11-22T12:14:18.561+00:00"
-    },
-    {
-      "id": "att_1795349668259_ydvim",
-      "employeeId": "emp_1795349432440_w4z3b",
-      "employeeName": "adrian",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "09:07",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:14:28.259+00:00",
-      "updatedAt": "2026-11-22T12:25:38.677+00:00"
-    },
-    {
-      "id": "att_1795349677655_voo84",
-      "employeeId": "emp_1795349161120_jgeou",
-      "employeeName": "irfan",
-      "date": "2026-11-01",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:14:37.655+00:00",
-      "updatedAt": "2026-11-22T12:14:37.655+00:00"
-    },
-    {
-      "id": "att_1795349729529_wjkl0",
-      "employeeId": "emp_1795349389952_82ela",
-      "employeeName": "Tsabita",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:15:29.529+00:00",
-      "updatedAt": "2026-11-22T12:15:29.529+00:00"
-    },
-    {
-      "id": "att_1795349746743_zl745",
-      "employeeId": "emp_1795348659576_w1922",
-      "employeeName": "Bayu",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:15:46.743+00:00",
-      "updatedAt": "2026-11-22T12:15:46.743+00:00"
-    },
-    {
-      "id": "att_1795349787783_mj7ji",
-      "employeeId": "emp_1795348996937_kbsza",
-      "employeeName": "DEDE",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:16:27.783+00:00",
-      "updatedAt": "2026-11-22T12:16:27.783+00:00"
-    },
-    {
-      "id": "att_1795349838745_hvzls",
-      "employeeId": "emp_1795348618537_elql6",
-      "employeeName": "Ace",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:17:18.745+00:00",
-      "updatedAt": "2026-11-22T12:17:18.745+00:00"
-    },
-    {
-      "id": "att_1795349866743_3qp7k",
-      "employeeId": "emp_1795349263304_cst7d",
-      "employeeName": "Maman",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:17:46.743+00:00",
-      "updatedAt": "2026-11-22T12:17:46.743+00:00"
-    },
-    {
-      "id": "att_1795349879526_351ps",
-      "employeeId": "emp_1795349175449_czgbg",
-      "employeeName": "jejen",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:17:59.526+00:00",
-      "updatedAt": "2026-11-22T12:17:59.526+00:00"
-    },
-    {
-      "id": "att_1795349905902_d8jeg",
-      "employeeId": "emp_1795349015792_4wl55",
-      "employeeName": "Fajar",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:18:25.902+00:00",
-      "updatedAt": "2026-11-22T12:18:25.902+00:00"
-    },
-    {
-      "id": "att_1795349911527_lxbhv",
+      "id": "att_1795605766363_jfrk0",
       "employeeId": "emp_1795348781792_soo2e",
-      "employeeName": "Ega",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:18:31.527+00:00",
-      "updatedAt": "2026-11-22T12:18:31.527+00:00"
-    },
-    {
-      "id": "att_1795349926502_s3j6s",
-      "employeeId": "emp_1795349285776_ipars",
-      "employeeName": "nida",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:18:46.502+00:00",
-      "updatedAt": "2026-11-22T12:18:46.502+00:00"
-    },
-    {
-      "id": "att_1795349977806_nttxn",
-      "employeeId": "emp_1795349413570_384ib",
-      "employeeName": "Dimas",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "14:07",
-      "checkOut": "22:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:19:37.806+00:00",
-      "updatedAt": "2026-11-22T12:26:03.1+00:00"
-    },
-    {
-      "id": "att_1795349990046_jy2tf",
-      "employeeId": "emp_1795349323751_msmr5",
-      "employeeName": "susi",
-      "date": "2026-11-01",
-      "status": "sakit",
-      "checkIn": "",
-      "checkOut": "",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:19:50.046+00:00",
-      "updatedAt": "2026-11-22T12:19:50.046+00:00"
-    },
-    {
-      "id": "att_1795349994278_4nqpj",
-      "employeeId": "emp_1795349345712_tnjgy",
-      "employeeName": "syifa",
-      "date": "2026-11-01",
-      "status": "sakit",
-      "checkIn": "",
-      "checkOut": "",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:19:54.278+00:00",
-      "updatedAt": "2026-11-22T12:19:54.278+00:00"
-    },
-    {
-      "id": "att_1795350008637_mcxyu",
-      "employeeId": "emp_1795349100760_mg0bk",
-      "employeeName": "Fauza",
-      "date": "2026-11-01",
-      "status": "terlambat",
+      "employeeName": "EGA",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Siang",
       "checkIn": "14:00",
       "checkOut": "22:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:20:08.637+00:00",
-      "updatedAt": "2026-11-22T12:20:08.637+00:00"
+      "createdAt": "2026-11-25T11:22:46.363+00:00",
+      "updatedAt": "2026-11-25T11:23:09.738+00:00"
     },
     {
-      "id": "att_1795350016088_8u92j",
-      "employeeId": "emp_1795348702569_y30va",
-      "employeeName": "Agung",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "14:00",
-      "checkOut": "22:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:20:16.088+00:00",
-      "updatedAt": "2026-11-22T12:20:16.088+00:00"
-    },
-    {
-      "id": "att_1795350023069_vlgb7",
-      "employeeId": "emp_1795348555753_fibyr",
-      "employeeName": "Abil",
-      "date": "2026-11-01",
-      "status": "terlambat",
-      "checkIn": "14:00",
-      "checkOut": "22:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:20:23.069+00:00",
-      "updatedAt": "2026-11-22T12:20:23.069+00:00"
-    },
-    {
-      "id": "att_1795350297352_7ukii",
-      "employeeId": "emp_1795349285776_ipars",
-      "employeeName": "nida",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:24:57.352+00:00",
-      "updatedAt": "2026-11-22T12:24:57.352+00:00"
-    },
-    {
-      "id": "att_1795350399687_25mdt",
-      "employeeId": "emp_1795348618537_elql6",
-      "employeeName": "Ace",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:26:39.687+00:00",
-      "updatedAt": "2026-11-22T12:26:39.687+00:00"
-    },
-    {
-      "id": "att_1795350406181_4ghoi",
-      "employeeId": "emp_1795349298608_5gr1j",
-      "employeeName": "resa",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:26:46.181+00:00",
-      "updatedAt": "2026-11-22T12:26:46.181+00:00"
-    },
-    {
-      "id": "att_1795350408764_qmgk1",
-      "employeeId": "emp_1795349134752_itprz",
-      "employeeName": "indri",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:26:48.764+00:00",
-      "updatedAt": "2026-11-22T12:26:48.764+00:00"
-    },
-    {
-      "id": "att_1795350413588_zh3im",
-      "employeeId": "emp_1795348555753_fibyr",
-      "employeeName": "Abil",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:26:53.588+00:00",
-      "updatedAt": "2026-11-22T12:26:53.588+00:00"
-    },
-    {
-      "id": "att_1795350418950_yuf2f",
-      "employeeId": "emp_1795349323751_msmr5",
-      "employeeName": "susi",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:26:58.95+00:00",
-      "updatedAt": "2026-11-22T12:26:58.95+00:00"
-    },
-    {
-      "id": "att_1795350422765_r3mkv",
-      "employeeId": "emp_1795349432440_w4z3b",
-      "employeeName": "adrian",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:27:02.765+00:00",
-      "updatedAt": "2026-11-22T12:27:02.765+00:00"
-    },
-    {
-      "id": "att_1795350690028_p2pzt",
-      "employeeId": "emp_1795349469807_poa2j",
-      "employeeName": "salsabila",
-      "date": "2026-11-02",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:31:30.028+00:00",
-      "updatedAt": "2026-11-22T12:31:30.028+00:00"
-    },
-    {
-      "id": "att_1795350822900_sl7ev",
-      "employeeId": "emp_1795347876852_akxij",
-      "employeeName": "Lindri",
-      "date": "2026-11-02",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "20:00",
-      "overtimeHours": 3,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:33:42.9+00:00",
-      "updatedAt": "2026-11-22T12:33:42.9+00:00"
-    },
-    {
-      "id": "att_1795398888400_0d9pj",
-      "employeeId": "emp_1795347862603_njxms",
-      "employeeName": "Vanesa",
-      "date": "2026-11-05",
-      "status": "hadir",
-      "checkIn": "07:00",
-      "checkOut": "17:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-23T01:54:48.4+00:00",
-      "updatedAt": "2026-11-23T01:54:48.4+00:00"
-    },
-    {
-      "id": "att_1795350858126_lq4h2",
-      "employeeId": "emp_1795348659576_w1922",
-      "employeeName": "Bayu",
-      "date": "2026-11-02",
-      "status": "terlambat",
-      "checkIn": "10:00",
-      "checkOut": "20:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:34:18.126+00:00",
-      "updatedAt": "2026-11-22T12:34:18.126+00:00"
-    },
-    {
-      "id": "att_1795350871859_5myse",
-      "employeeId": "emp_1795348702569_y30va",
-      "employeeName": "Agung",
-      "date": "2026-11-02",
-      "status": "terlambat",
-      "checkIn": "14:00",
-      "checkOut": "22:00",
-      "overtimeHours": 0,
-      "notes": "",
-      "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:34:31.859+00:00",
-      "updatedAt": "2026-11-22T12:34:31.859+00:00"
-    },
-    {
-      "id": "att_1795350911131_zc4ml",
+      "id": "att_1795605772039_d7gf5",
       "employeeId": "emp_1795348996937_kbsza",
-      "employeeName": "DEDE",
-      "date": "2026-11-02",
-      "status": "terlambat",
+      "employeeName": "A DEDE",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Sela",
       "checkIn": "10:00",
       "checkOut": "20:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:35:11.131+00:00",
-      "updatedAt": "2026-11-22T12:35:11.131+00:00"
+      "createdAt": "2026-11-25T11:22:52.039+00:00",
+      "updatedAt": "2026-11-25T11:23:02.454+00:00"
     },
     {
-      "id": "att_1795350919955_65i9b",
-      "employeeId": "emp_1795349015792_4wl55",
-      "employeeName": "Fajar",
-      "date": "2026-11-02",
-      "status": "terlambat",
-      "checkIn": "14:00",
-      "checkOut": "22:00",
+      "id": "att_1795605802267_s5zg4",
+      "employeeId": "emp_1795349100760_mg0bk",
+      "employeeName": "FAUZA",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Pagi",
+      "checkIn": "07:00",
+      "checkOut": "17:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:35:19.955+00:00",
-      "updatedAt": "2026-11-22T12:35:19.955+00:00"
+      "createdAt": "2026-11-25T11:23:22.267+00:00",
+      "updatedAt": "2026-11-25T11:23:22.267+00:00"
     },
     {
-      "id": "att_1795395547750_a9euq",
-      "employeeId": "emp_1795349161120_jgeou",
-      "employeeName": "irfan",
-      "date": "2026-11-02",
-      "status": "terlambat",
+      "id": "att_1795605810278_tdakh",
+      "employeeId": "emp_1795349120352_mac5h",
+      "employeeName": "HERI",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Sela",
       "checkIn": "10:00",
       "checkOut": "20:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-23T00:59:07.75+00:00",
-      "updatedAt": "2026-11-23T00:59:07.75+00:00"
+      "createdAt": "2026-11-25T11:23:30.278+00:00",
+      "updatedAt": "2026-11-25T11:23:30.278+00:00"
     },
     {
-      "id": "att_1795349709136_uzpp2",
+      "id": "att_1795605814685_dkrpk",
       "employeeId": "emp_1795349134752_itprz",
-      "employeeName": "indri",
-      "date": "2026-11-01",
-      "status": "libur",
-      "checkIn": "",
-      "checkOut": "",
+      "employeeName": "INDRI",
+      "date": "2026-11-25",
+      "status": "hadir",
+      "shiftName": "Shift Pagi",
+      "checkIn": "07:00",
+      "checkOut": "17:00",
       "overtimeHours": 0,
       "notes": "",
       "recordedBy": "Admin HR",
-      "createdAt": "2026-11-22T12:15:09.136+00:00",
-      "updatedAt": "2026-11-22T12:15:09.136+00:00"
+      "createdAt": "2026-11-25T11:23:34.685+00:00",
+      "updatedAt": "2026-11-25T11:23:34.685+00:00"
     }
   ],
   "lateSettlements": [],
@@ -1101,60 +706,158 @@
         "name": "Shift Pagi",
         "startTime": "07:00",
         "endTime": "17:00",
-        "lateToleranceMinutes": 10
+        "lateToleranceMinutes": 10,
+        "dailyMemberIds": {
+          "1": [
+            "emp_1795348555753_fibyr",
+            "emp_1795348618537_elql6",
+            "emp_1795349432440_w4z3b",
+            "emp_1795348702569_y30va",
+            "emp_1795348723624_5hkl8",
+            "emp_1795351129412_2pwny",
+            "emp_1795349015792_4wl55",
+            "emp_1795349175449_czgbg",
+            "emp_1795347876852_akxij",
+            "emp_1795349469807_poa2j"
+          ],
+          "3": [],
+          "4": [
+            "emp_1795348618537_elql6",
+            "emp_1795348702569_y30va",
+            "emp_1795351129412_2pwny",
+            "emp_1795349100760_mg0bk",
+            "emp_1795349134752_itprz",
+            "emp_1795349298608_5gr1j",
+            "emp_1795349345712_tnjgy",
+            "emp_1795347862603_njxms",
+            "emp_1795349370064_je84j"
+          ]
+        }
       },
       {
         "id": "shift_reguler",
         "name": "Shift Sela",
         "startTime": "10:00",
         "endTime": "20:00",
-        "lateToleranceMinutes": 10
+        "lateToleranceMinutes": 10,
+        "dailyMemberIds": {
+          "1": [
+            "emp_1795348659576_w1922",
+            "emp_1795348996937_kbsza",
+            "emp_1795349413570_384ib",
+            "emp_1795348781792_soo2e",
+            "emp_1795349100760_mg0bk",
+            "emp_1795349120352_mac5h",
+            "emp_1795349134752_itprz",
+            "emp_1795349161120_jgeou",
+            "emp_1795349224760_3h74r",
+            "emp_1795349263304_cst7d",
+            "emp_1795349285776_ipars",
+            "emp_1795349298608_5gr1j",
+            "emp_1795349345712_tnjgy",
+            "emp_1795347862603_njxms",
+            "emp_1795349370064_je84j"
+          ],
+          "4": [
+            "emp_1795348996937_kbsza",
+            "emp_1795348723624_5hkl8",
+            "emp_1795348659576_w1922",
+            "emp_1795349413570_384ib",
+            "emp_1795349175449_czgbg",
+            "emp_1795349196305_kp5t7",
+            "emp_1795349224760_3h74r",
+            "emp_1795351115538_mlhpk",
+            "emp_1795349469807_poa2j"
+          ]
+        }
       },
       {
         "id": "shift_siang",
         "name": "Shift Siang",
         "startTime": "14:00",
         "endTime": "22:00",
-        "lateToleranceMinutes": 10
+        "lateToleranceMinutes": 10,
+        "dailyMemberIds": {
+          "1": [
+            "emp_1795349196305_kp5t7",
+            "emp_1795351115538_mlhpk",
+            "emp_1795349323751_msmr5",
+            "emp_1795349389952_82ela"
+          ],
+          "4": [
+            "emp_1795348555753_fibyr",
+            "emp_1795349432440_w4z3b",
+            "emp_1795347876852_akxij",
+            "emp_1795348781792_soo2e",
+            "emp_1795349120352_mac5h",
+            "emp_1795349285776_ipars",
+            "emp_1795349389952_82ela"
+          ]
+        }
       }
     ],
     "companyProfile": {
       "legalName": "",
       "industry": "Distribusi, Ritel & Logistik Terpadu",
-      "taxId": "",
-      "nib": "",
+      "taxId": "0",
+      "nib": "0",
       "establishedYear": "",
-      "phone": "",
+      "phone": "0",
       "email": "",
       "website": "",
-      "address": "jl Raya Cideres Ds Cipaku Kec Kadipaten Kab Majalengka",
+      "address": "Jl Raya Cideres Desa Cipaku Kec Kadipaten Kab Majalengka",
       "city": "Majalengka",
-      "postalCode": "",
+      "postalCode": "0",
       "directorName": "",
       "hrManagerName": "",
-      "hrManagerTitle": "Manajer Sumber Daya Manusia",
+      "hrManagerTitle": "",
       "workDaysSummary": "",
       "vision": "Menjadi perusahaan distribusi dan layanan operasional terdepan yang mengutamakan kedisiplinan kerja, keandalan rantai pasok, dan kesejahteraan sumber daya manusia.",
       "mission": "Membangun budaya kerja yang akurat dan transparan, memberdayakan tim lintas divisi dengan standar operasional modern, serta menjaga kualitas pelayanan terbaik bagi seluruh mitra.",
       "logoDataUrl": "",
-      "branches": [
-        {
-          "id": "branch_pusat",
-          "name": "Kantor Pusat & Manajemen HRD",
-          "city": "Jakarta Selatan",
-          "address": "Jl. Jenderal Sudirman Kav. 52–53, SCBD, Kebayoran Baru",
-          "phone": "(021) 555-0192",
-          "isHeadquarters": true
-        },
-        {
-          "id": "branch_gudang_bekasi",
-          "name": "Pusat Gudang & Logistik Timur",
-          "city": "Bekasi",
-          "address": "Kawasan Industri Jababeka Tahap II Blok C-14",
-          "phone": "(021) 8983-4410",
-          "isHeadquarters": false
-        }
-      ]
+      "branches": []
+    },
+    "matrixColors": {
+      "hadir": {
+        "bg": "#548235",
+        "text": "#FFFFFF"
+      },
+      "terlambat": {
+        "bg": "#D97706",
+        "text": "#FFFFFF"
+      },
+      "izinTerlambat": {
+        "bg": "#0F766E",
+        "text": "#FFFFFF"
+      },
+      "izin": {
+        "bg": "#FFF2CC",
+        "text": "#833C0C"
+      },
+      "sakit": {
+        "bg": "#4338CA",
+        "text": "#FFFFFF"
+      },
+      "alpha": {
+        "bg": "#C00000",
+        "text": "#FFFFFF"
+      },
+      "libur": {
+        "bg": "#D9D9D9",
+        "text": "#1E293B"
+      },
+      "brandHeader": {
+        "bg": "#FFC000",
+        "text": "#0F172A"
+      },
+      "groupHeader": {
+        "bg": "#D9E1F2",
+        "text": "#0F172A"
+      },
+      "tableHeader": {
+        "bg": "#1F4E78",
+        "text": "#FFFFFF"
+      }
     }
   }
 }

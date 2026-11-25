@@ -7,6 +7,7 @@ import {
   Employee,
   LateSettlement,
   LateSettlementMethod,
+  MatrixColorSettings,
   ResetDataMode,
   ResetDataResult,
   ShiftConfig,
@@ -388,6 +389,7 @@ export async function updateAppSettings(payload: {
   lateDeductionPerMinute?: number;
   shifts?: ShiftConfig[];
   companyProfile?: Partial<CompanyProfile>;
+  matrixColors?: Partial<MatrixColorSettings>;
   syncEmployees?: boolean;
 }): Promise<AppSettings> {
   const updated = await executeApiWithFallback(
@@ -424,6 +426,15 @@ export async function updateAppSettings(payload: {
       severity: 'success',
       actionType: 'update_shift_settings',
       targetNav: 'jadwal-shift',
+    });
+  } else if (payload.matrixColors) {
+    emitAppNotification({
+      title: 'Warna Matriks Diperbarui',
+      message: `Skema warna status dan header Matriks Daftar Hadir telah disimpan.`,
+      module: 'absensi',
+      severity: 'success',
+      actionType: 'update_matrix_colors',
+      targetNav: 'matriks',
     });
   } else if (payload.companyProfile) {
     emitAppNotification({

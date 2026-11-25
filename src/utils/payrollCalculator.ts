@@ -1,7 +1,9 @@
 import {
   AttendanceRecord,
+  BpjsDeductionMode,
   calculateLatenessMinutes,
   Employee,
+  EmployeeFixedDeductionItem,
   EmployeeSalaryProfile,
   getMonthEffectiveWorkDays,
   LateSettlement,
@@ -12,6 +14,7 @@ import {
   resolveAttendanceShift,
   resolveEmployeeDefaultShiftForDate,
   SalaryRaiseRecord,
+  sanitizeFixedDeductions,
   ShiftConfig,
 } from '../types';
 
@@ -49,7 +52,11 @@ export interface EmployeePayrollCalculation {
   alphaDeduction: number;
   izinDeduction: number;
   bpjsKesehatanDeduction: number;
+  bpjsKesehatanLabel: string;
   bpjsTkDeduction: number;
+  bpjsTkLabel: string;
+  fixedDeductionItems: EmployeeFixedDeductionItem[];
+  totalFixedDeduction: number;
   otherDeductionItems: PayrollAdjustment[];
   totalOtherDeduction: number;
   totalDeductions: number;
@@ -57,6 +64,34 @@ export interface EmployeePayrollCalculation {
   latestRaise?: SalaryRaiseRecord;
   status: PayrollRecordStatus;
   paidAt?: string;
+}
+
+export function resolveBpjsComponentDeduction(params: {
+  baseSalary: number;
+  defaultPct: number;
+  mode?: BpjsDeductionMode;
+  value?: number;
+}): { amount: number; label: string } {
+  const { baseSalary, defaultPct, mode = 'default_pct', value = 0 } = params;
+  if (mode === 'nonaktif') {
+    return { amount: 0, label: 'Nonaktif' };
+  }
+  if (mode === 'custom_nominal') {
+    const nominal = Math.max(0, Math.round(Number(value) || 0));
+    return { amount: nominal, label: 'Nominal Khusus' };
+  }
+  if (mode === 'custom_pct') {
+    const pct = Math.max(0, Math.min(50, Number(value) || 0));
+    return {
+      amount: Math.round((baseSalary * pct) / 100),
+      label: `${pct}% Khusus`,
+    };
+  }
+  const pct = Math.max(0, Number(defaultPct) || 0);
+  return {
+    amount: Math.round((baseSalary * pct) / 100),
+    label: `${pct}% Pokok`,
+  };
 }
 
 export function formatRupiah(amount: number): string {
@@ -221,11 +256,26 @@ export function calculateEmployeePayroll(params: {
     alphaCount * Math.max(0, Math.round(payrollSettings.defaultAlphaDeductionPerDay));
   const izinDeduction =
     izinCount * Math.max(0, Math.round(payrollSettings.defaultIzinDeductionPerDay));
-  const bpjsKesehatanDeduction = Math.round(
-    (baseSalary * Math.max(0, payrollSettings.bpjsKesehatanPct)) / 100
-  );
-  const bpjsTkDeduction = Math.round(
-    (baseSalary * Math.max(0, payrollSettings.bpjsKetenagakerjaanPct)) / 100
+
+  const bpjsKesRes = resolveBpjsComponentDeduction({
+    baseSalary,
+    defaultPct: payrollSettings.bpjsKesehatanPct,
+    mode: profile.bpjsKesehatanMode,
+    value: profile.bpjsKesehatanValue,
+  });
+  const bpjsTkRes = resolveBpjsComponentDeduction({
+    baseSalary,
+    defaultPct: payrollSettings.bpjsKetenagakerjaanPct,
+    mode: profile.bpjsTkMode,
+    value: profile.bpjsTkValue,
+  });
+  const bpjsKesehatanDeduction = bpjsKesRes.amount;
+  const bpjsTkDeduction = bpjsTkRes.amount;
+
+  const fixedDeductionItems = sanitizeFixedDeductions(profile.fixedDeductions);
+  const totalFixedDeduction = fixedDeductionItems.reduce(
+    (acc, item) => acc + item.amount,
+    0
   );
 
   const totalDeductions =
@@ -234,6 +284,7 @@ export function calculateEmployeePayroll(params: {
     izinDeduction +
     bpjsKesehatanDeduction +
     bpjsTkDeduction +
+    totalFixedDeduction +
     totalOtherDeduction;
 
   const netSalary = Math.max(0, grossSalary - totalDeductions);
@@ -276,7 +327,11 @@ export function calculateEmployeePayroll(params: {
     alphaDeduction,
     izinDeduction,
     bpjsKesehatanDeduction,
+    bpjsKesehatanLabel: bpjsKesRes.label,
     bpjsTkDeduction,
+    bpjsTkLabel: bpjsTkRes.label,
+    fixedDeductionItems,
+    totalFixedDeduction,
     otherDeductionItems,
     totalOtherDeduction,
     totalDeductions,

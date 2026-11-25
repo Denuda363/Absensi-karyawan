@@ -58,12 +58,84 @@ export interface CompanyProfile {
   branches: CompanyBranch[];
 }
 
+export interface MatrixColorPair {
+  bg: string;
+  text: string;
+}
+
+export interface MatrixColorSettings {
+  hadir: MatrixColorPair;
+  terlambat: MatrixColorPair;
+  izinTerlambat: MatrixColorPair;
+  izin: MatrixColorPair;
+  sakit: MatrixColorPair;
+  alpha: MatrixColorPair;
+  libur: MatrixColorPair;
+  brandHeader: MatrixColorPair;
+  groupHeader: MatrixColorPair;
+  tableHeader: MatrixColorPair;
+}
+
+export const DEFAULT_MATRIX_COLORS: MatrixColorSettings = {
+  hadir: { bg: '#548235', text: '#FFFFFF' },
+  terlambat: { bg: '#D97706', text: '#FFFFFF' },
+  izinTerlambat: { bg: '#0F766E', text: '#FFFFFF' },
+  izin: { bg: '#FFF2CC', text: '#833C0C' },
+  sakit: { bg: '#4338CA', text: '#FFFFFF' },
+  alpha: { bg: '#C00000', text: '#FFFFFF' },
+  libur: { bg: '#D9D9D9', text: '#1E293B' },
+  brandHeader: { bg: '#FFC000', text: '#0F172A' },
+  groupHeader: { bg: '#D9E1F2', text: '#0F172A' },
+  tableHeader: { bg: '#1F4E78', text: '#FFFFFF' },
+};
+
+function sanitizeHexColor(raw: unknown, fallback: string): string {
+  const s = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+  return /^#[0-9A-F]{6}$/.test(s) ? s : fallback;
+}
+
+export function normalizeMatrixColors(
+  raw?: Partial<MatrixColorSettings> | null
+): MatrixColorSettings {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const pickPair = (
+    pair: Partial<MatrixColorPair> | undefined,
+    def: MatrixColorPair
+  ): MatrixColorPair => ({
+    bg: sanitizeHexColor(pair?.bg, def.bg),
+    text: sanitizeHexColor(pair?.text, def.text),
+  });
+
+  return {
+    hadir: pickPair(src.hadir, DEFAULT_MATRIX_COLORS.hadir),
+    terlambat: pickPair(src.terlambat, DEFAULT_MATRIX_COLORS.terlambat),
+    izinTerlambat: pickPair(src.izinTerlambat, DEFAULT_MATRIX_COLORS.izinTerlambat),
+    izin: pickPair(src.izin, DEFAULT_MATRIX_COLORS.izin),
+    sakit: pickPair(src.sakit, DEFAULT_MATRIX_COLORS.sakit),
+    alpha: pickPair(src.alpha, DEFAULT_MATRIX_COLORS.alpha),
+    libur: pickPair(src.libur, DEFAULT_MATRIX_COLORS.libur),
+    brandHeader: pickPair(src.brandHeader, DEFAULT_MATRIX_COLORS.brandHeader),
+    groupHeader: pickPair(src.groupHeader, DEFAULT_MATRIX_COLORS.groupHeader),
+    tableHeader: pickPair(src.tableHeader, DEFAULT_MATRIX_COLORS.tableHeader),
+  };
+}
+
+export function pickContrastTextColor(bgHex: string): string {
+  const hex = sanitizeHexColor(bgHex, '#FFFFFF').slice(1);
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62 ? '#0F172A' : '#FFFFFF';
+}
+
 export interface AppSettings {
   companyName: string;
   companySubtitle: string;
   lateDeductionPerMinute?: number;
   shifts: ShiftConfig[];
   companyProfile?: CompanyProfile;
+  matrixColors?: MatrixColorSettings;
 }
 
 export type LateSettlementMethod = 'tambahan_jam_kerja' | 'potongan_gaji';
@@ -134,6 +206,18 @@ export interface PayrollSettings {
   paydayDayOfMonth: number;
 }
 
+export type BpjsDeductionMode =
+  | 'default_pct'
+  | 'custom_pct'
+  | 'custom_nominal'
+  | 'nonaktif';
+
+export interface EmployeeFixedDeductionItem {
+  id: string;
+  title: string;
+  amount: number;
+}
+
 export interface EmployeeSalaryProfile {
   employeeId: string;
   baseSalary: number;
@@ -142,6 +226,11 @@ export interface EmployeeSalaryProfile {
   otherAllowance?: number;
   overtimeHourlyRate?: number;
   paydayDay?: number; // 1-31 per karyawan
+  bpjsKesehatanMode?: BpjsDeductionMode;
+  bpjsKesehatanValue?: number;
+  bpjsTkMode?: BpjsDeductionMode;
+  bpjsTkValue?: number;
+  fixedDeductions?: EmployeeFixedDeductionItem[];
   paymentMethod: PayrollPaymentMethod;
   bankName: string;
   bankAccountNumber: string;
@@ -771,21 +860,22 @@ export function getMonthEffectiveWorkDays(employee: Employee, yearMonth: string)
   return dates.filter((dt) => !isEmployeeOffDay(employee, dt).isOff).length;
 }
 
-export type MatrixCellCode = 'h' | 'i' | 's' | 'a' | '';
+export type MatrixCellCode = 'H' | 'I' | 'S' | 'A' | 'L' | '';
 
 export function statusToMatrixCode(status: AttendanceStatus): MatrixCellCode {
   switch (status) {
     case 'hadir':
     case 'terlambat':
     case 'izin_terlambat':
-      return 'h';
+      return 'H';
     case 'izin':
-      return 'i';
+      return 'I';
     case 'sakit':
-      return 's';
+      return 'S';
     case 'alpha':
-      return 'a';
+      return 'A';
     case 'libur':
+      return 'L';
     default:
       return '';
   }
@@ -988,4 +1078,121 @@ export interface NotificationPreferences {
   showToasts: boolean;
   mutedModules: NotificationModule[];
 }
+
+export interface PackedPayrollDeductionsConfig {
+  bpjsKesehatanMode?: BpjsDeductionMode;
+  bpjsKesehatanValue?: number;
+  bpjsTkMode?: BpjsDeductionMode;
+  bpjsTkValue?: number;
+  fixedDeductions?: EmployeeFixedDeductionItem[];
+}
+
+const VALID_BPJS_MODES: readonly BpjsDeductionMode[] = [
+  'default_pct',
+  'custom_pct',
+  'custom_nominal',
+  'nonaktif',
+];
+
+export function normalizeBpjsMode(raw: unknown): BpjsDeductionMode {
+  return typeof raw === 'string' && (VALID_BPJS_MODES as readonly string[]).includes(raw)
+    ? (raw as BpjsDeductionMode)
+    : 'default_pct';
+}
+
+export function sanitizeFixedDeductions(raw: unknown): EmployeeFixedDeductionItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EmployeeFixedDeductionItem[] = [];
+  for (let i = 0; i < raw.length && out.length < 25; i++) {
+    const item = raw[i] as Record<string, unknown> | null;
+    if (!item || typeof item !== 'object') continue;
+    const title = String(item.title || '').trim().slice(0, 80);
+    const amount = Math.max(0, Math.min(1000000000, Math.round(Number(item.amount || 0))));
+    if (!title || !Number.isFinite(amount) || amount <= 0) continue;
+    const id =
+      String(item.id || '')
+        .trim()
+        .slice(0, 64) || `fd_${i + 1}`;
+    out.push({ id, title, amount });
+  }
+  return out;
+}
+
+export function unpackPayrollProfileNotes(rawNotes: string): {
+  notes: string;
+  bpjsKesehatanMode: BpjsDeductionMode;
+  bpjsKesehatanValue: number;
+  bpjsTkMode: BpjsDeductionMode;
+  bpjsTkValue: number;
+  fixedDeductions: EmployeeFixedDeductionItem[];
+} {
+  const text = String(rawNotes || '');
+  const marker = '[PAYROLL_DEDUCTIONS:';
+  const idx = text.lastIndexOf(marker);
+  if (idx < 0 || !text.trimEnd().endsWith(']')) {
+    return {
+      notes: text.trim(),
+      bpjsKesehatanMode: 'default_pct',
+      bpjsKesehatanValue: 0,
+      bpjsTkMode: 'default_pct',
+      bpjsTkValue: 0,
+      fixedDeductions: [],
+    };
+  }
+  const cleanNotes = text.slice(0, idx).trim();
+  const trimmedEnd = text.trimEnd();
+  const jsonPart = trimmedEnd.slice(idx + marker.length, -1);
+  try {
+    const parsed = JSON.parse(jsonPart) as {
+      bk?: unknown;
+      bkv?: unknown;
+      bt?: unknown;
+      btv?: unknown;
+      fd?: unknown;
+    };
+    return {
+      notes: cleanNotes,
+      bpjsKesehatanMode: normalizeBpjsMode(parsed.bk),
+      bpjsKesehatanValue: Math.max(0, Number(parsed.bkv || 0) || 0),
+      bpjsTkMode: normalizeBpjsMode(parsed.bt),
+      bpjsTkValue: Math.max(0, Number(parsed.btv || 0) || 0),
+      fixedDeductions: sanitizeFixedDeductions(parsed.fd),
+    };
+  } catch {
+    return {
+      notes: text.trim(),
+      bpjsKesehatanMode: 'default_pct',
+      bpjsKesehatanValue: 0,
+      bpjsTkMode: 'default_pct',
+      bpjsTkValue: 0,
+      fixedDeductions: [],
+    };
+  }
+}
+
+export function packPayrollProfileNotes(
+  notes: string,
+  config: PackedPayrollDeductionsConfig
+): string {
+  const cleanNotes = unpackPayrollProfileNotes(notes).notes.slice(0, 300);
+  const bk = normalizeBpjsMode(config.bpjsKesehatanMode);
+  const bkv = Math.max(0, Number(config.bpjsKesehatanValue || 0) || 0);
+  const bt = normalizeBpjsMode(config.bpjsTkMode);
+  const btv = Math.max(0, Number(config.bpjsTkValue || 0) || 0);
+  const fd = sanitizeFixedDeductions(config.fixedDeductions);
+
+  if (bk === 'default_pct' && bt === 'default_pct' && fd.length === 0) {
+    return cleanNotes;
+  }
+
+  const tag = `[PAYROLL_DEDUCTIONS:${JSON.stringify({
+    bk,
+    bkv,
+    bt,
+    btv,
+    fd,
+  })}]`;
+  return cleanNotes ? `${cleanNotes} ${tag}` : tag;
+}
+
 

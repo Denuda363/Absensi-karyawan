@@ -22,7 +22,11 @@ import {
   FinanceTransfer,
   LateSettlement,
   LateSettlementMethod,
+  MatrixColorSettings,
+  normalizeBpjsMode,
+  normalizeMatrixColors,
   packNotesWithShift,
+  packPayrollProfileNotes,
   PayrollAdjustment,
   PayrollAdjustmentType,
   PayrollDatabaseState,
@@ -33,9 +37,11 @@ import {
   ResetDataResult,
   SalaryRaiseMethod,
   SalaryRaiseRecord,
+  sanitizeFixedDeductions,
   ShiftConfig,
   SupabaseSyncResult,
   SupabaseTestResult,
+  unpackPayrollProfileNotes,
   unpackShiftFromNotes,
 } from '../types';
 import { FIREBASE_APPLET_META, testCustomFirebaseConnection } from './firebaseClient';
@@ -282,6 +288,7 @@ function buildDefaultSettings(): AppSettings {
       },
     ],
     companyProfile: buildDefaultCompanyProfile(),
+    matrixColors: normalizeMatrixColors(),
   };
 }
 
@@ -369,6 +376,13 @@ function normalizeSettings(rawSettings: Partial<AppSettings> | undefined): AppSe
         })
       : defaults.shifts;
 
+  const embeddedColors =
+    rawSettings.companyProfile &&
+    typeof rawSettings.companyProfile === 'object' &&
+    '_matrixColors' in (rawSettings.companyProfile as unknown as Record<string, unknown>)
+      ? ((rawSettings.companyProfile as unknown as Record<string, unknown>)._matrixColors as Partial<MatrixColorSettings>)
+      : undefined;
+
   return {
     companyName:
       String(rawSettings.companyName || defaults.companyName).trim().slice(0, 60) ||
@@ -382,6 +396,7 @@ function normalizeSettings(rawSettings: Partial<AppSettings> | undefined): AppSe
     ),
     shifts,
     companyProfile: normalizeCompanyProfile(rawSettings.companyProfile),
+    matrixColors: normalizeMatrixColors(rawSettings.matrixColors || embeddedColors),
   };
 }
 
@@ -1369,7 +1384,10 @@ async function syncAttendanceToSupabaseBrowser(db: ClientAppDatabaseState): Prom
         company_subtitle: db.settings.companySubtitle,
         late_deduction_per_minute: db.settings.lateDeductionPerMinute ?? 1000,
         shifts: db.settings.shifts,
-        company_profile: db.settings.companyProfile ?? buildDefaultCompanyProfile(),
+        company_profile: {
+          ...(db.settings.companyProfile ?? buildDefaultCompanyProfile()),
+          _matrixColors: normalizeMatrixColors(db.settings.matrixColors),
+        },
         updated_at: nowIso,
       },
     ]);
@@ -1498,7 +1516,13 @@ async function syncPayrollToSupabaseBrowser(payDb: PayrollDatabaseState): Promis
         bank_name: p.bankName,
         bank_account_number: p.bankAccountNumber,
         bank_account_holder: p.bankAccountHolder,
-        notes: p.notes || '',
+        notes: packPayrollProfileNotes(p.notes || '', {
+          bpjsKesehatanMode: p.bpjsKesehatanMode,
+          bpjsKesehatanValue: p.bpjsKesehatanValue,
+          bpjsTkMode: p.bpjsTkMode,
+          bpjsTkValue: p.bpjsTkValue,
+          fixedDeductions: p.fixedDeductions,
+        }),
         updated_at: p.updatedAt || nowIso,
       })),
       'employee_id'
@@ -1717,15 +1741,22 @@ async function pullAllFromSupabaseBrowser(): Promise<{
     syncedTables.push({ tableName: 'app_settings', rowCount: settingsRows?.length || 0 });
     if (settingsRows && settingsRows.length > 0) {
       const s = settingsRows[0] as Record<string, unknown>;
+      const rawCp =
+        s.company_profile && typeof s.company_profile === 'object'
+          ? (s.company_profile as Record<string, unknown>)
+          : undefined;
       curAtt.settings = normalizeSettings({
         companyName: String(s.company_name || curAtt.settings.companyName),
         companySubtitle: String(s.company_subtitle || curAtt.settings.companySubtitle),
         lateDeductionPerMinute: Number(s.late_deduction_per_minute ?? 1000),
         shifts: Array.isArray(s.shifts) ? (s.shifts as ShiftConfig[]) : curAtt.settings.shifts,
-        companyProfile:
-          s.company_profile && typeof s.company_profile === 'object'
-            ? (s.company_profile as CompanyProfile)
-            : curAtt.settings.companyProfile,
+        companyProfile: rawCp
+          ? (rawCp as unknown as CompanyProfile)
+          : curAtt.settings.companyProfile,
+        matrixColors:
+          rawCp && rawCp._matrixColors && typeof rawCp._matrixColors === 'object'
+            ? normalizeMatrixColors(rawCp._matrixColors as Partial<MatrixColorSettings>)
+            : curAtt.settings.matrixColors,
       });
       attChanged = true;
     }
@@ -1851,21 +1882,29 @@ async function pullAllFromSupabaseBrowser(): Promise<{
   else {
     syncedTables.push({ tableName: 'payroll_profiles', rowCount: pProfRows?.length || 0 });
     if (pProfRows && pProfRows.length > 0) {
-      curPay.profiles = pProfRows.map((p: Record<string, unknown>) => ({
-        employeeId: String(p.employee_id),
-        baseSalary: Number(p.base_salary || 0),
-        positionAllowance: Number(p.position_allowance || 0),
-        transportMealAllowance: Number(p.transport_meal_allowance || 0),
-        otherAllowance: Number(p.other_allowance || 0),
-        overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
-        paydayDay: Number(p.payday_day || 25),
-        paymentMethod: p.payment_method === 'tunai' ? 'tunai' : 'transfer',
-        bankName: String(p.bank_name || ''),
-        bankAccountNumber: String(p.bank_account_number || ''),
-        bankAccountHolder: String(p.bank_account_holder || ''),
-        notes: String(p.notes || ''),
-        updatedAt: String(p.updated_at || new Date().toISOString()),
-      }));
+      curPay.profiles = pProfRows.map((p: Record<string, unknown>) => {
+        const unpacked = unpackPayrollProfileNotes(String(p.notes || ''));
+        return {
+          employeeId: String(p.employee_id),
+          baseSalary: Number(p.base_salary || 0),
+          positionAllowance: Number(p.position_allowance || 0),
+          transportMealAllowance: Number(p.transport_meal_allowance || 0),
+          otherAllowance: Number(p.other_allowance || 0),
+          overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
+          paydayDay: Number(p.payday_day || 25),
+          bpjsKesehatanMode: unpacked.bpjsKesehatanMode,
+          bpjsKesehatanValue: unpacked.bpjsKesehatanValue,
+          bpjsTkMode: unpacked.bpjsTkMode,
+          bpjsTkValue: unpacked.bpjsTkValue,
+          fixedDeductions: unpacked.fixedDeductions,
+          paymentMethod: p.payment_method === 'tunai' ? 'tunai' : 'transfer',
+          bankName: String(p.bank_name || ''),
+          bankAccountNumber: String(p.bank_account_number || ''),
+          bankAccountHolder: String(p.bank_account_holder || ''),
+          notes: unpacked.notes,
+          updatedAt: String(p.updated_at || new Date().toISOString()),
+        };
+      });
       payChanged = true;
     }
   }
@@ -2118,19 +2157,28 @@ async function pullBrowserScopeFromSupabase(
     const next: ClientAppDatabaseState = {
       settings:
         sRows.length > 0
-          ? normalizeSettings({
-              companyName: String((sRows[0] as Record<string, unknown>).company_name || prev.settings.companyName),
-              companySubtitle: String((sRows[0] as Record<string, unknown>).company_subtitle || prev.settings.companySubtitle),
-              lateDeductionPerMinute: Number((sRows[0] as Record<string, unknown>).late_deduction_per_minute ?? 1000),
-              shifts: Array.isArray((sRows[0] as Record<string, unknown>).shifts)
-                ? ((sRows[0] as Record<string, unknown>).shifts as ShiftConfig[])
-                : prev.settings.shifts,
-              companyProfile:
-                (sRows[0] as Record<string, unknown>).company_profile &&
-                typeof (sRows[0] as Record<string, unknown>).company_profile === 'object'
-                  ? ((sRows[0] as Record<string, unknown>).company_profile as CompanyProfile)
+          ? (() => {
+              const row = sRows[0] as Record<string, unknown>;
+              const rawCp =
+                row.company_profile && typeof row.company_profile === 'object'
+                  ? (row.company_profile as Record<string, unknown>)
+                  : undefined;
+              return normalizeSettings({
+                companyName: String(row.company_name || prev.settings.companyName),
+                companySubtitle: String(row.company_subtitle || prev.settings.companySubtitle),
+                lateDeductionPerMinute: Number(row.late_deduction_per_minute ?? 1000),
+                shifts: Array.isArray(row.shifts)
+                  ? (row.shifts as ShiftConfig[])
+                  : prev.settings.shifts,
+                companyProfile: rawCp
+                  ? (rawCp as unknown as CompanyProfile)
                   : prev.settings.companyProfile,
-            })
+                matrixColors:
+                  rawCp && rawCp._matrixColors && typeof rawCp._matrixColors === 'object'
+                    ? normalizeMatrixColors(rawCp._matrixColors as Partial<MatrixColorSettings>)
+                    : prev.settings.matrixColors,
+              });
+            })()
           : prev.settings,
       employees: eRows
         .map((e: Record<string, unknown>) => ({
@@ -2245,21 +2293,29 @@ async function pullBrowserScopeFromSupabase(
             })
           : prev.settings,
       profiles: pProfRows
-        .map((p: Record<string, unknown>) => ({
-          employeeId: String(p.employee_id),
-          baseSalary: Number(p.base_salary || 0),
-          positionAllowance: Number(p.position_allowance || 0),
-          transportMealAllowance: Number(p.transport_meal_allowance || 0),
-          otherAllowance: Number(p.other_allowance || 0),
-          overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
-          paydayDay: Number(p.payday_day || 25),
-          paymentMethod: p.payment_method === 'tunai' ? ('tunai' as const) : ('transfer' as const),
-          bankName: String(p.bank_name || ''),
-          bankAccountNumber: String(p.bank_account_number || ''),
-          bankAccountHolder: String(p.bank_account_holder || ''),
-          notes: String(p.notes || ''),
-          updatedAt: String(p.updated_at || new Date().toISOString()),
-        }))
+        .map((p: Record<string, unknown>) => {
+          const unpacked = unpackPayrollProfileNotes(String(p.notes || ''));
+          return {
+            employeeId: String(p.employee_id),
+            baseSalary: Number(p.base_salary || 0),
+            positionAllowance: Number(p.position_allowance || 0),
+            transportMealAllowance: Number(p.transport_meal_allowance || 0),
+            otherAllowance: Number(p.other_allowance || 0),
+            overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
+            paydayDay: Number(p.payday_day || 25),
+            bpjsKesehatanMode: unpacked.bpjsKesehatanMode,
+            bpjsKesehatanValue: unpacked.bpjsKesehatanValue,
+            bpjsTkMode: unpacked.bpjsTkMode,
+            bpjsTkValue: unpacked.bpjsTkValue,
+            fixedDeductions: unpacked.fixedDeductions,
+            paymentMethod: p.payment_method === 'tunai' ? ('tunai' as const) : ('transfer' as const),
+            bankName: String(p.bank_name || ''),
+            bankAccountNumber: String(p.bank_account_number || ''),
+            bankAccountHolder: String(p.bank_account_holder || ''),
+            notes: unpacked.notes,
+            updatedAt: String(p.updated_at || new Date().toISOString()),
+          };
+        })
         .sort((a, b) => a.employeeId.localeCompare(b.employeeId)),
       adjustments: pAdjRows
         .map((a: Record<string, unknown>) => ({
@@ -2956,6 +3012,7 @@ export async function clientUpdateAppSettings(payload: {
   lateDeductionPerMinute?: number;
   shifts?: ShiftConfig[];
   companyProfile?: Partial<CompanyProfile>;
+  matrixColors?: Partial<MatrixColorSettings>;
   syncEmployees?: boolean;
 }): Promise<AppSettings> {
   await ensureClientHydratedOnce();
@@ -2963,6 +3020,9 @@ export async function clientUpdateAppSettings(payload: {
   const mergedProfile = payload.companyProfile
     ? { ...buildDefaultCompanyProfile(), ...db.settings.companyProfile, ...payload.companyProfile }
     : db.settings.companyProfile;
+  const mergedMatrixColors = payload.matrixColors
+    ? normalizeMatrixColors({ ...db.settings.matrixColors, ...payload.matrixColors })
+    : db.settings.matrixColors;
   const nextSettings = normalizeSettings({
     companyName: payload.companyName !== undefined ? payload.companyName : db.settings.companyName,
     companySubtitle:
@@ -2975,6 +3035,7 @@ export async function clientUpdateAppSettings(payload: {
         : db.settings.lateDeductionPerMinute,
     shifts: Array.isArray(payload.shifts) ? payload.shifts : db.settings.shifts,
     companyProfile: mergedProfile,
+    matrixColors: mergedMatrixColors,
   });
   db.settings = nextSettings;
   if (payload.syncEmployees) {
@@ -3360,6 +3421,26 @@ export async function clientSaveEmployeeSalaryProfile(
       1,
       Math.min(31, Math.round(Number.isFinite(rawPayday) ? rawPayday : payDb.settings.paydayDayOfMonth))
     ),
+    bpjsKesehatanMode:
+      payload.bpjsKesehatanMode !== undefined
+        ? normalizeBpjsMode(payload.bpjsKesehatanMode)
+        : normalizeBpjsMode(existing?.bpjsKesehatanMode),
+    bpjsKesehatanValue: Math.max(
+      0,
+      Number(payload.bpjsKesehatanValue ?? existing?.bpjsKesehatanValue ?? 0) || 0
+    ),
+    bpjsTkMode:
+      payload.bpjsTkMode !== undefined
+        ? normalizeBpjsMode(payload.bpjsTkMode)
+        : normalizeBpjsMode(existing?.bpjsTkMode),
+    bpjsTkValue: Math.max(
+      0,
+      Number(payload.bpjsTkValue ?? existing?.bpjsTkValue ?? 0) || 0
+    ),
+    fixedDeductions:
+      payload.fixedDeductions !== undefined
+        ? sanitizeFixedDeductions(payload.fixedDeductions)
+        : sanitizeFixedDeductions(existing?.fixedDeductions),
     paymentMethod:
       payload.paymentMethod === 'tunai' || payload.paymentMethod === 'transfer'
         ? payload.paymentMethod
@@ -3378,7 +3459,7 @@ export async function clientSaveEmployeeSalaryProfile(
         : existing?.bankAccountHolder ?? emp.name,
     notes:
       payload.notes !== undefined
-        ? String(payload.notes).trim().slice(0, 300)
+        ? unpackPayrollProfileNotes(String(payload.notes)).notes.slice(0, 300)
         : existing?.notes ?? '',
     updatedAt: new Date().toISOString(),
   };
@@ -3511,6 +3592,11 @@ export async function clientCreateSalaryRaise(
       overtimeHourlyRate:
         existing?.overtimeHourlyRate ?? payDb.settings.defaultOvertimeHourlyRate,
       paydayDay: existing?.paydayDay ?? payDb.settings.paydayDayOfMonth,
+      bpjsKesehatanMode: existing?.bpjsKesehatanMode ?? 'default_pct',
+      bpjsKesehatanValue: existing?.bpjsKesehatanValue ?? 0,
+      bpjsTkMode: existing?.bpjsTkMode ?? 'default_pct',
+      bpjsTkValue: existing?.bpjsTkValue ?? 0,
+      fixedDeductions: existing?.fixedDeductions ?? [],
       paymentMethod: existing?.paymentMethod ?? 'transfer',
       bankName: existing?.bankName ?? 'BCA',
       bankAccountNumber: existing?.bankAccountNumber ?? '',

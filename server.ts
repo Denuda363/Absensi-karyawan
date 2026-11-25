@@ -220,12 +220,98 @@ interface CompanyProfileData {
   branches: CompanyBranchData[];
 }
 
+interface MatrixColorPairData {
+  bg: string;
+  text: string;
+}
+
+interface MatrixColorSettingsData {
+  hadir: MatrixColorPairData;
+  terlambat: MatrixColorPairData;
+  izinTerlambat: MatrixColorPairData;
+  izin: MatrixColorPairData;
+  sakit: MatrixColorPairData;
+  alpha: MatrixColorPairData;
+  libur: MatrixColorPairData;
+  brandHeader: MatrixColorPairData;
+  groupHeader: MatrixColorPairData;
+  tableHeader: MatrixColorPairData;
+}
+
+const DEFAULT_MATRIX_COLORS: MatrixColorSettingsData = {
+  hadir: { bg: '#548235', text: '#FFFFFF' },
+  terlambat: { bg: '#D97706', text: '#FFFFFF' },
+  izinTerlambat: { bg: '#0F766E', text: '#FFFFFF' },
+  izin: { bg: '#FFF2CC', text: '#833C0C' },
+  sakit: { bg: '#4338CA', text: '#FFFFFF' },
+  alpha: { bg: '#C00000', text: '#FFFFFF' },
+  libur: { bg: '#D9D9D9', text: '#1E293B' },
+  brandHeader: { bg: '#FFC000', text: '#0F172A' },
+  groupHeader: { bg: '#D9E1F2', text: '#0F172A' },
+  tableHeader: { bg: '#1F4E78', text: '#FFFFFF' },
+};
+
+function sanitizeHexColorServer(raw: unknown, fallback: string): string {
+  const s = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+  return /^#[0-9A-F]{6}$/.test(s) ? s : fallback;
+}
+
+function normalizeMatrixColors(
+  raw?: Partial<MatrixColorSettingsData> | null
+): MatrixColorSettingsData {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const pickPair = (
+    pair: Partial<MatrixColorPairData> | undefined,
+    def: MatrixColorPairData
+  ): MatrixColorPairData => ({
+    bg: sanitizeHexColorServer(pair?.bg, def.bg),
+    text: sanitizeHexColorServer(pair?.text, def.text),
+  });
+  return {
+    hadir: pickPair(src.hadir, DEFAULT_MATRIX_COLORS.hadir),
+    terlambat: pickPair(src.terlambat, DEFAULT_MATRIX_COLORS.terlambat),
+    izinTerlambat: pickPair(src.izinTerlambat, DEFAULT_MATRIX_COLORS.izinTerlambat),
+    izin: pickPair(src.izin, DEFAULT_MATRIX_COLORS.izin),
+    sakit: pickPair(src.sakit, DEFAULT_MATRIX_COLORS.sakit),
+    alpha: pickPair(src.alpha, DEFAULT_MATRIX_COLORS.alpha),
+    libur: pickPair(src.libur, DEFAULT_MATRIX_COLORS.libur),
+    brandHeader: pickPair(src.brandHeader, DEFAULT_MATRIX_COLORS.brandHeader),
+    groupHeader: pickPair(src.groupHeader, DEFAULT_MATRIX_COLORS.groupHeader),
+    tableHeader: pickPair(src.tableHeader, DEFAULT_MATRIX_COLORS.tableHeader),
+  };
+}
+
+function unpackAppSettingsFromSupabaseRow(
+  row: Record<string, unknown>,
+  fallback: AppSettingsData
+): AppSettingsData {
+  const rawProfile =
+    row.company_profile && typeof row.company_profile === 'object'
+      ? (row.company_profile as Record<string, unknown>)
+      : undefined;
+  const embeddedMatrixColors =
+    rawProfile && rawProfile._matrixColors && typeof rawProfile._matrixColors === 'object'
+      ? (rawProfile._matrixColors as Partial<MatrixColorSettingsData>)
+      : row.matrix_colors && typeof row.matrix_colors === 'object'
+      ? (row.matrix_colors as Partial<MatrixColorSettingsData>)
+      : fallback.matrixColors;
+  return normalizeSettings({
+    companyName: String(row.company_name || fallback.companyName),
+    companySubtitle: String(row.company_subtitle || fallback.companySubtitle),
+    lateDeductionPerMinute: Number(row.late_deduction_per_minute ?? fallback.lateDeductionPerMinute),
+    shifts: Array.isArray(row.shifts) ? (row.shifts as ShiftConfigData[]) : fallback.shifts,
+    companyProfile: rawProfile ? (rawProfile as unknown as CompanyProfileData) : fallback.companyProfile,
+    matrixColors: normalizeMatrixColors(embeddedMatrixColors),
+  });
+}
+
 interface AppSettingsData {
   companyName: string;
   companySubtitle: string;
   lateDeductionPerMinute: number;
   shifts: ShiftConfigData[];
   companyProfile: CompanyProfileData;
+  matrixColors: MatrixColorSettingsData;
 }
 
 interface LateSettlementData {
@@ -330,6 +416,7 @@ function buildDefaultSettings(): AppSettingsData {
       },
     ],
     companyProfile: buildDefaultCompanyProfile(),
+    matrixColors: normalizeMatrixColors(),
   };
 }
 
@@ -675,6 +762,13 @@ function normalizeSettings(rawSettings: Partial<AppSettingsData> | undefined): A
       })
     : defaults.shifts;
 
+  const embeddedColors =
+    rawSettings.companyProfile &&
+    typeof rawSettings.companyProfile === 'object' &&
+    '_matrixColors' in (rawSettings.companyProfile as unknown as Record<string, unknown>)
+      ? ((rawSettings.companyProfile as unknown as Record<string, unknown>)._matrixColors as Partial<MatrixColorSettingsData>)
+      : undefined;
+
   return {
     companyName: String(rawSettings.companyName || defaults.companyName).trim().slice(0, 60) || defaults.companyName,
     companySubtitle: String(rawSettings.companySubtitle || defaults.companySubtitle).trim().slice(0, 60) || defaults.companySubtitle,
@@ -684,6 +778,7 @@ function normalizeSettings(rawSettings: Partial<AppSettingsData> | undefined): A
     ),
     shifts,
     companyProfile: normalizeCompanyProfile(rawSettings.companyProfile),
+    matrixColors: normalizeMatrixColors(rawSettings.matrixColors || embeddedColors),
   };
 }
 
@@ -743,6 +838,18 @@ interface PayrollSettingsData {
   paydayDayOfMonth: number;
 }
 
+type BpjsDeductionModeData =
+  | 'default_pct'
+  | 'custom_pct'
+  | 'custom_nominal'
+  | 'nonaktif';
+
+interface EmployeeFixedDeductionItemData {
+  id: string;
+  title: string;
+  amount: number;
+}
+
 interface EmployeeSalaryProfileData {
   employeeId: string;
   baseSalary: number;
@@ -751,12 +858,136 @@ interface EmployeeSalaryProfileData {
   otherAllowance?: number;
   overtimeHourlyRate?: number;
   paydayDay?: number;
+  bpjsKesehatanMode?: BpjsDeductionModeData;
+  bpjsKesehatanValue?: number;
+  bpjsTkMode?: BpjsDeductionModeData;
+  bpjsTkValue?: number;
+  fixedDeductions?: EmployeeFixedDeductionItemData[];
   paymentMethod: 'transfer' | 'tunai';
   bankName: string;
   bankAccountNumber: string;
   bankAccountHolder: string;
   notes: string;
   updatedAt: string;
+}
+
+const VALID_BPJS_MODES_SERVER: readonly BpjsDeductionModeData[] = [
+  'default_pct',
+  'custom_pct',
+  'custom_nominal',
+  'nonaktif',
+];
+
+function normalizeBpjsModeServer(raw: unknown): BpjsDeductionModeData {
+  return typeof raw === 'string' && (VALID_BPJS_MODES_SERVER as readonly string[]).includes(raw)
+    ? (raw as BpjsDeductionModeData)
+    : 'default_pct';
+}
+
+function cleanBpjsValueServer(mode: BpjsDeductionModeData, raw: unknown, fallback = 0): number {
+  const num = Number(raw ?? fallback);
+  if (!Number.isFinite(num) || num < 0) return 0;
+  if (mode === 'custom_pct') {
+    return Math.round(Math.min(50, num) * 100) / 100;
+  }
+  if (mode === 'custom_nominal') {
+    return Math.round(Math.min(100000000, num));
+  }
+  return 0;
+}
+
+function sanitizeFixedDeductionsServer(raw: unknown): EmployeeFixedDeductionItemData[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EmployeeFixedDeductionItemData[] = [];
+  for (let i = 0; i < raw.length && out.length < 25; i++) {
+    const item = raw[i] as Record<string, unknown> | null;
+    if (!item || typeof item !== 'object') continue;
+    const title = String(item.title || '').trim().slice(0, 80);
+    const amount = Math.max(0, Math.min(1000000000, Math.round(Number(item.amount || 0))));
+    if (!title || !Number.isFinite(amount) || amount <= 0) continue;
+    const id =
+      String(item.id || '')
+        .trim()
+        .slice(0, 64) || `fd_${i + 1}`;
+    out.push({ id, title, amount });
+  }
+  return out;
+}
+
+function unpackPayrollProfileNotesServer(rawNotes: string): {
+  notes: string;
+  bpjsKesehatanMode: BpjsDeductionModeData;
+  bpjsKesehatanValue: number;
+  bpjsTkMode: BpjsDeductionModeData;
+  bpjsTkValue: number;
+  fixedDeductions: EmployeeFixedDeductionItemData[];
+} {
+  const text = String(rawNotes || '');
+  const marker = '[PAYROLL_DEDUCTIONS:';
+  const idx = text.lastIndexOf(marker);
+  if (idx < 0 || !text.trimEnd().endsWith(']')) {
+    return {
+      notes: text.trim(),
+      bpjsKesehatanMode: 'default_pct',
+      bpjsKesehatanValue: 0,
+      bpjsTkMode: 'default_pct',
+      bpjsTkValue: 0,
+      fixedDeductions: [],
+    };
+  }
+  const cleanNotes = text.slice(0, idx).trim();
+  const trimmedEnd = text.trimEnd();
+  const jsonPart = trimmedEnd.slice(idx + marker.length, -1);
+  try {
+    const parsed = JSON.parse(jsonPart) as {
+      bk?: unknown;
+      bkv?: unknown;
+      bt?: unknown;
+      btv?: unknown;
+      fd?: unknown;
+    };
+    const bk = normalizeBpjsModeServer(parsed.bk);
+    const bt = normalizeBpjsModeServer(parsed.bt);
+    return {
+      notes: cleanNotes,
+      bpjsKesehatanMode: bk,
+      bpjsKesehatanValue: cleanBpjsValueServer(bk, parsed.bkv, 0),
+      bpjsTkMode: bt,
+      bpjsTkValue: cleanBpjsValueServer(bt, parsed.btv, 0),
+      fixedDeductions: sanitizeFixedDeductionsServer(parsed.fd),
+    };
+  } catch {
+    return {
+      notes: text.trim(),
+      bpjsKesehatanMode: 'default_pct',
+      bpjsKesehatanValue: 0,
+      bpjsTkMode: 'default_pct',
+      bpjsTkValue: 0,
+      fixedDeductions: [],
+    };
+  }
+}
+
+function packPayrollProfileNotesServer(p: EmployeeSalaryProfileData): string {
+  const cleanNotes = unpackPayrollProfileNotesServer(p.notes || '').notes.slice(0, 300);
+  const bk = normalizeBpjsModeServer(p.bpjsKesehatanMode);
+  const bkv = cleanBpjsValueServer(bk, p.bpjsKesehatanValue, 0);
+  const bt = normalizeBpjsModeServer(p.bpjsTkMode);
+  const btv = cleanBpjsValueServer(bt, p.bpjsTkValue, 0);
+  const fd = sanitizeFixedDeductionsServer(p.fixedDeductions);
+
+  if (bk === 'default_pct' && bt === 'default_pct' && fd.length === 0) {
+    return cleanNotes;
+  }
+
+  const tag = `[PAYROLL_DEDUCTIONS:${JSON.stringify({
+    bk,
+    bkv,
+    bt,
+    btv,
+    fd,
+  })}]`;
+  return cleanNotes ? `${cleanNotes} ${tag}` : tag;
 }
 
 interface PayrollAdjustmentData {
@@ -1863,7 +2094,10 @@ async function syncAttendanceModuleToSupabase(cfg?: DatabaseConnectionConfigData
       company_subtitle: db.settings.companySubtitle,
       late_deduction_per_minute: db.settings.lateDeductionPerMinute,
       shifts: db.settings.shifts,
-      company_profile: db.settings.companyProfile,
+      company_profile: {
+        ...db.settings.companyProfile,
+        _matrixColors: normalizeMatrixColors(db.settings.matrixColors),
+      },
       updated_at: nowIso,
     },
   ]);
@@ -1981,7 +2215,7 @@ async function syncPayrollModuleToSupabase(cfg?: DatabaseConnectionConfigData): 
     bank_name: p.bankName,
     bank_account_number: p.bankAccountNumber,
     bank_account_holder: p.bankAccountHolder,
-    notes: p.notes || '',
+    notes: packPayrollProfileNotesServer(p),
     updated_at: p.updatedAt || nowIso,
   }));
   const pp = await upsertRowsSupabase(sb, 'payroll_profiles', profRows, 'employee_id');
@@ -2288,19 +2522,10 @@ async function pullAttendanceModuleFromSupabase(cfg: DatabaseConnectionConfigDat
   const nextAtt: DatabaseSchema = {
     settings:
       settingsRows.length > 0
-        ? normalizeSettings({
-            companyName: String((settingsRows[0] as Record<string, unknown>).company_name || prevAtt.settings.companyName),
-            companySubtitle: String((settingsRows[0] as Record<string, unknown>).company_subtitle || prevAtt.settings.companySubtitle),
-            lateDeductionPerMinute: Number((settingsRows[0] as Record<string, unknown>).late_deduction_per_minute ?? 1000),
-            shifts: Array.isArray((settingsRows[0] as Record<string, unknown>).shifts)
-              ? ((settingsRows[0] as Record<string, unknown>).shifts as ShiftConfigData[])
-              : prevAtt.settings.shifts,
-            companyProfile:
-              (settingsRows[0] as Record<string, unknown>).company_profile &&
-              typeof (settingsRows[0] as Record<string, unknown>).company_profile === 'object'
-                ? ((settingsRows[0] as Record<string, unknown>).company_profile as CompanyProfileData)
-                : prevAtt.settings.companyProfile,
-          })
+        ? unpackAppSettingsFromSupabaseRow(
+            settingsRows[0] as Record<string, unknown>,
+            prevAtt.settings
+          )
         : prevAtt.settings,
     employees: empRows
       .map((e: Record<string, unknown>) => ({
@@ -2424,21 +2649,29 @@ async function pullPayrollModuleFromSupabase(cfg: DatabaseConnectionConfigData):
           })
         : prevPay.settings,
     profiles: pProfRows
-      .map((p: Record<string, unknown>) => ({
-        employeeId: String(p.employee_id),
-        baseSalary: Number(p.base_salary || 0),
-        positionAllowance: Number(p.position_allowance || 0),
-        transportMealAllowance: Number(p.transport_meal_allowance || 0),
-        otherAllowance: Number(p.other_allowance || 0),
-        overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
-        paydayDay: Number(p.payday_day || 25),
-        paymentMethod: p.payment_method === 'tunai' ? ('tunai' as const) : ('transfer' as const),
-        bankName: String(p.bank_name || ''),
-        bankAccountNumber: String(p.bank_account_number || ''),
-        bankAccountHolder: String(p.bank_account_holder || ''),
-        notes: String(p.notes || ''),
-        updatedAt: String(p.updated_at || new Date().toISOString()),
-      }))
+      .map((p: Record<string, unknown>) => {
+        const unpacked = unpackPayrollProfileNotesServer(String(p.notes || ''));
+        return {
+          employeeId: String(p.employee_id),
+          baseSalary: Number(p.base_salary || 0),
+          positionAllowance: Number(p.position_allowance || 0),
+          transportMealAllowance: Number(p.transport_meal_allowance || 0),
+          otherAllowance: Number(p.other_allowance || 0),
+          overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
+          paydayDay: Number(p.payday_day || 25),
+          bpjsKesehatanMode: unpacked.bpjsKesehatanMode,
+          bpjsKesehatanValue: unpacked.bpjsKesehatanValue,
+          bpjsTkMode: unpacked.bpjsTkMode,
+          bpjsTkValue: unpacked.bpjsTkValue,
+          fixedDeductions: unpacked.fixedDeductions,
+          paymentMethod: p.payment_method === 'tunai' ? ('tunai' as const) : ('transfer' as const),
+          bankName: String(p.bank_name || ''),
+          bankAccountNumber: String(p.bank_account_number || ''),
+          bankAccountHolder: String(p.bank_account_holder || ''),
+          notes: unpacked.notes,
+          updatedAt: String(p.updated_at || new Date().toISOString()),
+        };
+      })
       .sort((a, b) => a.employeeId.localeCompare(b.employeeId)),
     adjustments: pAdjRows
       .map((a: Record<string, unknown>) => ({
@@ -2881,17 +3114,10 @@ async function pullAllSupabaseToLocal(): Promise<{
       const settingsRows = settingsRes.data || [];
       syncedTables.push({ tableName: 'app_settings', rowCount: settingsRows.length });
       if (settingsRows.length > 0) {
-        const s = settingsRows[0] as Record<string, unknown>;
-        curAtt.settings = normalizeSettings({
-          companyName: String(s.company_name || curAtt.settings.companyName),
-          companySubtitle: String(s.company_subtitle || curAtt.settings.companySubtitle),
-          lateDeductionPerMinute: Number(s.late_deduction_per_minute ?? 1000),
-          shifts: Array.isArray(s.shifts) ? (s.shifts as ShiftConfigData[]) : curAtt.settings.shifts,
-          companyProfile:
-            s.company_profile && typeof s.company_profile === 'object'
-              ? (s.company_profile as CompanyProfileData)
-              : curAtt.settings.companyProfile,
-        });
+        curAtt.settings = unpackAppSettingsFromSupabaseRow(
+          settingsRows[0] as Record<string, unknown>,
+          curAtt.settings
+        );
         attChanged = true;
       }
     }
@@ -3021,21 +3247,29 @@ async function pullAllSupabaseToLocal(): Promise<{
       const pProfRows = pProfRes.data || [];
       syncedTables.push({ tableName: 'payroll_profiles', rowCount: pProfRows.length });
       if (pProfRows.length > 0 || hasAnyRemoteData) {
-        curPay.profiles = pProfRows.map((p: Record<string, unknown>) => ({
-          employeeId: String(p.employee_id),
-          baseSalary: Number(p.base_salary || 0),
-          positionAllowance: Number(p.position_allowance || 0),
-          transportMealAllowance: Number(p.transport_meal_allowance || 0),
-          otherAllowance: Number(p.other_allowance || 0),
-          overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
-          paydayDay: Number(p.payday_day || 25),
-          paymentMethod: p.payment_method === 'tunai' ? 'tunai' : 'transfer',
-          bankName: String(p.bank_name || ''),
-          bankAccountNumber: String(p.bank_account_number || ''),
-          bankAccountHolder: String(p.bank_account_holder || ''),
-          notes: String(p.notes || ''),
-          updatedAt: String(p.updated_at || new Date().toISOString()),
-        }));
+        curPay.profiles = pProfRows.map((p: Record<string, unknown>) => {
+          const unpacked = unpackPayrollProfileNotesServer(String(p.notes || ''));
+          return {
+            employeeId: String(p.employee_id),
+            baseSalary: Number(p.base_salary || 0),
+            positionAllowance: Number(p.position_allowance || 0),
+            transportMealAllowance: Number(p.transport_meal_allowance || 0),
+            otherAllowance: Number(p.other_allowance || 0),
+            overtimeHourlyRate: Number(p.overtime_hourly_rate || 25000),
+            paydayDay: Number(p.payday_day || 25),
+            bpjsKesehatanMode: unpacked.bpjsKesehatanMode,
+            bpjsKesehatanValue: unpacked.bpjsKesehatanValue,
+            bpjsTkMode: unpacked.bpjsTkMode,
+            bpjsTkValue: unpacked.bpjsTkValue,
+            fixedDeductions: unpacked.fixedDeductions,
+            paymentMethod: p.payment_method === 'tunai' ? 'tunai' : 'transfer',
+            bankName: String(p.bank_name || ''),
+            bankAccountNumber: String(p.bank_account_number || ''),
+            bankAccountHolder: String(p.bank_account_holder || ''),
+            notes: unpacked.notes,
+            updatedAt: String(p.updated_at || new Date().toISOString()),
+          };
+        });
         payChanged = true;
       }
     }
@@ -4160,6 +4394,13 @@ async function startServer() {
       ? { ...db.settings.companyProfile, ...body.companyProfile }
       : db.settings.companyProfile;
 
+    const mergedMatrixColors = body.matrixColors
+      ? normalizeMatrixColors({
+          ...db.settings.matrixColors,
+          ...body.matrixColors,
+        })
+      : db.settings.matrixColors;
+
     const nextSettings = normalizeSettings({
       companyName: body.companyName !== undefined ? body.companyName : db.settings.companyName,
       companySubtitle:
@@ -4170,6 +4411,7 @@ async function startServer() {
           : db.settings.lateDeductionPerMinute,
       shifts: Array.isArray(body.shifts) ? body.shifts : db.settings.shifts,
       companyProfile: mergedProfile,
+      matrixColors: mergedMatrixColors,
     });
 
     db.settings = nextSettings;
@@ -5773,6 +6015,29 @@ async function startServer() {
       Math.min(31, Math.round(Number.isFinite(rawPayday) ? rawPayday : payrollDb.settings.paydayDayOfMonth))
     );
 
+    const bpjsKesehatanMode =
+      body.bpjsKesehatanMode !== undefined
+        ? normalizeBpjsModeServer(body.bpjsKesehatanMode)
+        : normalizeBpjsModeServer(existing?.bpjsKesehatanMode);
+    const bpjsKesehatanValue = cleanBpjsValueServer(
+      bpjsKesehatanMode,
+      body.bpjsKesehatanValue !== undefined ? body.bpjsKesehatanValue : existing?.bpjsKesehatanValue,
+      0
+    );
+    const bpjsTkMode =
+      body.bpjsTkMode !== undefined
+        ? normalizeBpjsModeServer(body.bpjsTkMode)
+        : normalizeBpjsModeServer(existing?.bpjsTkMode);
+    const bpjsTkValue = cleanBpjsValueServer(
+      bpjsTkMode,
+      body.bpjsTkValue !== undefined ? body.bpjsTkValue : existing?.bpjsTkValue,
+      0
+    );
+    const fixedDeductions =
+      body.fixedDeductions !== undefined
+        ? sanitizeFixedDeductionsServer(body.fixedDeductions)
+        : sanitizeFixedDeductionsServer(existing?.fixedDeductions);
+
     const nextProfile: EmployeeSalaryProfileData = {
       employeeId,
       baseSalary: cleanMoney(body.baseSalary, existing?.baseSalary ?? 0),
@@ -5790,6 +6055,11 @@ async function startServer() {
           ? cleanMoney(body.overtimeHourlyRate, payrollDb.settings.defaultOvertimeHourlyRate)
           : existing?.overtimeHourlyRate ?? payrollDb.settings.defaultOvertimeHourlyRate,
       paydayDay: safePayday,
+      bpjsKesehatanMode,
+      bpjsKesehatanValue,
+      bpjsTkMode,
+      bpjsTkValue,
+      fixedDeductions,
       paymentMethod:
         body.paymentMethod === 'tunai' || body.paymentMethod === 'transfer'
           ? body.paymentMethod
@@ -5808,7 +6078,7 @@ async function startServer() {
           : existing?.bankAccountHolder ?? emp.name,
       notes:
         body.notes !== undefined
-          ? String(body.notes).trim().slice(0, 300)
+          ? unpackPayrollProfileNotesServer(String(body.notes)).notes.slice(0, 300)
           : existing?.notes ?? '',
       updatedAt: new Date().toISOString(),
     };
@@ -5945,6 +6215,11 @@ async function startServer() {
         overtimeHourlyRate:
           existing?.overtimeHourlyRate ?? payrollDb.settings.defaultOvertimeHourlyRate,
         paydayDay: existing?.paydayDay ?? payrollDb.settings.paydayDayOfMonth,
+        bpjsKesehatanMode: existing?.bpjsKesehatanMode ?? 'default_pct',
+        bpjsKesehatanValue: existing?.bpjsKesehatanValue ?? 0,
+        bpjsTkMode: existing?.bpjsTkMode ?? 'default_pct',
+        bpjsTkValue: existing?.bpjsTkValue ?? 0,
+        fixedDeductions: existing?.fixedDeductions ?? [],
         paymentMethod: existing?.paymentMethod ?? 'transfer',
         bankName: existing?.bankName ?? 'BCA',
         bankAccountNumber: existing?.bankAccountNumber ?? '',

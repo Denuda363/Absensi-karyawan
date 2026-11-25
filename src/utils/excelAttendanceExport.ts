@@ -14,11 +14,18 @@ import {
   isEmployeeOffDay,
   isEmployeeShiftAssigned,
   LateSettlement,
+  MatrixColorSettings,
+  normalizeMatrixColors,
   resolveAttendanceShift,
   resolveEmployeeDefaultShiftForDate,
   ShiftConfig,
   statusToMatrixCode,
 } from '../types';
+
+function hexToArgb(hex: string, fallback = 'FFFFFFFF'): string {
+  const clean = typeof hex === 'string' ? hex.trim().toUpperCase() : '';
+  return /^#[0-9A-F]{6}$/.test(clean) ? `FF${clean.slice(1)}` : fallback;
+}
 
 function colLetter(colNumber: number): string {
   let n = colNumber;
@@ -103,6 +110,7 @@ export async function exportAttendanceMatrixToExcel(params: {
   companyName?: string;
   companySubtitle?: string;
   companyProfile?: CompanyProfile;
+  matrixColors?: MatrixColorSettings;
 }): Promise<void> {
   const {
     employees,
@@ -114,7 +122,21 @@ export async function exportAttendanceMatrixToExcel(params: {
     companyName = 'KARYAPRESENSI',
     companySubtitle = 'HRIS PERUSAHAAN',
     companyProfile,
+    matrixColors: rawMatrixColors,
   } = params;
+  const mc = normalizeMatrixColors(rawMatrixColors);
+  const mcArgb = {
+    hadir: { bg: hexToArgb(mc.hadir.bg), text: hexToArgb(mc.hadir.text) },
+    terlambat: { bg: hexToArgb(mc.terlambat.bg), text: hexToArgb(mc.terlambat.text) },
+    izinTerlambat: { bg: hexToArgb(mc.izinTerlambat.bg), text: hexToArgb(mc.izinTerlambat.text) },
+    izin: { bg: hexToArgb(mc.izin.bg), text: hexToArgb(mc.izin.text) },
+    sakit: { bg: hexToArgb(mc.sakit.bg), text: hexToArgb(mc.sakit.text) },
+    alpha: { bg: hexToArgb(mc.alpha.bg), text: hexToArgb(mc.alpha.text) },
+    libur: { bg: hexToArgb(mc.libur.bg), text: hexToArgb(mc.libur.text) },
+    brandHeader: { bg: hexToArgb(mc.brandHeader.bg), text: hexToArgb(mc.brandHeader.text) },
+    groupHeader: { bg: hexToArgb(mc.groupHeader.bg), text: hexToArgb(mc.groupHeader.text) },
+    tableHeader: { bg: hexToArgb(mc.tableHeader.bg), text: hexToArgb(mc.tableHeader.text) },
+  };
 
   const meta = getMonthMetadata(yearMonth);
   const days = getDaysInMonth(yearMonth);
@@ -207,8 +229,8 @@ export async function exportAttendanceMatrixToExcel(params: {
   ws.mergeCells(`F1:${sumAColLetter}1`);
   const titleCell = ws.getCell('F1');
   titleCell.value = `DAFTAR HADIR KARYAWAN BULAN ${meta.monthName.toUpperCase()} ${meta.year}${deptSuffix}`;
-  titleCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF0F172A' } };
-  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+  titleCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: mcArgb.groupHeader.text } };
+  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.groupHeader.bg } };
   titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
   applyBorderToRange(ws, 1, 6, 1, SUM_A_COL, THIN_BORDER);
 
@@ -219,16 +241,16 @@ export async function exportAttendanceMatrixToExcel(params: {
   ws.mergeCells('B3:D4');
   const brandCell = ws.getCell('B3');
   brandCell.value = `${companyName}\n${companySubtitle}`;
-  brandCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
-  brandCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC000' } };
+  brandCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: mcArgb.brandHeader.text } };
+  brandCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.brandHeader.bg } };
   brandCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
   applyBorderToRange(ws, 3, 2, 4, 4, THIN_BORDER);
 
   ws.mergeCells('F3:H4');
   const pegawaiHdr = ws.getCell('F3');
   pegawaiHdr.value = 'PEGAWAI';
-  pegawaiHdr.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF0F172A' } };
-  pegawaiHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+  pegawaiHdr.font = { name: 'Calibri', size: 12, bold: true, color: { argb: mcArgb.groupHeader.text } };
+  pegawaiHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.groupHeader.bg } };
   pegawaiHdr.alignment = { horizontal: 'center', vertical: 'middle' };
   applyBorderToRange(ws, 3, 6, 4, 8, THIN_BORDER);
 
@@ -237,9 +259,9 @@ export async function exportAttendanceMatrixToExcel(params: {
     const cLetter = colLetter(col);
     ws.mergeCells(`${cLetter}3:${cLetter}4`);
     const cell = ws.getCell(3, col);
-    cell.value = getDayNameIndonesian(dateStr);
-    cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF0F172A' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    cell.value = getDayNameIndonesian(dateStr).toUpperCase();
+    cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.groupHeader.text } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.groupHeader.bg } };
     cell.alignment = {
       textRotation: 90,
       horizontal: 'center',
@@ -251,8 +273,8 @@ export async function exportAttendanceMatrixToExcel(params: {
   ws.mergeCells(`${sumHColLetter}3:${sumAColLetter}4`);
   const rightRingkasanHdr = ws.getCell(`${sumHColLetter}3`);
   rightRingkasanHdr.value = 'RINGKASAN';
-  rightRingkasanHdr.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
-  rightRingkasanHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+  rightRingkasanHdr.font = { name: 'Calibri', size: 11, bold: true, color: { argb: mcArgb.groupHeader.text } };
+  rightRingkasanHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.groupHeader.bg } };
   rightRingkasanHdr.alignment = { horizontal: 'center', vertical: 'middle' };
   applyBorderToRange(ws, 3, SUM_H_COL, 4, SUM_A_COL, THIN_BORDER);
 
@@ -260,30 +282,30 @@ export async function exportAttendanceMatrixToExcel(params: {
   ws.mergeCells('B5:D5');
   const sheetKehadiranCell = ws.getCell('B5');
   sheetKehadiranCell.value = 'SHEET KEHADIRAN';
-  sheetKehadiranCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-  sheetKehadiranCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+  sheetKehadiranCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: mcArgb.groupHeader.text } };
+  sheetKehadiranCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.groupHeader.bg } };
   sheetKehadiranCell.alignment = { horizontal: 'center', vertical: 'middle' };
   applyBorderToRange(ws, 5, 2, 5, 4, THIN_BORDER);
 
   const subheaders: { col: number; label: string }[] = [
     { col: 6, label: 'ID' },
-    { col: 7, label: 'Nama' },
-    { col: 8, label: 'Hari Libur' },
+    { col: 7, label: 'NAMA' },
+    { col: 8, label: 'HARI LIBUR' },
     ...days.map((d, i) => ({
       col: DAY_START_COL + i,
       label: d.slice(8, 10),
     })),
-    { col: SUM_H_COL, label: 'h' },
-    { col: SUM_I_COL, label: 'i' },
-    { col: SUM_S_COL, label: 's' },
-    { col: SUM_A_COL, label: 'a' },
+    { col: SUM_H_COL, label: 'H' },
+    { col: SUM_I_COL, label: 'I' },
+    { col: SUM_S_COL, label: 'S' },
+    { col: SUM_A_COL, label: 'A' },
   ];
 
   for (const sh of subheaders) {
     const c = ws.getCell(5, sh.col);
     c.value = sh.label;
-    c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+    c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: mcArgb.tableHeader.text } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.tableHeader.bg } };
     c.alignment = { horizontal: 'center', vertical: 'middle' };
     c.border = THIN_BORDER;
   }
@@ -323,19 +345,19 @@ export async function exportAttendanceMatrixToExcel(params: {
       );
 
       const idCell = ws.getCell(r, 6);
-      idCell.value = emp.employeeCode;
+      idCell.value = emp.employeeCode.toUpperCase();
       idCell.font = { name: 'Calibri', size: 9, color: { argb: 'FF0F172A' } };
       idCell.alignment = { horizontal: 'center', vertical: 'middle' };
       idCell.border = THIN_BORDER;
 
       const nameCell = ws.getCell(r, 7);
-      nameCell.value = emp.name;
+      nameCell.value = emp.name.toUpperCase();
       nameCell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF0F172A' } };
       nameCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
       nameCell.border = THIN_BORDER;
 
       const offCell = ws.getCell(r, 8);
-      offCell.value = offSummary;
+      offCell.value = offSummary.toUpperCase();
       offCell.font = { name: 'Calibri', size: 9, color: { argb: 'FF334155' } };
       offCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       offCell.border = THIN_BORDER;
@@ -351,51 +373,54 @@ export async function exportAttendanceMatrixToExcel(params: {
         const rec = recMap.get(`${emp.id}__${dateStr}`);
         const scheduledOff = isEmployeeOffDay(emp, dateStr).isOff;
 
-        const code = rec ? statusToMatrixCode(rec.status) : '';
+        const rawCode = rec ? statusToMatrixCode(rec.status) : '';
+        const code = rawCode || (scheduledOff ? 'L' : '');
         cell.value = code || null;
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
         cell.border = THIN_BORDER;
 
-        if (code === 'h') {
+        if (code === 'H') {
           empH++;
           dayTotalsH[dIdx]++;
           grandTotalH++;
           if (rec?.status === 'terlambat') {
-            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD97706' } };
+            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.terlambat.text } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.terlambat.bg } };
           } else if (rec?.status === 'izin_terlambat') {
-            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
+            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.izinTerlambat.text } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.izinTerlambat.bg } };
           } else {
-            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF548235' } };
+            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.hadir.text } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.hadir.bg } };
           }
-        } else if (code === 'i') {
+        } else if (code === 'I') {
           empI++;
           dayTotalsI[dIdx]++;
           grandTotalI++;
-          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF833C0C' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-        } else if (code === 's') {
+          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.izin.text } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.izin.bg } };
+        } else if (code === 'S') {
           empS++;
           dayTotalsS[dIdx]++;
           grandTotalS++;
-          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4338CA' } };
-        } else if (code === 'a') {
+          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.sakit.text } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.sakit.bg } };
+        } else if (code === 'A') {
           empA++;
           dayTotalsA[dIdx]++;
           grandTotalA++;
-          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC00000' } };
-        } else if (scheduledOff || rec?.status === 'libur') {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.alpha.text } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.alpha.bg } };
+        } else if (code === 'L' || scheduledOff || rec?.status === 'libur') {
+          cell.value = 'L';
+          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.libur.text } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.libur.bg } };
         }
       });
 
       const hSumCell = ws.getCell(r, SUM_H_COL);
       hSumCell.value = {
-        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"h")`,
+        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"H")`,
         result: empH,
       };
       hSumCell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF0F172A' } };
@@ -404,7 +429,7 @@ export async function exportAttendanceMatrixToExcel(params: {
 
       const iSumCell = ws.getCell(r, SUM_I_COL);
       iSumCell.value = {
-        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"i")`,
+        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"I")`,
         result: empI,
       };
       iSumCell.font = { name: 'Calibri', size: 9, color: { argb: 'FF0F172A' } };
@@ -413,7 +438,7 @@ export async function exportAttendanceMatrixToExcel(params: {
 
       const sSumCell = ws.getCell(r, SUM_S_COL);
       sSumCell.value = {
-        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"s")`,
+        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"S")`,
         result: empS,
       };
       sSumCell.font = { name: 'Calibri', size: 9, color: { argb: 'FF0F172A' } };
@@ -422,7 +447,7 @@ export async function exportAttendanceMatrixToExcel(params: {
 
       const aSumCell = ws.getCell(r, SUM_A_COL);
       aSumCell.value = {
-        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"a")`,
+        formula: `COUNTIF(${firstDayColLetter}${r}:${lastDayColLetter}${r},"A")`,
         result: empA,
       };
       aSumCell.font = { name: 'Calibri', size: 9, color: { argb: 'FF0F172A' } };
@@ -432,19 +457,19 @@ export async function exportAttendanceMatrixToExcel(params: {
   }
 
   const bottomStart = lastEmpRow + 1;
-  const bottomLabels: { offset: number; code: 'h' | 'i' | 's' | 'a' | 'TOTAL' }[] = [
-    { offset: 0, code: 'h' },
-    { offset: 1, code: 'i' },
-    { offset: 2, code: 's' },
-    { offset: 3, code: 'a' },
+  const bottomLabels: { offset: number; code: 'H' | 'I' | 'S' | 'A' | 'TOTAL' }[] = [
+    { offset: 0, code: 'H' },
+    { offset: 1, code: 'I' },
+    { offset: 2, code: 'S' },
+    { offset: 3, code: 'A' },
     { offset: 4, code: 'TOTAL' },
   ];
 
   ws.mergeCells(`F${bottomStart}:G${bottomStart + 4}`);
   const bottomRingkasanHdr = ws.getCell(`F${bottomStart}`);
   bottomRingkasanHdr.value = 'RINGKASAN';
-  bottomRingkasanHdr.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-  bottomRingkasanHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+  bottomRingkasanHdr.font = { name: 'Calibri', size: 11, bold: true, color: { argb: mcArgb.tableHeader.text } };
+  bottomRingkasanHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.tableHeader.bg } };
   bottomRingkasanHdr.alignment = { horizontal: 'center', vertical: 'middle' };
   applyBorderToRange(ws, bottomStart, 6, bottomStart + 4, 7, THIN_BORDER);
 
@@ -454,8 +479,8 @@ export async function exportAttendanceMatrixToExcel(params: {
 
     const lblCell = ws.getCell(rowNum, 8);
     lblCell.value = bl.code;
-    lblCell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
-    lblCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+    lblCell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.tableHeader.text } };
+    lblCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.tableHeader.bg } };
     lblCell.alignment = { horizontal: 'center', vertical: 'middle' };
     lblCell.border = THIN_BORDER;
 
@@ -477,11 +502,11 @@ export async function exportAttendanceMatrixToExcel(params: {
         c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
       } else {
         const resVal =
-          bl.code === 'h'
+          bl.code === 'H'
             ? dayTotalsH[dIdx]
-            : bl.code === 'i'
+            : bl.code === 'I'
             ? dayTotalsI[dIdx]
-            : bl.code === 's'
+            : bl.code === 'S'
             ? dayTotalsS[dIdx]
             : dayTotalsA[dIdx];
         c.value = {
@@ -527,8 +552,8 @@ export async function exportAttendanceMatrixToExcel(params: {
   }
 
   const infoRows: { row: number; label: string; value: string | number }[] = [
-    { row: 6, label: 'Tahun', value: meta.year },
-    { row: 7, label: 'Bulan', value: meta.monthName },
+    { row: 6, label: 'TAHUN', value: meta.year },
+    { row: 7, label: 'BULAN', value: meta.monthName.toUpperCase() },
   ];
   for (const ir of infoRows) {
     const lbl = ws.getCell(ir.row, 2);
@@ -662,17 +687,17 @@ export async function exportAttendanceMatrixToExcel(params: {
   ws.mergeCells('B21:D21');
   const legHdr = ws.getCell('B21');
   legHdr.value = 'KETERANGAN';
-  legHdr.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF0F172A' } };
-  legHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+  legHdr.font = { name: 'Calibri', size: 9, bold: true, color: { argb: mcArgb.groupHeader.text } };
+  legHdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: mcArgb.groupHeader.bg } };
   legHdr.alignment = { horizontal: 'center', vertical: 'middle' };
   applyBorderToRange(ws, 21, 2, 21, 4, THIN_BORDER);
 
   const legendItems = [
-    'h = hadir (termasuk telat & izin telat)',
-    'i = ijin',
-    's = sakit',
-    'a = alpha',
-    'abu-abu = hari libur',
+    'H = HADIR (TERMASUK TELAT & IZIN TELAT)',
+    'I = IJIN',
+    'S = SAKIT',
+    'A = ALPHA',
+    'L = LIBUR KARYAWAN',
   ];
   legendItems.forEach((txt, idx) => {
     const r = 22 + idx;

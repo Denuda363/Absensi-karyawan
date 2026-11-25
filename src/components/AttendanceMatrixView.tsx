@@ -39,6 +39,7 @@ import {
   isEmployeeShiftAssigned,
   LATE_PERMIT_REASON_PRESETS,
   LateSettlement,
+  normalizeMatrixColors,
   resolveAttendanceShift,
   resolveEmployeeDefaultShiftForDate,
   statusToMatrixCode,
@@ -245,24 +246,26 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       const cells = days.map((dateStr, dIdx) => {
         const rec = recordMap.get(`${emp.id}__${dateStr}`) ?? null;
         const scheduledOff = isEmployeeOffDay(emp, dateStr);
-        const code = rec ? statusToMatrixCode(rec.status) : '';
+        const rawCode = rec ? statusToMatrixCode(rec.status) : '';
+        const isOff = scheduledOff.isOff || rec?.status === 'libur';
+        const code = rawCode || (scheduledOff.isOff ? 'L' : '');
 
-        if (code === 'h') {
+        if (code === 'H') {
           empH++;
           daySums[dIdx].h++;
           daySums[dIdx].total++;
           grandH++;
-        } else if (code === 'i') {
+        } else if (code === 'I') {
           empI++;
           daySums[dIdx].i++;
           daySums[dIdx].total++;
           grandI++;
-        } else if (code === 's') {
+        } else if (code === 'S') {
           empS++;
           daySums[dIdx].s++;
           daySums[dIdx].total++;
           grandS++;
-        } else if (code === 'a') {
+        } else if (code === 'A') {
           empA++;
           daySums[dIdx].a++;
           daySums[dIdx].total++;
@@ -273,7 +276,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           date: dateStr,
           rec,
           code,
-          isOff: scheduledOff.isOff || rec?.status === 'libur',
+          isOff,
         };
       });
 
@@ -316,6 +319,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
         companyName: settings?.companyName,
         companySubtitle: settings?.companySubtitle,
         companyProfile: settings?.companyProfile,
+        matrixColors: settings?.matrixColors,
       });
     } catch (err) {
       setActionBanner({
@@ -967,6 +971,10 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     inputStatus === 'izin_terlambat';
   const companyName = settings?.companyName || 'KARYAPRESENSI';
   const companySubtitle = settings?.companySubtitle || 'HRIS PERUSAHAAN';
+  const matrixColors = useMemo(
+    () => normalizeMatrixColors(settings?.matrixColors),
+    [settings?.matrixColors]
+  );
 
   const estimatedPrintSheetHeight =
     36 + Math.max(320, 60 + Math.max(1, matrixData.rows.length) * 16 + 76);
@@ -1312,14 +1320,14 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </span>
                 {(
                   [
-                    { id: 'detail', label: 'Edit Detail', activeCls: 'bg-slate-900 text-white border-slate-900' },
-                    { id: 'hadir', label: 'Hadir (h)', activeCls: 'bg-[#548235] text-white border-[#548235]' },
-                    { id: 'terlambat', label: 'Terlambat (t)', activeCls: 'bg-[#D97706] text-white border-[#D97706]' },
-                    { id: 'izin', label: 'Izin (i)', activeCls: 'bg-amber-200 text-amber-950 border-amber-400' },
-                    { id: 'sakit', label: 'Sakit (s)', activeCls: 'bg-[#4338CA] text-white border-[#4338CA]' },
-                    { id: 'alpha', label: 'Alpha (a)', activeCls: 'bg-[#C00000] text-white border-[#C00000]' },
-                    { id: 'libur', label: 'Libur (l)', activeCls: 'bg-slate-600 text-white border-slate-600' },
-                    { id: 'hapus', label: 'Hapus', activeCls: 'bg-red-50 text-red-700 border-red-300' },
+                    { id: 'detail', label: 'Edit Detail', colorPair: null, activeCls: 'bg-slate-900 text-white border-slate-900' },
+                    { id: 'hadir', label: 'Hadir (H)', colorPair: matrixColors.hadir, activeCls: 'font-bold border-slate-700' },
+                    { id: 'terlambat', label: 'Terlambat (T)', colorPair: matrixColors.terlambat, activeCls: 'font-bold border-slate-700' },
+                    { id: 'izin', label: 'Izin (I)', colorPair: matrixColors.izin, activeCls: 'font-bold border-amber-400' },
+                    { id: 'sakit', label: 'Sakit (S)', colorPair: matrixColors.sakit, activeCls: 'font-bold border-slate-700' },
+                    { id: 'alpha', label: 'Alpha (A)', colorPair: matrixColors.alpha, activeCls: 'font-bold border-slate-700' },
+                    { id: 'libur', label: 'Libur (L)', colorPair: matrixColors.libur, activeCls: 'font-bold border-slate-500' },
+                    { id: 'hapus', label: 'Hapus', colorPair: null, activeCls: 'bg-red-50 text-red-700 border-red-300' },
                   ] as const
                 ).map((mode) => {
                   const isActive = matrixClickMode === mode.id;
@@ -1328,6 +1336,14 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       key={mode.id}
                       type="button"
                       onClick={() => setMatrixClickMode(mode.id)}
+                      style={
+                        isActive && mode.colorPair
+                          ? {
+                              backgroundColor: mode.colorPair.bg,
+                              color: mode.colorPair.text,
+                            }
+                          : undefined
+                      }
                       className={`min-h-[36px] sm:min-h-0 px-3 sm:px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                         isActive
                           ? mode.activeCls
@@ -1352,7 +1368,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
             {/* Top Title Banner aligned over the main table */}
             <div className="xl:pl-60 print:pl-[124px]">
-              <div className="bg-[#D9E1F2] border border-slate-400 py-2 px-3 sm:px-4 print:py-1 print:px-2 text-center font-bold text-xs sm:text-base print:text-[11px] print:leading-tight tracking-wide text-slate-950 uppercase">
+              <div
+                style={{
+                  backgroundColor: matrixColors.groupHeader.bg,
+                  color: matrixColors.groupHeader.text,
+                }}
+                className="border border-slate-400 py-2 px-3 sm:px-4 print:py-1 print:px-2 text-center font-bold text-xs sm:text-base print:text-[11px] print:leading-tight tracking-wide uppercase"
+              >
                 DAFTAR HADIR KARYAWAN BULAN {meta.monthName.toUpperCase()} {meta.year}
                 {deptFilter !== 'all' ? ` — DIVISI ${deptFilter.toUpperCase()}` : ''}
               </div>
@@ -1360,19 +1382,31 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
             <div className="flex flex-col xl:flex-row print:flex-row gap-4 print:gap-2 items-start print:items-stretch">
               {/* Left Sidebar Panel (SHEET KEHADIRAN) — compact multi-column grid on mobile */}
-              <aside className="w-full xl:w-56 print:w-[116px] shrink-0 border border-slate-400 text-xs print:text-[7.5px] select-none bg-white">
-                {/* Gold Brand Block */}
-                <div className="bg-[#FFC000] border-b border-slate-400 px-3 py-2.5 xl:h-20 print:px-1.5 print:py-1 print:h-[44px] flex flex-col items-center justify-center text-center">
-                  <div className="font-display font-bold text-xs sm:text-sm print:text-[8.5px] tracking-tight text-slate-950 leading-tight uppercase">
+              <aside className="w-full xl:w-56 print:w-[116px] shrink-0 border border-slate-400 text-xs print:text-[7.5px] select-none bg-white uppercase">
+                {/* Brand Block */}
+                <div
+                  style={{
+                    backgroundColor: matrixColors.brandHeader.bg,
+                    color: matrixColors.brandHeader.text,
+                  }}
+                  className="border-b border-slate-400 px-3 py-2.5 xl:h-20 print:px-1.5 print:py-1 print:h-[44px] flex flex-col items-center justify-center text-center"
+                >
+                  <div className="font-display font-bold text-xs sm:text-sm print:text-[8.5px] tracking-tight leading-tight uppercase">
                     {companyName}
                   </div>
-                  <div className="text-[10px] sm:text-[11px] print:text-[7px] font-bold text-slate-900 mt-0.5 uppercase">
+                  <div className="text-[10px] sm:text-[11px] print:text-[7px] font-bold opacity-90 mt-0.5 uppercase">
                     {companySubtitle}
                   </div>
                 </div>
 
                 {/* SHEET KEHADIRAN */}
-                <div className="hidden xl:block print:block bg-[#D9E1F2] border-b border-slate-400 py-1.5 px-2 print:py-0.5 print:px-1 print:text-[7.5px] text-center font-bold text-slate-900">
+                <div
+                  style={{
+                    backgroundColor: matrixColors.groupHeader.bg,
+                    color: matrixColors.groupHeader.text,
+                  }}
+                  className="hidden xl:block print:block border-b border-slate-400 py-1.5 px-2 print:py-0.5 print:px-1 print:text-[7.5px] text-center font-bold"
+                >
                   SHEET KEHADIRAN
                 </div>
 
@@ -1453,43 +1487,87 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </div>
 
                 {/* Legend */}
-                <div className="bg-[#D9E1F2] border-b border-slate-400 py-1 px-2 print:py-0.5 print:text-[7.5px] text-center font-bold text-[11px] text-slate-900">
+                <div
+                  style={{
+                    backgroundColor: matrixColors.groupHeader.bg,
+                    color: matrixColors.groupHeader.text,
+                  }}
+                  className="border-b border-slate-400 py-1 px-2 print:py-0.5 print:text-[7.5px] text-center font-bold text-[11px]"
+                >
                   KETERANGAN
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-1 print:grid-cols-1 xl:divide-y xl:divide-slate-200 print:divide-y print:divide-slate-200 text-[11px] print:text-[7px]">
                   <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-r border-slate-200 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#548235] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
-                      h
+                    <span
+                      style={{
+                        backgroundColor: matrixColors.hadir.bg,
+                        color: matrixColors.hadir.text,
+                      }}
+                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
+                    >
+                      H
                     </span>
-                    <span className="truncate">Hadir / Terlambat</span>
+                    <span className="truncate">HADIR / TERLAMBAT</span>
                   </div>
                   <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 sm:border-r xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#0F766E] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
-                      h
+                    <span
+                      style={{
+                        backgroundColor: matrixColors.izinTerlambat.bg,
+                        color: matrixColors.izinTerlambat.text,
+                      }}
+                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
+                    >
+                      H
                     </span>
-                    <span className="truncate">Izin Telat</span>
+                    <span className="truncate">IZIN TELAT</span>
                   </div>
                   <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-r border-slate-200 sm:border-r-0 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#FFF2CC] text-[#833C0C] border border-amber-300 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
-                      i
+                    <span
+                      style={{
+                        backgroundColor: matrixColors.izin.bg,
+                        color: matrixColors.izin.text,
+                      }}
+                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 border border-slate-300 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
+                    >
+                      I
                     </span>
-                    <span className="truncate">Izin</span>
+                    <span className="truncate">IZIN</span>
                   </div>
                   <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 sm:border-b-0 sm:border-r xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#4338CA] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
-                      s
+                    <span
+                      style={{
+                        backgroundColor: matrixColors.sakit.bg,
+                        color: matrixColors.sakit.text,
+                      }}
+                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
+                    >
+                      S
                     </span>
-                    <span className="truncate">Sakit</span>
+                    <span className="truncate">SAKIT</span>
                   </div>
                   <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-r border-slate-200 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 bg-[#C00000] text-white font-mono font-bold text-[10px] print:text-[6.5px] shrink-0">
-                      a
+                    <span
+                      style={{
+                        backgroundColor: matrixColors.alpha.bg,
+                        color: matrixColors.alpha.text,
+                      }}
+                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
+                    >
+                      A
                     </span>
-                    <span className="truncate">Alpha</span>
+                    <span className="truncate">ALPHA</span>
                   </div>
                   <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 flex items-center gap-2 print:gap-1">
-                    <span className="w-4 h-4 print:w-2.5 print:h-2.5 bg-[#D9D9D9] border border-slate-400 inline-block shrink-0" />
-                    <span className="truncate">Libur Karyawan</span>
+                    <span
+                      style={{
+                        backgroundColor: matrixColors.libur.bg,
+                        color: matrixColors.libur.text,
+                      }}
+                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 border border-slate-400 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
+                    >
+                      L
+                    </span>
+                    <span className="truncate">LIBUR KARYAWAN</span>
                   </div>
                 </div>
               </aside>
@@ -1500,29 +1578,37 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   <span>Geser tabel ke kiri/kanan untuk tanggal 1–{days.length} →</span>
                 </div>
                 <div className="overflow-x-auto rounded-sm print:overflow-visible print:rounded-none">
-                <table className="w-full border-collapse text-[11px] matrix-print-table">
+                <table className="w-full border-collapse text-[11px] uppercase matrix-print-table">
                   <thead>
                     <tr>
                       <th
                         colSpan={3}
-                        className="bg-[#D9E1F2] border border-slate-400 font-bold text-slate-900 text-xs print:text-[8px] py-2 px-2 print:py-1 text-center h-16 sm:h-20 print:h-[38px]"
+                        style={{
+                          backgroundColor: matrixColors.groupHeader.bg,
+                          color: matrixColors.groupHeader.text,
+                        }}
+                        className="border border-slate-400 font-bold text-xs print:text-[8px] py-2 px-2 print:py-1 text-center h-16 sm:h-20 print:h-[38px]"
                       >
                         PEGAWAI
                       </th>
                       {days.map((dateStr) => (
                         <th
                           key={dateStr}
-                          className="bg-[#D9E1F2] border border-slate-400 p-0.5 h-16 sm:h-20 print:h-[38px] w-8 sm:w-7 matrix-print-day-col align-middle"
+                          style={{
+                            backgroundColor: matrixColors.groupHeader.bg,
+                            color: matrixColors.groupHeader.text,
+                          }}
+                          className="border border-slate-400 p-0.5 h-16 sm:h-20 print:h-[38px] w-8 sm:w-7 matrix-print-day-col align-middle"
                         >
                           <div className="flex items-center justify-center h-full">
                             <span
-                              className="font-semibold text-[10px] print:text-[7px] text-slate-900 whitespace-nowrap"
+                              className="font-semibold text-[10px] print:text-[7px] whitespace-nowrap uppercase"
                               style={{
                                 writingMode: 'vertical-rl',
                                 transform: 'rotate(180deg)',
                               }}
                             >
-                              {getDayNameIndonesian(dateStr)}
+                              {getDayNameIndonesian(dateStr).toUpperCase()}
                             </span>
                           </div>
                         </th>
@@ -1530,21 +1616,36 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       <th className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
                       <th
                         colSpan={4}
-                        className="bg-[#D9E1F2] border border-slate-400 font-bold text-slate-900 text-xs print:text-[8px] py-2 px-2 print:py-1 text-center"
+                        style={{
+                          backgroundColor: matrixColors.groupHeader.bg,
+                          color: matrixColors.groupHeader.text,
+                        }}
+                        className="border border-slate-400 font-bold text-xs print:text-[8px] py-2 px-2 print:py-1 text-center"
                       >
                         RINGKASAN
                       </th>
                     </tr>
 
-                    <tr className="bg-[#1F4E78] text-white">
+                    <tr
+                      style={{
+                        backgroundColor: matrixColors.tableHeader.bg,
+                        color: matrixColors.tableHeader.text,
+                      }}
+                    >
                       <th className="border border-slate-400 py-1.5 px-2 font-bold text-center whitespace-nowrap matrix-print-id-col">
                         ID
                       </th>
-                      <th className="sticky left-0 z-10 print:static bg-[#1F4E78] border border-slate-400 py-1.5 px-2 sm:px-2.5 font-bold text-left whitespace-nowrap min-w-[116px] max-w-[138px] sm:max-w-none sm:min-w-[165px] shadow-[2px_0_6px_-2px_rgba(15,23,42,0.2)] print:shadow-none matrix-print-name-col">
-                        Nama
+                      <th
+                        style={{
+                          backgroundColor: matrixColors.tableHeader.bg,
+                          color: matrixColors.tableHeader.text,
+                        }}
+                        className="sticky left-0 z-10 print:static border border-slate-400 py-1.5 px-2 sm:px-2.5 font-bold text-left whitespace-nowrap min-w-[116px] max-w-[138px] sm:max-w-none sm:min-w-[165px] shadow-[2px_0_6px_-2px_rgba(15,23,42,0.2)] print:shadow-none matrix-print-name-col"
+                      >
+                        NAMA
                       </th>
                       <th className="border border-slate-400 py-1.5 px-2 font-bold text-center whitespace-nowrap matrix-print-off-col">
-                        Hari Libur
+                        HARI LIBUR
                       </th>
                       {days.map((dateStr) => (
                         <th
@@ -1556,16 +1657,16 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       ))}
                       <th className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
                       <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
-                        h
+                        H
                       </th>
                       <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
-                        i
+                        I
                       </th>
                       <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
-                        s
+                        S
                       </th>
                       <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
-                        a
+                        A
                       </th>
                     </tr>
                   </thead>
@@ -1595,28 +1696,49 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
                           {row.cells.map((cell) => {
                             let cellClasses = 'bg-white text-slate-800 hover:bg-blue-50';
-                            if (cell.code === 'h') {
+                            let cellStyle: React.CSSProperties | undefined;
+                            if (cell.code === 'H') {
+                              cellClasses = 'font-bold hover:brightness-95 transition-[filter]';
                               if (cell.rec?.status === 'terlambat') {
-                                cellClasses =
-                                  'bg-[#D97706] text-white font-bold hover:bg-amber-700';
+                                cellStyle = {
+                                  backgroundColor: matrixColors.terlambat.bg,
+                                  color: matrixColors.terlambat.text,
+                                };
                               } else if (cell.rec?.status === 'izin_terlambat') {
-                                cellClasses =
-                                  'bg-[#0F766E] text-white font-bold hover:bg-teal-800';
+                                cellStyle = {
+                                  backgroundColor: matrixColors.izinTerlambat.bg,
+                                  color: matrixColors.izinTerlambat.text,
+                                };
                               } else {
-                                cellClasses =
-                                  'bg-[#548235] text-white font-bold hover:bg-[#436829]';
+                                cellStyle = {
+                                  backgroundColor: matrixColors.hadir.bg,
+                                  color: matrixColors.hadir.text,
+                                };
                               }
-                            } else if (cell.code === 'i') {
-                              cellClasses =
-                                'bg-[#FFF2CC] text-[#833C0C] font-bold hover:bg-amber-200';
-                            } else if (cell.code === 's') {
-                              cellClasses =
-                                'bg-[#4338CA] text-white font-bold hover:bg-indigo-800';
-                            } else if (cell.code === 'a') {
-                              cellClasses =
-                                'bg-[#C00000] text-white font-bold hover:bg-red-800';
-                            } else if (cell.isOff) {
-                              cellClasses = 'bg-[#D9D9D9] text-slate-500 hover:bg-slate-300';
+                            } else if (cell.code === 'I') {
+                              cellClasses = 'font-bold hover:brightness-95 transition-[filter]';
+                              cellStyle = {
+                                backgroundColor: matrixColors.izin.bg,
+                                color: matrixColors.izin.text,
+                              };
+                            } else if (cell.code === 'S') {
+                              cellClasses = 'font-bold hover:brightness-95 transition-[filter]';
+                              cellStyle = {
+                                backgroundColor: matrixColors.sakit.bg,
+                                color: matrixColors.sakit.text,
+                              };
+                            } else if (cell.code === 'A') {
+                              cellClasses = 'font-bold hover:brightness-95 transition-[filter]';
+                              cellStyle = {
+                                backgroundColor: matrixColors.alpha.bg,
+                                color: matrixColors.alpha.text,
+                              };
+                            } else if (cell.code === 'L' || cell.isOff) {
+                              cellClasses = 'font-bold hover:brightness-95 transition-[filter]';
+                              cellStyle = {
+                                backgroundColor: matrixColors.libur.bg,
+                                color: matrixColors.libur.text,
+                              };
                             }
 
                             const cellShift = cell.rec
@@ -1684,6 +1806,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                             return (
                               <td
                                 key={cell.date}
+                                style={cellStyle}
                                 className={`border border-slate-400 p-0 text-center font-mono ${cellClasses} ${
                                   isCellSaving ? 'opacity-60 animate-pulse' : ''
                                 }`}
@@ -1729,22 +1852,35 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   </tbody>
 
                   <tfoot>
-                    {(['h', 'i', 's', 'a', 'TOTAL'] as const).map((metric, idx) => (
+                    {(['H', 'I', 'S', 'A', 'TOTAL'] as const).map((metric, idx) => (
                       <tr key={metric}>
                         {idx === 0 && (
                           <td
                             colSpan={2}
                             rowSpan={5}
-                            className="bg-[#1F4E78] text-white border border-slate-400 font-bold text-xs print:text-[8px] text-center align-middle"
+                            style={{
+                              backgroundColor: matrixColors.tableHeader.bg,
+                              color: matrixColors.tableHeader.text,
+                            }}
+                            className="border border-slate-400 font-bold text-xs print:text-[8px] text-center align-middle"
                           >
                             RINGKASAN
                           </td>
                         )}
-                        <td className="bg-[#1F4E78] text-white border border-slate-400 font-mono font-bold text-center py-1 px-2 print:py-0.5 print:px-1">
+                        <td
+                          style={{
+                            backgroundColor: matrixColors.tableHeader.bg,
+                            color: matrixColors.tableHeader.text,
+                          }}
+                          className="border border-slate-400 font-mono font-bold text-center py-1 px-2 print:py-0.5 print:px-1"
+                        >
                           {metric}
                         </td>
                         {matrixData.daySums.map((ds, dIdx) => {
-                          const val = ds[metric === 'TOTAL' ? 'total' : metric];
+                          const val =
+                            metric === 'TOTAL'
+                              ? ds.total
+                              : ds[metric.toLowerCase() as 'h' | 'i' | 's' | 'a'];
                           return (
                             <td
                               key={days[dIdx]}
@@ -2381,7 +2517,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   {STATUS_OPTIONS.map((st) => (
                     <option key={st} value={st}>
                       {ATTENDANCE_STATUS_META[st].label} (Kode matriks:{' '}
-                      {statusToMatrixCode(st) || 'Libur'})
+                      {statusToMatrixCode(st) || 'L'})
                     </option>
                   ))}
                 </select>

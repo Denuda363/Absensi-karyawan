@@ -402,6 +402,7 @@ function buildAppSettingsDocData(settings: AppSettings) {
     shiftCount: shifts.length,
     shifts,
     companyProfile,
+    ...(settings.matrixColors ? { matrixColors: settings.matrixColors } : {}),
     updatedAt: serverTimestamp(),
   };
 }
@@ -1168,6 +1169,7 @@ export async function fetchAllStateFromFirestore(): Promise<PulledFirestoreState
         lateDeductionPerMinute: Number(d.lateDeductionPerMinute || 1000),
         shifts: Array.isArray(d.shifts) ? (d.shifts as ShiftConfig[]) : [],
         companyProfile: d.companyProfile ? (d.companyProfile as CompanyProfile) : undefined,
+        ...(d.matrixColors ? { matrixColors: d.matrixColors as AppSettings['matrixColors'] } : {}),
       };
     }
   } catch (error) {
@@ -1868,6 +1870,7 @@ export function subscribeFirestoreRealtime(
               companyProfile: d.companyProfile
                 ? (d.companyProfile as CompanyProfile)
                 : undefined,
+              ...(d.matrixColors ? { matrixColors: d.matrixColors as AppSettings['matrixColors'] } : {}),
             },
             { isInitial }
           );

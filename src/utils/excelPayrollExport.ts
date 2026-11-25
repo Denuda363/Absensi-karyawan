@@ -256,7 +256,7 @@ export async function exportPayrollToExcel(params: {
       item.totalLateDeduction,
       item.alphaDeduction + item.izinDeduction,
       item.bpjsKesehatanDeduction + item.bpjsTkDeduction,
-      item.totalOtherDeduction,
+      item.totalFixedDeduction + item.totalOtherDeduction,
       item.netSalary,
       paymentText,
       statusText,
@@ -349,7 +349,7 @@ export async function exportPayrollToExcel(params: {
     sumField((r) => r.totalLateDeduction),
     sumField((r) => r.alphaDeduction + r.izinDeduction),
     sumField((r) => r.bpjsKesehatanDeduction + r.bpjsTkDeduction),
-    sumField((r) => r.totalOtherDeduction),
+    sumField((r) => r.totalFixedDeduction + r.totalOtherDeduction),
     sumField((r) => r.netSalary),
     '',
     '',
@@ -456,8 +456,42 @@ export async function exportPayrollToExcel(params: {
     .filter((a) => a.yearMonth === yearMonth && scopedEmpIds.has(a.employeeId))
     .sort((a, b) => b.date.localeCompare(a.date));
 
+  const fixedDeductionRows = rows.flatMap((row) =>
+    row.fixedDeductionItems.map((fd) => ({
+      id: fd.id,
+      date: yearMonth,
+      employeeName: row.employee.name,
+      typeLabel: 'Potongan Tetap Bulanan',
+      yearMonth,
+      title: fd.title,
+      amount: fd.amount,
+      notes: 'Potongan rutin profil gaji karyawan',
+      isDeduction: true,
+      type: 'potongan' as const,
+    }))
+  );
+
+  const combinedSheet2Rows = [
+    ...monthAdjustments.map((adj) => ({
+      date: adj.date,
+      employeeName: adj.employeeName,
+      typeLabel:
+        adj.type === 'bonus'
+          ? 'Bonus / Insentif'
+          : adj.type === 'tunjangan'
+          ? 'Tunjangan / Lainnya'
+          : 'Potongan / Kasbon',
+      yearMonth: adj.yearMonth,
+      title: adj.title,
+      amount: adj.amount,
+      notes: adj.notes || '—',
+      type: adj.type,
+    })),
+    ...fixedDeductionRows,
+  ];
+
   let r2 = 4;
-  if (monthAdjustments.length === 0) {
+  if (combinedSheet2Rows.length === 0) {
     ws2.mergeCells(4, 1, 4, 8);
     const emptyCell = ws2.getCell(4, 1);
     emptyCell.value = 'Belum ada catatan bonus, tunjangan tambahan, atau potongan pada periode ini.';
@@ -466,19 +500,13 @@ export async function exportPayrollToExcel(params: {
     ws2.getRow(4).height = 26;
     applyBorderToRange(ws2, 4, 1, 4, 8, LIGHT_BORDER);
   } else {
-    monthAdjustments.forEach((adj, idx) => {
+    combinedSheet2Rows.forEach((adj, idx) => {
       ws2.getRow(r2).height = 22;
-      const typeLabel =
-        adj.type === 'bonus'
-          ? 'Bonus / Insentif'
-          : adj.type === 'tunjangan'
-          ? 'Tunjangan / Lainnya'
-          : 'Potongan / Kasbon';
       const rowVals: (string | number)[] = [
         idx + 1,
         adj.date,
         adj.employeeName,
-        typeLabel,
+        adj.typeLabel,
         adj.yearMonth,
         adj.title,
         adj.amount,
