@@ -50,6 +50,7 @@ import {
   buildDailyScheduleBlocks,
   groupEmployeesByPosition,
 } from '../utils/shiftScheduleLayout';
+import { Tilt3DCard } from './Tilt3DCard';
 
 interface ShiftScheduleViewProps {
   employees: Employee[];
@@ -1180,79 +1181,119 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         </div>
       )}
 
-      {/* Top Shift Summary Strip */}
+      {/* Executive 3D Shift Command Banner */}
+      <section className="surface-3d-dark rounded-2xl p-4 sm:p-5 text-white relative overflow-hidden no-print">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-indigo-500/15 blur-3xl"
+        />
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="icon-cube-3d w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-700 border border-indigo-300/35 text-white flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium text-slate-300 flex flex-wrap items-center gap-2">
+                <span>{formatIndonesianDate(today)}</span>
+                <span aria-hidden="true" className="text-slate-600">·</span>
+                <span className="font-mono text-sky-300 font-semibold tabular-nums">
+                  {shifts.length} Jenis Shift · {activeEmployees.length} Karyawan Aktif
+                </span>
+              </div>
+              <h2 className="font-display text-base sm:text-lg font-bold text-white mt-0.5 tracking-tight">
+                Manajemen Shift &amp; Penugasan Harian
+              </h2>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={openCreateShiftModal}
+            className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-white bg-gradient-to-b from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Buat Shift Baru</span>
+          </button>
+        </div>
+      </section>
+
+      {/* Top 3D Shift Summary Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 no-print">
         {shiftSummaries.map(
           ({ shift, style, todayAssignedCount, onDutyToday, offToday, durationHours }) => {
             const isSelected = shiftFilter === shift.id;
             return (
-              <div
+              <Tilt3DCard
                 key={shift.id}
-                onClick={() => setShiftFilter(isSelected ? 'ALL' : shift.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setShiftFilter(isSelected ? 'ALL' : shift.id);
-                  }
-                }}
-                className={`bg-white rounded-xl border p-3.5 sm:p-4 shadow-xs transition-all cursor-pointer relative overflow-hidden ${
+                className={`surface-3d rounded-2xl transition-all ${
                   isSelected
                     ? `border-blue-600 ring-2 ${style.cardRing}`
-                    : 'border-slate-200 hover:border-slate-300'
+                    : ''
                 }`}
               >
-                <div className={`absolute top-0 left-0 right-0 h-1 ${style.accentBar}`} />
-                <div className="flex items-start justify-between gap-2 pt-1">
-                  <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-                    <div
-                      className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center shrink-0 ${style.iconBg} ${style.iconText}`}
+                <div
+                  onClick={() => setShiftFilter(isSelected ? 'ALL' : shift.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setShiftFilter(isSelected ? 'ALL' : shift.id);
+                    }
+                  }}
+                  className="p-3.5 sm:p-4 cursor-pointer relative h-full"
+                >
+                  <div className={`absolute top-0 left-0 right-0 h-1 ${style.accentBar}`} />
+                  <div className="flex items-start justify-between gap-2 pt-1">
+                    <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+                      <div
+                        className={`icon-cube-3d w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 border border-white/50 ${style.iconBg} ${style.iconText}`}
+                      >
+                        {renderShiftIcon(style.icon, 'w-4 h-4')}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-display text-xs sm:text-sm font-bold text-slate-900 truncate">
+                          {shift.name}
+                        </div>
+                        <div className="font-mono text-[11px] sm:text-xs font-semibold text-slate-600 tabular-nums truncate">
+                          {shift.startTime}–{shift.endTime} ({durationHours}j)
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      className={`hidden sm:inline-block font-mono text-xs font-bold px-2 py-0.5 rounded-lg border tabular-nums shrink-0 ${style.badgeBg} ${style.badgeText} ${style.badgeBorder}`}
                     >
-                      {renderShiftIcon(style.icon, 'w-4 h-4')}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-display text-xs sm:text-sm font-bold text-slate-900 truncate">
-                        {shift.name}
-                      </div>
-                      <div className="font-mono text-[11px] sm:text-xs font-semibold text-slate-600 tabular-nums truncate">
-                        {shift.startTime}–{shift.endTime} ({durationHours}j)
-                      </div>
-                    </div>
-                  </div>
-                  <span
-                    className={`hidden sm:inline-block font-mono text-xs font-bold px-2 py-0.5 rounded-md border tabular-nums shrink-0 ${style.badgeBg} ${style.badgeText} ${style.badgeBorder}`}
-                  >
-                    {todayAssignedCount} hari ini
-                  </span>
-                </div>
-
-                <div className="mt-2.5 sm:mt-3 pt-2 sm:pt-2.5 border-t border-slate-100 flex items-center justify-between gap-1 text-[11px] text-slate-500">
-                  <span className="inline-flex items-center gap-1 font-medium text-emerald-700 truncate">
-                    <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>
-                      {onDutyToday} masuk ({HARI_MAP[todayWeekday]?.short})
+                      {todayAssignedCount} hari ini
                     </span>
-                  </span>
-                  <span className="shrink-0">
-                    {offToday > 0 ? `${offToday} libur` : `Tol. ${shift.lateToleranceMinutes}m`}
-                  </span>
+                  </div>
+
+                  <div className="mt-2.5 sm:mt-3 pt-2 sm:pt-2.5 border-t border-slate-100 flex items-center justify-between gap-1 text-[11px] text-slate-500">
+                    <span className="inline-flex items-center gap-1 font-medium text-emerald-700 truncate">
+                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {onDutyToday} masuk ({HARI_MAP[todayWeekday]?.short})
+                      </span>
+                    </span>
+                    <span className="shrink-0">
+                      {offToday > 0 ? `${offToday} libur` : `Tol. ${shift.lateToleranceMinutes}m`}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              </Tilt3DCard>
             );
           }
         )}
       </div>
 
       {/* Main Toolbar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-xs space-y-3.5 sm:space-y-4 no-print">
+      <div className="surface-3d rounded-2xl p-3.5 sm:p-4 space-y-3.5 sm:space-y-4 no-print">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           {/* Sub-Tabs */}
-          <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 bg-slate-100 p-1 rounded-lg w-full sm:w-auto">
+          <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setSubTab('harian')}
-              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 subTab === 'harian'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1264,7 +1305,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
             <button
               type="button"
               onClick={() => setSubTab('roster')}
-              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 subTab === 'roster'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1276,7 +1317,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
             <button
               type="button"
               onClick={() => setSubTab('mingguan')}
-              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 subTab === 'mingguan'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1288,9 +1329,9 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
             <button
               type="button"
               onClick={() => setSubTab('preview')}
-              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-md transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 subTab === 'preview'
-                  ? 'bg-blue-700 text-white shadow-xs'
+                  ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -1304,7 +1345,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
             <button
               type="button"
               onClick={openCreateShiftModal}
-              className="col-span-2 sm:col-span-1 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[40px]"
+              className="btn-3d-primary col-span-2 sm:col-span-1 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-white bg-gradient-to-b from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer min-h-[40px]"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Buat Shift Baru</span>

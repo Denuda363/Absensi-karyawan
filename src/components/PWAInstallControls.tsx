@@ -18,11 +18,13 @@ import {
 
 interface PWAInstallButtonProps {
   variant?: 'header' | 'sidebar';
+  compact?: boolean;
   onAfterAction?: () => void;
 }
 
 export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   variant = 'header',
+  compact = false,
   onAfterAction,
 }) => {
   const {
@@ -65,14 +67,26 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   return (
     <>
       {variant === 'sidebar' ? (
-        <button
-          type="button"
-          onClick={handleInstallClick}
-          className="w-full min-h-[42px] flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-blue-200 bg-blue-950/60 hover:bg-blue-900/70 border border-blue-800/70 rounded-lg transition-colors cursor-pointer"
-        >
-          <Download className="w-3.5 h-3.5 shrink-0" />
-          <span>Install Aplikasi</span>
-        </button>
+        compact ? (
+          <button
+            type="button"
+            onClick={handleInstallClick}
+            title="Install Aplikasi"
+            aria-label="Install Aplikasi"
+            className="w-11 h-11 mx-auto flex items-center justify-center text-blue-300 bg-blue-950/60 hover:bg-blue-900/75 hover:text-white border border-blue-800/70 rounded-xl transition-colors cursor-pointer"
+          >
+            <Download className="w-4 h-4 shrink-0" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleInstallClick}
+            className="w-full min-h-[40px] flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-blue-200 bg-blue-950/60 hover:bg-blue-900/75 hover:text-white border border-blue-800/70 rounded-xl transition-colors cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Install Aplikasi</span>
+          </button>
+        )
       ) : (
         <button
           type="button"

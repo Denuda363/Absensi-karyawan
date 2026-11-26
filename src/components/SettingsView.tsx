@@ -692,77 +692,127 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const showDatabase = activeGroup === 'semua' || activeGroup === 'database';
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      {/* Left Grouped Navigation */}
-      <aside className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-3 lg:sticky lg:top-22">
-        <div className="px-2.5 py-2 border-b border-slate-100 mb-2">
-          <div className="text-xs font-semibold text-slate-900">
-            Kelompok Pengaturan
+    <div className="space-y-6">
+      {/* Executive 3D Settings Command Header */}
+      <div className="surface-3d-dark rounded-2xl p-4 sm:p-5 text-white relative overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-24 -right-20 w-72 h-72 rounded-full bg-blue-500/15 blur-3xl"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-24 -left-16 w-64 h-64 rounded-full bg-indigo-500/15 blur-3xl"
+        />
+
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="icon-cube-3d w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-700 text-white flex items-center justify-center shrink-0">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                <span className="font-semibold text-sky-300">Pusat Konfigurasi Sistem</span>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono tabular-nums">
+                  {shifts.length} Shift · {employees.length} Karyawan · {attendanceRecords.length} Log
+                </span>
+              </div>
+              <h2 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight mt-0.5">
+                Pengaturan Operasional, Matriks &amp; Keamanan
+              </h2>
+            </div>
           </div>
-          <div className="text-[11px] text-slate-500">
-            Pilih kategori konfigurasi sistem
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <span
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border inline-flex items-center gap-1.5 ${
+                isAdminMode
+                  ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
+                  : 'bg-slate-800/90 border-slate-700/80 text-slate-300'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>{isAdminMode ? 'Mode Admin Aktif' : 'Mode Standar'}</span>
+            </span>
           </div>
         </div>
+      </div>
 
-        <nav className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-1 gap-1.5 lg:gap-1" aria-label="Kategori Pengaturan">
-          {navGroups.map((g) => {
-            const Icon = g.icon;
-            const isActive = activeGroup === g.id;
-            return (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => setActiveGroup(g.id)}
-                className={`w-full text-left px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-lg flex items-center lg:items-start gap-2 sm:gap-2.5 transition-colors cursor-pointer ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-900 border border-blue-200'
-                    : 'text-slate-700 hover:bg-slate-50 border border-slate-100 lg:border-transparent'
-                }`}
-              >
-                <Icon
-                  className={`w-4 h-4 shrink-0 lg:mt-0.5 ${
-                    isActive ? 'text-blue-700' : 'text-slate-400'
-                  }`}
-                />
-                <div className="min-w-0">
-                  <div className="text-[11.5px] sm:text-xs font-semibold truncate">{g.label}</div>
-                  <div className="hidden lg:block text-[11px] text-slate-500 truncate">{g.desc}</div>
-                </div>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
-
-      {/* Right Grouped Settings Cards */}
-      <div className="lg:col-span-9 space-y-6">
-        {/* KELOMPOK 1: JAM KERJA TIAP SHIFT */}
-        {showShift && (
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <div>
-                  <h2 className="font-display text-base font-semibold text-slate-900">
-                    1. Pengaturan Jam Kerja Tiap Shift
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Tetapkan jadwal masuk, jam pulang, dan toleransi keterlambatan untuk setiap shift kerja.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAddShift}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Shift</span>
-              </button>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Grouped Navigation */}
+        <aside className="lg:col-span-3 surface-3d rounded-2xl p-3 lg:sticky lg:top-22">
+          <div className="px-2.5 py-2 border-b border-slate-100 mb-2">
+            <div className="text-xs font-bold text-slate-900">
+              Kelompok Pengaturan
             </div>
+            <div className="text-[11px] text-slate-500">
+              Pilih kategori konfigurasi sistem
+            </div>
+          </div>
+
+          <nav className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-1 gap-1.5 lg:gap-1" aria-label="Kategori Pengaturan">
+            {navGroups.map((g) => {
+              const Icon = g.icon;
+              const isActive = activeGroup === g.id;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => setActiveGroup(g.id)}
+                  className={`w-full text-left px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-xl flex items-center lg:items-start gap-2 sm:gap-2.5 transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-gradient-to-b from-blue-50 to-indigo-50/70 text-blue-900 border border-blue-200 shadow-xs'
+                      : 'text-slate-700 hover:bg-slate-50 border border-slate-100 lg:border-transparent'
+                  }`}
+                >
+                  <span
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${
+                      isActive
+                        ? 'icon-cube-3d bg-gradient-to-br from-blue-500 to-indigo-700 text-white'
+                        : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[11.5px] sm:text-xs font-semibold truncate">{g.label}</div>
+                    <div className="hidden lg:block text-[11px] text-slate-500 truncate">{g.desc}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {/* Right Grouped Settings Cards */}
+        <div className="lg:col-span-9 space-y-6">
+          {/* KELOMPOK 1: JAM KERJA TIAP SHIFT */}
+          {showShift && (
+            <section className="surface-3d rounded-2xl overflow-hidden">
+              <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-700 flex items-center justify-center text-white shrink-0">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-base font-semibold text-slate-900">
+                      1. Pengaturan Jam Kerja Tiap Shift
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Tetapkan jadwal masuk, jam pulang, dan toleransi keterlambatan untuk setiap shift kerja.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAddShift}
+                  className="btn-3d-secondary inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Shift</span>
+                </button>
+              </div>
 
             <form onSubmit={handleSaveShifts} className="p-4 sm:p-6 space-y-4">
               {shiftNotice && (
@@ -1035,10 +1085,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* KELOMPOK 2: IDENTITAS PERUSAHAAN & FORMAT LAPORAN */}
         {showIdentitas && (
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <section className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0">
+                <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shrink-0">
                   <Building2 className="w-4 h-4" />
                 </div>
                 <div>
@@ -1054,7 +1104,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate('profil-perusahaan')}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="btn-3d-secondary inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <span>Kelola Profil Lengkap</span>
                 </button>
@@ -1141,10 +1191,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* KELOMPOK 3: PENGATURAN WARNA MATRIKS */}
         {showWarnaMatriks && (
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <section className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700 shrink-0">
+                <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-700 flex items-center justify-center text-white shrink-0">
                   <Palette className="w-4 h-4" />
                 </div>
                 <div>
@@ -1160,7 +1210,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 onClick={handleResetMatrixColors}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="btn-3d-secondary inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Reset Default</span>
@@ -1527,9 +1577,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* KELOMPOK 4: BACKUP & RESTORE DATA */}
         {showBackup && (
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <section className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0">
+              <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shrink-0">
                 <HardDrive className="w-4 h-4" />
               </div>
               <div>
@@ -1673,9 +1723,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* KELOMPOK 3B / RESET DATA SISTEM */}
         {showReset && (
-          <section className="bg-white border border-red-200/80 rounded-xl overflow-hidden">
+          <section className="surface-3d rounded-2xl border-red-200/80 overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-red-50/60 border-b border-red-200/80 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-lg bg-red-100 border border-red-200 flex items-center justify-center text-red-700 shrink-0">
+              <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-red-700 flex items-center justify-center text-white shrink-0">
                 <ShieldAlert className="w-4 h-4" />
               </div>
               <div>
@@ -1788,10 +1838,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* KELOMPOK 4: KEAMANAN & PIN MODE ADMIN */}
         {showKeamanan && (
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <section className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0">
+                <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-slate-700 to-slate-950 text-white flex items-center justify-center shrink-0">
                   <KeyRound className="w-4 h-4" />
                 </div>
                 <div>
@@ -1808,7 +1858,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <button
                   type="button"
                   onClick={onOpenAdminModeModal}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>Masuk Mode Admin</span>
@@ -1932,6 +1982,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onRefresh={onRefresh}
           />
         )}
+        </div>
       </div>
 
       {/* Modal Konfirmasi Reset Data */}

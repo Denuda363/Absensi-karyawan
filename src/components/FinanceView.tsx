@@ -26,6 +26,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+import { Tilt3DCard } from './Tilt3DCard';
 import {
   AppSettings,
   AttendanceRecord,
@@ -1816,69 +1817,84 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Header & Action Bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4 no-print">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
-            <Landmark className="w-3.5 h-3.5 text-blue-700" />
-            <span>Mode Admin Eksklusif</span>
-            <span aria-hidden="true">·</span>
-            <span>Periode {periodLabel}</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums">
-              {accounts.length} kas/rekening · {categories.length} kategori
-            </span>
+      {/* 1. Executive Finance 3D Command Banner */}
+      <div className="surface-3d-dark rounded-2xl p-4 sm:p-5 text-white relative overflow-hidden no-print">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-24 -right-20 w-72 h-72 rounded-full bg-emerald-500/15 blur-3xl"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-24 -left-16 w-64 h-64 rounded-full bg-blue-500/10 blur-3xl"
+        />
+
+        <div className="relative flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="icon-cube-3d w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center shrink-0">
+              <Landmark className="w-5 h-5" />
+            </div>
+            <div className="space-y-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-300">
+                <span className="text-emerald-300 font-semibold">Mode Admin Eksklusif</span>
+                <span aria-hidden="true">·</span>
+                <span>Periode {periodLabel}</span>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono tabular-nums text-sky-300">
+                  {accounts.length} kas/rekening · {categories.length} kategori
+                </span>
+              </div>
+              <h2 className="font-display text-lg sm:text-xl font-bold text-white tracking-tight">
+                Pengelolaan Keuangan Perusahaan
+              </h2>
+            </div>
           </div>
-          <h2 className="font-display text-lg font-bold text-slate-900">
-            Pengelolaan Keuangan Perusahaan
-          </h2>
-        </div>
 
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full xl:w-auto shrink-0">
-          <button
-            type="button"
-            onClick={() => openCreateTxModal('pendapatan', 'transfer')}
-            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Catat Pendapatan</span>
-          </button>
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full xl:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => openCreateTxModal('pendapatan', 'transfer')}
+              className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 shadow-[0_2px_0_#065f46,0_6px_12px_-4px_rgba(5,150,105,0.4)] rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-all"
+            >
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Catat Pendapatan</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => openCreateTxModal('pengeluaran', 'cash')}
-            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Input Pengeluaran</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => openCreateTxModal('pengeluaran', 'cash')}
+              className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 shadow-[0_2px_0_#9f1239,0_6px_12px_-4px_rgba(225,29,72,0.4)] rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-all"
+            >
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Input Pengeluaran</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => openPaySalaryModal()}
-            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          >
-            <Banknote className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Bayar Gaji Karyawan</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => openPaySalaryModal()}
+              className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-[0_2px_0_#3730a3,0_6px_12px_-4px_rgba(79,70,229,0.4)] rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-all"
+            >
+              <Banknote className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Bayar Gaji Karyawan</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => openTransferModal('cash-to-bank')}
-            className="px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          >
-            <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Pindah Dana</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => openTransferModal('cash-to-bank')}
+              className="btn-3d-primary px-3 sm:px-3.5 py-2 text-xs font-semibold text-white rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Pindah Dana</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => openManageModal('rekening')}
-            className="col-span-2 sm:col-span-1 px-3 sm:px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-          >
-            <FolderCog className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Rekening &amp; Kategori</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => openManageModal('rekening')}
+              className="col-span-2 sm:col-span-1 px-3 sm:px-3.5 py-2 text-xs font-semibold text-slate-100 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 shadow-[0_2px_0_#020617] rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-all"
+            >
+              <FolderCog className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Rekening &amp; Kategori</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1943,12 +1959,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         </div>
       ) : (
         <>
-          {/* 2. 4-Column KPI Summary Strip */}
+          {/* 2. 4-Column 3D KPI Summary Strip */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+            <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5 space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                 <span>Pendapatan ({periodLabel})</span>
-                <ArrowDownLeft className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center shrink-0">
+                  <ArrowDownLeft className="w-4 h-4" />
+                </span>
               </div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums">
                 {formatRupiah(periodMetrics.totalIncome)}
@@ -1967,12 +1985,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
+            </Tilt3DCard>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+            <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5 space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                 <span>Pengeluaran ({periodLabel})</span>
-                <ArrowUpRight className="w-4 h-4 text-red-600 shrink-0" />
+                <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-red-700 text-white flex items-center justify-center shrink-0">
+                  <ArrowUpRight className="w-4 h-4" />
+                </span>
               </div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-red-700 tabular-nums">
                 {formatRupiah(periodMetrics.totalExpense)}
@@ -1991,16 +2011,24 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
+            </Tilt3DCard>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+            <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5 space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                 <span>
                   {periodMetrics.netBalance >= 0
                     ? 'Surplus Operasional'
                     : 'Defisit Operasional'}
                 </span>
-                <Wallet className="w-4 h-4 text-blue-700 shrink-0" />
+                <span
+                  className={`icon-cube-3d w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 ${
+                    periodMetrics.netBalance >= 0
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-700'
+                      : 'bg-gradient-to-br from-red-500 to-rose-700'
+                  }`}
+                >
+                  <Wallet className="w-4 h-4" />
+                </span>
               </div>
               <div
                 className={`font-mono text-xl sm:text-2xl font-bold tabular-nums ${
@@ -2012,12 +2040,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <div className="pt-2 border-t border-slate-100 text-xs text-slate-500">
                 Selisih Pendapatan &amp; Pengeluaran pada {periodLabel} (tidak termasuk mutasi internal).
               </div>
-            </div>
+            </Tilt3DCard>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2.5">
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+            <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5 space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                 <span>Total Saldo Kas &amp; Rekening</span>
-                <Building2 className="w-4 h-4 text-slate-700 shrink-0" />
+                <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center shrink-0">
+                  <Building2 className="w-4 h-4" />
+                </span>
               </div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
                 {formatSignedRupiah(totalCashBalance + totalBankBalance)}
@@ -2036,11 +2066,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
+            </Tilt3DCard>
           </div>
 
           {/* 3. Global Period & Export Control Strip */}
-          <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 no-print">
+          <div className="surface-3d rounded-2xl px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 no-print">
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
                 <button
@@ -2147,7 +2177,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           </div>
 
           {/* 4. Workspace Section: Dashboard Keuangan / Tab Kategori / Jurnal Transaksi / Kas, Rekening & Mutasi */}
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <section className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
               <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg w-full xl:w-auto no-print">
                 <button

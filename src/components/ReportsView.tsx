@@ -13,6 +13,7 @@ import {
   Search,
   Table2,
   Trash2,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -41,6 +42,7 @@ import {
 } from '../services/attendanceService';
 import { exportAttendanceMatrixToExcel } from '../utils/excelAttendanceExport';
 import { SearchableEmployeeSelect } from './SearchableEmployeeSelect';
+import { Tilt3DCard } from './Tilt3DCard';
 
 interface ReportsViewProps {
   employees: Employee[];
@@ -930,7 +932,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       </div>
 
       {/* Sub-navigation Tabs + Toolbar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-3.5 sm:space-y-4 no-print">
+      <div className="surface-3d rounded-2xl p-3.5 sm:p-4 space-y-3.5 sm:space-y-4 no-print">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-3 pb-3 border-b border-slate-100">
           <div className="grid grid-cols-2 sm:inline-flex p-1 bg-slate-100 rounded-lg border border-slate-200/80 w-full sm:w-auto">
             <button
@@ -1102,7 +1104,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   setExportingExcel(false);
                 }
               }}
-              className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 disabled:opacity-40 transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
+              className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-gradient-to-b from-emerald-600 to-emerald-700 rounded-xl hover:from-emerald-500 hover:to-emerald-600 shadow-[0_2px_0_#065f46,0_6px_12px_-4px_rgba(5,150,105,0.35)] disabled:opacity-40 transition-all whitespace-nowrap shrink-0 cursor-pointer min-h-[40px]"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>{exportingExcel ? 'Menyiapkan...' : 'Ekspor Excel (.xlsx)'}</span>
@@ -1147,32 +1149,46 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
       {activeTab === 'kehadiran' ? (
         <>
-          {/* Print Header & Summary */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-100">
+          {/* Print Header & 3D Summary Banner */}
+          <div className="surface-3d-dark rounded-2xl p-4 sm:p-5 text-white print:text-slate-900 print:border print:border-slate-300 relative overflow-hidden">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-blue-500/15 blur-3xl print:hidden"
+            />
+            <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-800 print:border-slate-200">
               <div>
-                <h2 className="font-display text-base font-semibold text-slate-900">
+                <h2 className="font-display text-base sm:text-lg font-bold text-white print:text-slate-900 tracking-tight">
                   Laporan Rekapitulasi Kehadiran &amp; Lembur — {formatIndonesianMonth(selectedMonth)}
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-400 print:text-slate-600 mt-0.5">
                   Hari kerja efektif dihitung otomatis berdasarkan hari libur individu masing-masing karyawan
                 </p>
               </div>
-              <span className="font-mono text-xs text-slate-600 tabular-nums">
+              <span className="font-mono text-xs text-sky-300 print:text-slate-800 font-semibold tabular-nums px-2.5 py-1 rounded-lg bg-slate-900/80 print:bg-slate-100 border border-slate-800 print:border-slate-200 self-start sm:self-auto">
                 {summaries.length} Karyawan
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Kehadiran</div>
-                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
+            <div className="relative mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">Total Kehadiran</span>
+                  <span className="icon-cube-3d w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center shrink-0">
+                    <Users className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
                   {aggregate.totalPresent} <span className="text-xs font-normal text-slate-500">hari</span>
                 </div>
-              </div>
-              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Keterlambatan</div>
-                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-amber-700 tabular-nums">
+              </Tilt3DCard>
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">Total Keterlambatan</span>
+                  <span className="icon-cube-3d w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-amber-700 tabular-nums">
                   {aggregate.totalLate} <span className="text-xs font-normal text-slate-500">kali</span>
                 </div>
                 {aggregate.totalIzinTerlambat > 0 && (
@@ -1180,26 +1196,36 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     + {aggregate.totalIzinTerlambat} izin telat
                   </div>
                 )}
-              </div>
-              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Akumulasi Jam Kerja</div>
-                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
+              </Tilt3DCard>
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">Akumulasi Jam Kerja</span>
+                  <span className="icon-cube-3d w-7 h-7 rounded-lg bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center shrink-0">
+                    <Clock className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
                   {aggregate.totalWorkHours.toFixed(1)}{' '}
                   <span className="text-xs font-normal text-slate-500">jam</span>
                 </div>
-              </div>
-              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Jam Lembur</div>
-                <div className="mt-1.5 sm:mt-2 font-mono text-xl sm:text-2xl font-bold text-blue-700 tabular-nums">
+              </Tilt3DCard>
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">Total Jam Lembur</span>
+                  <span className="icon-cube-3d w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-700 text-white flex items-center justify-center shrink-0">
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-blue-700 tabular-nums">
                   {aggregate.totalOtHours.toFixed(1)}{' '}
                   <span className="text-xs font-normal text-slate-500">jam</span>
                 </div>
-              </div>
+              </Tilt3DCard>
             </div>
           </div>
 
           {/* Monthly Attendance Table */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="surface-3d rounded-2xl overflow-hidden">
             {loading ? (
               <div className="p-6 space-y-3">
                 {[1, 2, 3, 4].map((r) => (
@@ -1343,97 +1369,103 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       ) : (
         /* TAB: REKAP DATA KARYAWAN TERLAMBAT & GANTI KETERLAMBATAN */
         <div className="space-y-6">
-          {/* Summary Header + 4 KPI Cards */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-100">
+          {/* Summary Header + 4 3D KPI Cards */}
+          <div className="surface-3d-dark rounded-2xl p-4 sm:p-5 text-white print:text-slate-900 print:border print:border-slate-300 relative overflow-hidden">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-amber-500/10 blur-3xl print:hidden"
+            />
+            <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-800 print:border-slate-200">
               <div>
-                <h2 className="font-display text-base font-semibold text-slate-900">
+                <h2 className="font-display text-base sm:text-lg font-bold text-white print:text-slate-900 tracking-tight">
                   Rekapitulasi &amp; Penyelesaian Keterlambatan — {formatIndonesianMonth(selectedMonth)}
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-400 print:text-slate-600 mt-0.5">
                   Keterlambatan dapat diganti secara bertahap (dicicil) melalui tambahan jam kerja maupun diselesaikan via potongan gaji
                 </p>
               </div>
-              <span className="font-mono text-xs text-amber-700 font-semibold tabular-nums">
+              <span className="font-mono text-xs text-amber-300 print:text-slate-800 font-semibold tabular-nums px-2.5 py-1 rounded-lg bg-slate-900/80 print:bg-slate-100 border border-slate-800 print:border-slate-200 self-start sm:self-auto">
                 {lateStats.lateEmployeeCount} dari {scopedEmployees.length} Karyawan
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-              <div className="p-3.5 sm:p-5 bg-slate-50 border border-slate-200/80 rounded-xl">
-                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-slate-500">
+            <div className="relative mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-semibold text-slate-500">
                   <span className="truncate">Total Terlambat</span>
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span className="icon-cube-3d w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  </span>
                 </div>
-                <div className="mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold text-slate-900 tabular-nums leading-tight">
+                <div className="mt-2 font-mono text-lg sm:text-2xl font-bold text-slate-900 tabular-nums leading-tight">
                   {lateStats.totalLateMinutes}{' '}
                   <span className="block sm:inline text-[11px] sm:text-xs font-normal text-slate-500">
                     mnt ({lateStats.totalLateCount}x)
                   </span>
                 </div>
-              </div>
+              </Tilt3DCard>
 
-              <div className="p-3.5 sm:p-5 bg-blue-50/70 border border-blue-200/80 rounded-xl">
-                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-blue-800">
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-semibold text-slate-500">
                   <span className="truncate">Diganti Jam Kerja</span>
-                  <Clock className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                  <span className="icon-cube-3d w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-700 text-white flex items-center justify-center shrink-0">
+                    <Clock className="w-3.5 h-3.5" />
+                  </span>
                 </div>
-                <div className="mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold text-blue-900 tabular-nums leading-tight">
+                <div className="mt-2 font-mono text-lg sm:text-2xl font-bold text-blue-900 tabular-nums leading-tight">
                   {lateStats.totalSettledWorkMinutes}{' '}
                   <span className="block sm:inline text-[11px] sm:text-xs font-normal text-blue-700">
                     mnt ({lateStats.workInstallmentCount} cicilan)
                   </span>
                 </div>
-              </div>
+              </Tilt3DCard>
 
-              <div className="p-3.5 sm:p-5 bg-rose-50/70 border border-rose-200/80 rounded-xl">
-                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium text-rose-800">
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-semibold text-slate-500">
                   <span className="truncate">Potongan Gaji</span>
-                  <Banknote className="w-3.5 h-3.5 text-rose-700 shrink-0" />
+                  <span className="icon-cube-3d w-7 h-7 rounded-lg bg-gradient-to-br from-rose-500 to-red-700 text-white flex items-center justify-center shrink-0">
+                    <Banknote className="w-3.5 h-3.5" />
+                  </span>
                 </div>
-                <div className="mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold text-rose-900 tabular-nums leading-tight">
+                <div className="mt-2 font-mono text-lg sm:text-2xl font-bold text-rose-900 tabular-nums leading-tight">
                   {lateStats.totalSettledSalaryMinutes} mnt
                   <span className="block text-[11px] sm:text-xs font-normal text-rose-700 truncate">
                     {formatRupiah(lateStats.totalDeductionAmount)}
                   </span>
                 </div>
-              </div>
+              </Tilt3DCard>
 
-              <div
-                className={`p-3.5 sm:p-5 border rounded-xl ${
-                  lateStats.totalRemainingLateMinutes > 0
-                    ? 'bg-amber-50/80 border-amber-200'
-                    : 'bg-emerald-50/80 border-emerald-200'
-                }`}
-              >
-                <div
-                  className={`flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium ${
-                    lateStats.totalRemainingLateMinutes > 0
-                      ? 'text-amber-800'
-                      : 'text-emerald-800'
-                  }`}
-                >
+              <Tilt3DCard className="surface-3d rounded-2xl p-3.5 sm:p-4 text-slate-900">
+                <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-semibold text-slate-500">
                   <span className="truncate">Sisa Tunggakan</span>
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span
+                    className={`icon-cube-3d w-7 h-7 rounded-lg text-white flex items-center justify-center shrink-0 ${
+                      lateStats.totalRemainingLateMinutes > 0
+                        ? 'bg-gradient-to-br from-amber-500 to-amber-700'
+                        : 'bg-gradient-to-br from-emerald-500 to-emerald-700'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  </span>
                 </div>
                 <div
-                  className={`mt-1.5 sm:mt-2 font-mono text-lg sm:text-2xl font-bold tabular-nums leading-tight ${
+                  className={`mt-2 font-mono text-lg sm:text-2xl font-bold tabular-nums leading-tight ${
                     lateStats.totalRemainingLateMinutes > 0
-                      ? 'text-amber-900'
-                      : 'text-emerald-900'
+                      ? 'text-amber-800'
+                      : 'text-emerald-700'
                   }`}
                 >
                   {lateStats.totalRemainingLateMinutes}{' '}
-                  <span className="block sm:inline text-[11px] sm:text-xs font-normal">
+                  <span className="block sm:inline text-[11px] sm:text-xs font-normal text-slate-500">
                     mnt ({formatMinutesAsHoursMinutes(lateStats.totalRemainingLateMinutes)})
                   </span>
                 </div>
-              </div>
+              </Tilt3DCard>
             </div>
           </div>
 
           {/* Per-Employee Lateness & Installment Settlement Table */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <h3 className="font-display text-sm font-semibold text-slate-900">

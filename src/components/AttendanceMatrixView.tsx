@@ -33,6 +33,7 @@ import {
   Employee,
   evaluateLateness,
   formatEmployeeShiftForDisplay,
+  formatIndonesianMonth,
   formatOffDaysSummary,
   getCurrentTimeStr,
   getCurrentYearMonth,
@@ -1078,15 +1079,69 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
       {activeSubTab === 'matriks' && (
         <style media="print">{`@page { size: A4 landscape; margin: 5mm; }`}</style>
       )}
+      {/* Executive 3D Matrix Command Banner */}
+      <section className="surface-3d-dark rounded-2xl p-4 sm:p-5 text-white relative overflow-hidden no-print">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-blue-500/15 blur-3xl"
+        />
+        <div className="relative flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="icon-cube-3d w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 border border-blue-300/35 text-white flex items-center justify-center shrink-0">
+              <Table2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium text-slate-300 flex flex-wrap items-center gap-2">
+                <span>Matriks Daftar Hadir</span>
+                <span aria-hidden="true" className="text-slate-600">·</span>
+                <span className="font-mono text-sky-300 font-semibold">
+                  {formatIndonesianMonth(selectedMonth)}
+                </span>
+              </div>
+              <h2 className="font-display text-base sm:text-lg font-bold text-white mt-0.5 tracking-tight">
+                Kontrol Presensi &amp; Log Harian Karyawan
+              </h2>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
+            <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 py-1.5">
+              <div className="text-[10px] text-slate-400">Karyawan</div>
+              <div className="font-mono text-sm font-bold text-white tabular-nums">
+                {matrixData.totals.pegawai}
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 py-1.5">
+              <div className="text-[10px] text-slate-400">Rasio Hadir</div>
+              <div className="font-mono text-sm font-bold text-emerald-400 tabular-nums">
+                {matrixData.totals.hadirPct}%
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 py-1.5">
+              <div className="text-[10px] text-slate-400">Rekap H · I · S · A</div>
+              <div className="font-mono text-xs sm:text-sm font-bold text-slate-100 tabular-nums">
+                <span className="text-emerald-400">{matrixData.totals.h}</span>
+                <span className="text-slate-600 mx-1">·</span>
+                <span className="text-sky-400">{matrixData.totals.i}</span>
+                <span className="text-slate-600 mx-1">·</span>
+                <span className="text-amber-300">{matrixData.totals.s}</span>
+                <span className="text-slate-600 mx-1">·</span>
+                <span className="text-rose-400">{matrixData.totals.a}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Unified Toolbar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-3.5 no-print">
+      <div className="surface-3d rounded-2xl p-3.5 sm:p-4 space-y-3.5 no-print">
         {/* Sub-tab Switcher & Primary Attendance Actions */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3.5 border-b border-slate-100">
-          <div className="grid grid-cols-2 sm:inline-flex p-1 bg-slate-100 rounded-lg border border-slate-200/80 w-full sm:w-auto sm:self-start">
+          <div className="grid grid-cols-2 sm:inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-full sm:w-auto sm:self-start">
             <button
               type="button"
               onClick={() => setActiveSubTab('matriks')}
-              className={`min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                 activeSubTab === 'matriks'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1099,7 +1154,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
             <button
               type="button"
               onClick={() => setActiveSubTab('log')}
-              className={`min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                 activeSubTab === 'log'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1120,7 +1175,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   type="button"
                   onClick={() => openToolbarInputModal()}
                   disabled={activeEmployees.length === 0}
-                  className="col-span-2 sm:col-span-1 sm:order-3 min-h-[42px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="btn-3d-primary col-span-2 sm:col-span-1 sm:order-3 min-h-[42px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-blue-600 to-blue-700 rounded-xl hover:from-blue-500 hover:to-blue-600 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Input Absensi</span>
@@ -1130,7 +1185,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   type="button"
                   onClick={() => openToolbarInputModal('izin_terlambat')}
                   disabled={activeEmployees.length === 0}
-                  className="sm:order-2 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-teal-700 rounded-lg hover:bg-teal-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="sm:order-2 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-gradient-to-b from-teal-600 to-teal-700 rounded-xl hover:from-teal-500 hover:to-teal-600 shadow-[0_2px_0_#115e59,0_6px_12px_-4px_rgba(13,148,136,0.35)] disabled:opacity-50 transition-all whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Clock className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">Izin Terlambat</span>
@@ -1140,7 +1195,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   type="button"
                   onClick={handleBulkMarkOff}
                   disabled={bulkBusy}
-                  className="sm:order-1 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="btn-3d-secondary sm:order-1 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <CalendarOff className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">{bulkBusy ? 'Memproses...' : 'Isi Libur'}</span>
@@ -1149,7 +1204,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="sm:order-4 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="btn-3d-secondary sm:order-4 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 shrink-0" />
                   <span>Cetak</span>
@@ -1159,7 +1214,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   type="button"
                   onClick={handleExportExcel}
                   disabled={exporting || scopedEmployees.length === 0}
-                  className="sm:order-5 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="sm:order-5 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-emerald-600 to-emerald-700 rounded-xl hover:from-emerald-500 hover:to-emerald-600 shadow-[0_2px_0_#065f46,0_6px_12px_-4px_rgba(5,150,105,0.35)] disabled:opacity-50 transition-all whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <FileSpreadsheet className="w-4 h-4 shrink-0" />
                   <span className="truncate">{exporting ? 'Menyiapkan...' : 'Ekspor Excel'}</span>

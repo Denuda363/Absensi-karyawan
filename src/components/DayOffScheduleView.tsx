@@ -297,51 +297,60 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
           </button>
         </div>
       )}
-      {/* Daily Coverage Strip (Mon-Sun) */}
-      <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-4 border-b border-slate-100">
-          <div>
-            <h2 className="font-display text-base font-semibold text-slate-900">
-              Sebaran Hari Libur Mingguan Tim
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Setiap karyawan memiliki hari libur berbeda agar operasional berjalan penuh setiap hari
-            </p>
+      {/* Executive 3D Daily Coverage Strip (Mon-Sun) */}
+      <section className="surface-3d-dark rounded-2xl p-4 sm:p-6 text-white relative overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-indigo-500/15 blur-3xl"
+        />
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-800/90">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 border border-indigo-300/35 text-white flex items-center justify-center shrink-0">
+              <CalendarOff className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-base sm:text-lg font-bold text-white tracking-tight">
+                Sebaran Hari Libur Mingguan Tim
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Setiap karyawan memiliki hari libur berbeda agar operasional berjalan penuh setiap hari
+              </p>
+            </div>
           </div>
-          <span className="font-mono text-xs text-slate-600 tabular-nums">
+          <span className="font-mono text-xs text-sky-300 font-semibold tabular-nums px-2.5 py-1 rounded-lg bg-slate-900/80 border border-slate-800 self-start sm:self-auto">
             Total {activeEmployees.length} Karyawan Aktif
           </span>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
+        <div className="relative mt-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
           {weekdayCoverage.map((day) => {
             const isTodayWeekday = new Date().getDay() === day.index;
             return (
               <div
                 key={day.index}
-                className={`p-3 border rounded-lg transition-colors ${
+                className={`p-3 rounded-xl border transition-all ${
                   isTodayWeekday
-                    ? 'bg-blue-50/70 border-blue-300'
-                    : 'bg-slate-50 border-slate-200'
+                    ? 'bg-gradient-to-br from-blue-600/30 to-indigo-600/20 border-blue-400/50 shadow-[0_6px_16px_-6px_rgba(37,99,235,0.45)]'
+                    : 'bg-slate-900/75 border-slate-800/90 hover:border-slate-700'
                 }`}
               >
                 <div className="flex items-center justify-between gap-1.5">
                   <span
                     className={`text-xs font-semibold ${
-                      isTodayWeekday ? 'text-blue-900' : 'text-slate-900'
+                      isTodayWeekday ? 'text-white' : 'text-slate-200'
                     }`}
                   >
                     {day.label}
                   </span>
                   {isTodayWeekday && (
-                    <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] font-semibold text-sky-200 bg-blue-500/30 border border-blue-400/40 px-1.5 py-0.5 rounded-md">
                       Hari Ini
                     </span>
                   )}
                 </div>
-                <div className="mt-1.5 flex items-baseline justify-between font-mono text-xs tabular-nums">
-                  <span className="text-emerald-700 font-semibold">{day.onDutyCount} masuk</span>
-                  <span className="text-slate-500">{day.offCount} libur</span>
+                <div className="mt-2 flex items-baseline justify-between font-mono text-xs tabular-nums">
+                  <span className="text-emerald-400 font-semibold">{day.onDutyCount} masuk</span>
+                  <span className="text-slate-400">{day.offCount} libur</span>
                 </div>
               </div>
             );
@@ -350,7 +359,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
       </section>
 
       {/* Filter & View Switcher */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
+      <div className="surface-3d rounded-2xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
         <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 sm:gap-3 flex-1">
           <div className="grid grid-cols-2 sm:flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
             <button
@@ -446,7 +455,7 @@ export const DayOffScheduleView: React.FC<DayOffScheduleViewProps> = ({
         <button
           type="button"
           onClick={openAddEmployeeModal}
-          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer w-full lg:w-auto min-h-[40px]"
+          className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-white bg-gradient-to-b from-blue-600 to-blue-700 rounded-xl hover:from-blue-500 hover:to-blue-600 whitespace-nowrap shrink-0 cursor-pointer w-full lg:w-auto min-h-[40px]"
         >
           <UserPlus className="w-3.5 h-3.5" />
           <span>Tambah Karyawan</span>

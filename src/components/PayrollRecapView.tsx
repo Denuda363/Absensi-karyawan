@@ -24,6 +24,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+import { Tilt3DCard } from './Tilt3DCard';
 import {
   AppSettings,
   AttendanceRecord,
@@ -1056,14 +1057,18 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
     <div className="space-y-6">
       {/* Main Interactive Workspace (hidden on print if Slip Gaji modal is open) */}
       <div className={payslipRow ? 'no-print space-y-6' : 'space-y-6'}>
-        {/* Top Security Bar */}
-        <div className="bg-slate-950 text-white rounded-xl px-5 py-3.5 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <CheckCircle2 className="w-4 h-4" />
+        {/* Top 3D Security & Command Bar */}
+        <div className="surface-3d-dark text-white rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4 relative overflow-hidden">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-emerald-500/15 blur-3xl"
+          />
+          <div className="relative flex items-center gap-3.5">
+            <div className="icon-cube-3d w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-white">
+              <div className="font-display text-sm sm:text-base font-bold text-white tracking-tight">
                 Akses Penggajian Aktif — Data Gaji Terbuka
               </div>
               <div className="text-xs text-slate-400">
@@ -1072,11 +1077,11 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto shrink-0">
+          <div className="relative grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto shrink-0">
             <button
               type="button"
               onClick={() => setSettingsModalOpen(true)}
-              className="px-3 py-2 sm:py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3 py-2 sm:py-1.5 text-xs font-semibold bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 shadow-[0_2px_0_#020617] text-slate-100 rounded-xl transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>Aturan &amp; Tarif</span>
@@ -1084,7 +1089,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <button
               type="button"
               onClick={() => setBackupModalOpen(true)}
-              className="px-3 py-2 sm:py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3 py-2 sm:py-1.5 text-xs font-semibold bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 shadow-[0_2px_0_#020617] text-slate-100 rounded-xl transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Settings2 className="w-3.5 h-3.5" />
               <span>Backup Gaji</span>
@@ -1092,7 +1097,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <button
               type="button"
               onClick={() => handleForceLock()}
-              className="col-span-2 sm:col-span-1 px-3.5 py-2 sm:py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              className="col-span-2 sm:col-span-1 px-3.5 py-2 sm:py-1.5 text-xs font-semibold bg-gradient-to-b from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 shadow-[0_2px_0_#9f1239,0_6px_12px_-4px_rgba(225,29,72,0.4)] text-white rounded-xl transition-all inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Lock className="w-3.5 h-3.5" />
               <span>Kunci Akses</span>
@@ -1134,7 +1139,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
         )}
 
         {/* Filter & Export Controls */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="surface-3d rounded-2xl p-4 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
             <div className="lg:col-span-2">
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -1245,15 +1250,15 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               <button
                 type="button"
                 onClick={() => openRaiseModal()}
-                className="px-3 py-2 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="btn-3d-secondary px-3 py-2 text-xs font-semibold text-slate-800 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                <TrendingUp className="w-3.5 h-3.5 text-blue-700 shrink-0" />
                 <span className="truncate">Naik Gaji</span>
               </button>
               <button
                 type="button"
                 onClick={() => openAdjustmentModal()}
-                className="px-3 py-2 text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="btn-3d-primary px-3 py-2 text-xs font-semibold text-white rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">Bonus / Potongan</span>
@@ -1262,7 +1267,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 type="button"
                 onClick={handleExportExcel}
                 disabled={exportingExcel || filteredRows.length === 0}
-                className="px-3 py-2 text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3 py-2 text-xs font-semibold bg-gradient-to-b from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 shadow-[0_2px_0_#065f46,0_6px_12px_-4px_rgba(5,150,105,0.35)] disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none text-white rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-all"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
                 <span>{exportingExcel ? 'Menyiapkan...' : 'Excel (.xlsx)'}</span>
@@ -1271,7 +1276,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                 type="button"
                 onClick={handleExportCsv}
                 disabled={filteredRows.length === 0}
-                className="px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="btn-3d-secondary px-3 py-2 text-xs font-semibold disabled:opacity-50 text-slate-700 rounded-xl inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 shrink-0" />
                 <span>CSV</span>
@@ -1280,12 +1285,14 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
           </div>
         </div>
 
-        {/* 4 KPI Summary Cards */}
+        {/* 4 3D KPI Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
               <span>Total Gaji Bersih (THP)</span>
-              <Wallet className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center shrink-0">
+                <Wallet className="w-4 h-4" />
+              </span>
             </div>
             <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
               {formatRupiah(kpiTotals.net)}
@@ -1293,12 +1300,14 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <div className="mt-1.5 text-xs text-slate-500">
               Periode {formatIndonesianMonth(selectedMonth)} • {kpiTotals.count} karyawan
             </div>
-          </div>
+          </Tilt3DCard>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
               <span>Pendapatan Bruto</span>
-              <Banknote className="w-4 h-4 text-blue-700 shrink-0" />
+              <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-700 text-white flex items-center justify-center shrink-0">
+                <Banknote className="w-4 h-4" />
+              </span>
             </div>
             <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
               {formatRupiah(kpiTotals.gross)}
@@ -1307,12 +1316,14 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
               Lembur {formatRupiah(kpiTotals.overtimePay)} • Bonus/Tambahan{' '}
               {formatRupiah(kpiTotals.totalExtras)}
             </div>
-          </div>
+          </Tilt3DCard>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
               <span>Total Potongan</span>
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-red-700 text-white flex items-center justify-center shrink-0">
+                <AlertCircle className="w-4 h-4" />
+              </span>
             </div>
             <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-red-700 tabular-nums">
               {formatRupiah(kpiTotals.deductions)}
@@ -1320,12 +1331,14 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <div className="mt-1.5 text-xs text-slate-500">
               Telat, alpha, BPJS, potongan tetap &amp; kasbon
             </div>
-          </div>
+          </Tilt3DCard>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+          <Tilt3DCard className="surface-3d rounded-2xl p-4 sm:p-5">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
               <span>Progres Pembayaran</span>
-              <CheckCircle2 className="w-4 h-4 text-slate-700 shrink-0" />
+              <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-4 h-4" />
+              </span>
             </div>
             <div className="mt-2 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
               {kpiTotals.paidCount} / {kpiTotals.count}
@@ -1333,11 +1346,11 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <div className="mt-1.5 text-xs text-slate-500">
               Dibayar • {kpiTotals.approvedCount} Disetujui
             </div>
-          </div>
+          </Tilt3DCard>
         </div>
 
         {/* Main Payroll Table */}
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="surface-3d rounded-2xl overflow-hidden">
           <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">

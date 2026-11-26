@@ -27,6 +27,7 @@ import {
   NavSection,
 } from '../types';
 import { updateAppSettings } from '../services/attendanceService';
+import { Tilt3DCard } from './Tilt3DCard';
 
 interface CompanyProfileViewProps {
   employees: Employee[];
@@ -387,12 +388,21 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
         </div>
       )}
 
-      {/* Company Identity Header Card */}
-      <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+      {/* Company Identity 3D Showcase Header */}
+      <section className="surface-3d-dark rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden print:bg-white print:text-slate-900 print:border print:border-slate-300">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-24 -right-20 w-72 h-72 rounded-full bg-blue-500/15 blur-3xl print:hidden"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-24 -left-16 w-64 h-64 rounded-full bg-indigo-500/15 blur-3xl print:hidden"
+        />
+
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5 min-w-0">
-            {/* Company Logo / Monogram */}
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-slate-900 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+            {/* 3D Framed Company Logo / Monogram */}
+            <div className="icon-cube-3d w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-800 border border-white/15 flex items-center justify-center overflow-hidden shrink-0">
               {profile.logoDataUrl && !logoError ? (
                 <img
                   src={profile.logoDataUrl}
@@ -402,15 +412,17 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                   className="w-full h-full object-contain bg-white p-1.5"
                 />
               ) : (
-                <span className="font-display text-xl sm:text-2xl font-bold tracking-tight text-white">
+                <span className="font-display text-xl sm:text-2xl font-bold tracking-tight text-white print:text-slate-900">
                   {monogram}
                 </span>
               )}
             </div>
 
             <div className="min-w-0">
-              <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
-                <span className="font-medium text-slate-700">{profile.legalName || companyName}</span>
+              <div className="text-xs text-slate-300 print:text-slate-600 flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-sky-300 print:text-slate-900">
+                  {profile.legalName || companyName}
+                </span>
                 {profile.industry && (
                   <>
                     <span aria-hidden="true">·</span>
@@ -425,21 +437,21 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                 )}
               </div>
 
-              <h2 className="font-display text-xl sm:text-2xl font-bold text-slate-900 mt-1 tracking-tight text-balance">
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-white print:text-slate-900 mt-1 tracking-tight text-balance">
                 {companyName}
               </h2>
 
-              <div className="mt-1.5 text-xs text-slate-600 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <div className="mt-1.5 text-xs text-slate-300 print:text-slate-600 flex flex-wrap items-center gap-x-4 gap-y-1">
                 <span>{companySubtitle}</span>
                 {profile.city && (
-                  <span className="inline-flex items-center gap-1 text-slate-500">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="inline-flex items-center gap-1 text-slate-300 print:text-slate-600">
+                    <MapPin className="w-3.5 h-3.5 text-sky-400 print:text-slate-500" />
                     <span>{profile.city}</span>
                   </span>
                 )}
                 {profile.phone && (
-                  <span className="inline-flex items-center gap-1 font-mono text-slate-500 tabular-nums">
-                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="inline-flex items-center gap-1 font-mono text-slate-300 print:text-slate-600 tabular-nums">
+                    <Phone className="w-3.5 h-3.5 text-sky-400 print:text-slate-500" />
                     <span>{profile.phone}</span>
                   </span>
                 )}
@@ -451,7 +463,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-100 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 shadow-[0_2px_0_#020617] rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Cetak Profil</span>
@@ -460,7 +472,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
             <button
               type="button"
               onClick={() => openEditModal('identitas')}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 text-xs font-semibold text-white rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Pencil className="w-3.5 h-3.5" />
               <span>Edit Profil</span>
@@ -469,12 +481,14 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
         </div>
       </section>
 
-      {/* 4-Column Organization Metrics Strip */}
+      {/* 4-Column 3D Organization Metrics Strip */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+        <Tilt3DCard className="surface-3d rounded-2xl p-5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
             <span>Total Karyawan Aktif</span>
-            <Users className="w-4 h-4 text-slate-400" />
+            <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-700 text-white flex items-center justify-center shrink-0">
+              <Users className="w-4 h-4" />
+            </span>
           </div>
           <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
             {activeEmployees.length}
@@ -483,12 +497,14 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           <div className="mt-1.5 text-xs text-slate-500">
             Terdaftar pada basis data aktif
           </div>
-        </div>
+        </Tilt3DCard>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+        <Tilt3DCard className="surface-3d rounded-2xl p-5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
             <span>Divisi Operasional</span>
-            <Layers className="w-4 h-4 text-slate-400" />
+            <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center shrink-0">
+              <Layers className="w-4 h-4" />
+            </span>
           </div>
           <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
             {divisionBreakdown.length}
@@ -499,12 +515,14 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
               ? `Terbesar: ${divisionBreakdown[0].department}`
               : 'Belum ada divisi'}
           </div>
-        </div>
+        </Tilt3DCard>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+        <Tilt3DCard className="surface-3d rounded-2xl p-5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
             <span>Shift Kerja Terkonfigurasi</span>
-            <Clock className="w-4 h-4 text-slate-400" />
+            <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shrink-0">
+              <Clock className="w-4 h-4" />
+            </span>
           </div>
           <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
             {settings.shifts.length}
@@ -513,12 +531,14 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           <div className="mt-1.5 text-xs text-slate-500 truncate">
             {profile.workDaysSummary || 'Mengikuti jadwal shift'}
           </div>
-        </div>
+        </Tilt3DCard>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+        <Tilt3DCard className="surface-3d rounded-2xl p-5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
             <span>Kantor &amp; Cabang</span>
-            <Building2 className="w-4 h-4 text-slate-400" />
+            <span className="icon-cube-3d w-8 h-8 rounded-lg bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center shrink-0">
+              <Building2 className="w-4 h-4" />
+            </span>
           </div>
           <div className="mt-2 font-mono text-2xl font-bold text-slate-900 tabular-nums">
             {profile.branches.length}
@@ -527,7 +547,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           <div className="mt-1.5 text-xs text-slate-500 truncate">
             {profile.branches.find((b) => b.isHeadquarters)?.city || profile.city || 'Pusat'}
           </div>
-        </div>
+        </Tilt3DCard>
       </section>
 
       {/* Main Two-Column Content */}
@@ -535,7 +555,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
         {/* Left Column: Legal Info, Contact, Vision/Mission, Divisions */}
         <div className="lg:col-span-7 space-y-6">
           {/* Legalitas & Kontak Resmi */}
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <section className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -610,7 +630,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Visi & Misi Perusahaan */}
-          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-5">
+          <section className="surface-3d rounded-2xl p-4 sm:p-6 space-y-5">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -647,7 +667,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Sebaran Divisi & SDM Aktif */}
-          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+          <section className="surface-3d rounded-2xl p-4 sm:p-6">
             <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -704,7 +724,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
         {/* Right Column: Leadership, Shift Schedule, Branches */}
         <div className="lg:col-span-5 space-y-6">
           {/* Pimpinan & Penandatangan Laporan */}
-          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
+          <section className="surface-3d rounded-2xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -758,7 +778,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Kebijakan Shift & Jam Operasional */}
-          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
+          <section className="surface-3d rounded-2xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
@@ -802,7 +822,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
           </section>
 
           {/* Lokasi Kantor & Cabang */}
-          <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
+          <section className="surface-3d rounded-2xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-100">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
