@@ -28,6 +28,7 @@ import {
 } from '../types';
 import { updateAppSettings } from '../services/attendanceService';
 import { Tilt3DCard } from './Tilt3DCard';
+import { ReadOnlyModeBanner } from './ReadOnlyModeBanner';
 
 interface CompanyProfileViewProps {
   employees: Employee[];
@@ -36,6 +37,8 @@ interface CompanyProfileViewProps {
   onRefresh: () => Promise<void>;
   onNavigate: (nav: NavSection) => void;
   isAdminMode?: boolean;
+  isAttendanceAdmin?: boolean;
+  onRequestAttendanceAdmin?: () => void;
 }
 
 const FALLBACK_PROFILE: CompanyProfile = {
@@ -119,7 +122,10 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
   onRefresh,
   onNavigate,
   isAdminMode = false,
+  isAttendanceAdmin,
+  onRequestAttendanceAdmin,
 }) => {
+  const canEdit = isAttendanceAdmin ?? isAdminMode;
   const profile: CompanyProfile = settings.companyProfile ?? FALLBACK_PROFILE;
   const companyName = settings.companyName || 'KARYAPRESENSI';
   const companySubtitle = settings.companySubtitle || 'HRIS PERUSAHAAN';
@@ -180,6 +186,13 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
   }, [activeEmployees]);
 
   const openEditModal = (initialTab: EditSectionTab = 'identitas') => {
+    if (!canEdit) {
+      setBannerNotice({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat profil. Aktifkan Admin Absensi untuk mengubah profil perusahaan.',
+      });
+      return;
+    }
     setFormCompanyName(companyName);
     setFormSubtitle(companySubtitle);
     setFormProfile({ ...profile });
@@ -237,6 +250,13 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
   };
 
   const openNewBranchModal = () => {
+    if (!canEdit) {
+      setBannerNotice({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Aktifkan Admin Absensi untuk menambah lokasi cabang.',
+      });
+      return;
+    }
     setEditingBranchId(null);
     setBranchName('');
     setBranchCity('');
@@ -248,6 +268,13 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
   };
 
   const openEditBranchModal = (b: CompanyBranch) => {
+    if (!canEdit) {
+      setBannerNotice({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Aktifkan Admin Absensi untuk mengubah lokasi cabang.',
+      });
+      return;
+    }
     setEditingBranchId(b.id);
     setBranchName(b.name);
     setBranchCity(b.city);
@@ -388,6 +415,13 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
         </div>
       )}
 
+      {!canEdit && (
+        <ReadOnlyModeBanner
+          areaLabel="profil perusahaan & lokasi cabang"
+          onRequestAttendanceAdmin={onRequestAttendanceAdmin}
+        />
+      )}
+
       {/* Company Identity 3D Showcase Header */}
       <section className="surface-3d-dark rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden print:bg-white print:text-slate-900 print:border print:border-slate-300">
         <div
@@ -459,7 +493,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2.5 w-full lg:w-auto shrink-0 no-print">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0 no-print">
             <button
               type="button"
               onClick={() => window.print()}
@@ -469,14 +503,16 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
               <span>Cetak Profil</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => openEditModal('identitas')}
-              className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 text-xs font-semibold text-white rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              <span>Edit Profil</span>
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => openEditModal('identitas')}
+                className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 text-xs font-semibold text-white rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit Profil</span>
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -565,13 +601,15 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                   Data administrasi perusahaan untuk keperluan kop surat dan laporan resmi HRD
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => openEditModal('kontak')}
-                className="text-xs font-semibold text-blue-700 hover:text-blue-800 whitespace-nowrap shrink-0 cursor-pointer no-print"
-              >
-                Ubah Kontak
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => openEditModal('kontak')}
+                  className="text-xs font-semibold text-blue-700 hover:text-blue-800 whitespace-nowrap shrink-0 cursor-pointer no-print"
+                >
+                  Ubah Kontak
+                </button>
+              )}
             </div>
 
             <dl className="divide-y divide-slate-100 text-sm">
@@ -640,13 +678,15 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                   Arah strategis dan prinsip operasional organisasi
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => openEditModal('pimpinan')}
-                className="text-xs font-semibold text-blue-700 hover:text-blue-800 whitespace-nowrap shrink-0 cursor-pointer no-print"
-              >
-                Ubah Visi/Misi
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => openEditModal('pimpinan')}
+                  className="text-xs font-semibold text-blue-700 hover:text-blue-800 whitespace-nowrap shrink-0 cursor-pointer no-print"
+                >
+                  Ubah Visi/Misi
+                </button>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -788,7 +828,7 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                   {profile.workDaysSummary || 'Mengikuti jadwal shift kerja'}
                 </p>
               </div>
-              {isAdminMode && (
+              {canEdit && (
                 <button
                   type="button"
                   onClick={() => onNavigate('pengaturan')}
@@ -832,14 +872,16 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                   Daftar unit operasional dan kantor perwakilan
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={openNewBranchModal}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer no-print"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Lokasi</span>
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={openNewBranchModal}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer no-print"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Lokasi</span>
+                </button>
+              )}
             </div>
 
             {profile.branches.length === 0 ? (
@@ -847,14 +889,16 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                 <p className="text-xs text-slate-500">
                   Belum ada lokasi atau cabang yang ditambahkan.
                 </p>
-                <button
-                  type="button"
-                  onClick={openNewBranchModal}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 cursor-pointer no-print"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Tambah Lokasi Pertama</span>
-                </button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={openNewBranchModal}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 cursor-pointer no-print"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah Lokasi Pertama</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
@@ -881,24 +925,26 @@ export const CompanyProfileView: React.FC<CompanyProfileViewProps> = ({
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1 shrink-0 no-print">
-                        <button
-                          type="button"
-                          onClick={() => openEditBranchModal(b)}
-                          aria-label={`Edit ${b.name}`}
-                          className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-md cursor-pointer"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteBranch(b)}
-                          aria-label={`Hapus ${b.name}`}
-                          className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-md cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      {canEdit && (
+                        <div className="flex items-center gap-1 shrink-0 no-print">
+                          <button
+                            type="button"
+                            onClick={() => openEditBranchModal(b)}
+                            aria-label={`Edit ${b.name}`}
+                            className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-md cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBranch(b)}
+                            aria-label={`Hapus ${b.name}`}
+                            className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-md cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

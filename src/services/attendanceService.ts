@@ -12,7 +12,7 @@ import {
   ResetDataResult,
   ShiftConfig,
 } from '../types';
-import { executeApiWithFallback } from './apiClient';
+import { executeApiWithFallback, getAttendanceAdminToken } from './apiClient';
 import {
   deleteAttendanceFirestore,
   deleteEmployeeFirestore,
@@ -67,7 +67,10 @@ export async function createEmployee(
     () =>
       fetch('/api/employees', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
         body: JSON.stringify(payload),
       }),
     () => clientCreateEmployee(payload)
@@ -96,7 +99,10 @@ export async function updateEmployee(
     () =>
       fetch(`/api/employees/${encodeURIComponent(employeeId)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
         body: JSON.stringify(payload),
       }),
     () => clientUpdateEmployee(employeeId, payload)
@@ -128,6 +134,9 @@ export async function deleteEmployee(employeeId: string): Promise<void> {
     () =>
       fetch(`/api/employees/${encodeURIComponent(employeeId)}`, {
         method: 'DELETE',
+        headers: {
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
       }),
     async () => {
       await clientDeleteEmployee(employeeId);
@@ -165,7 +174,10 @@ export async function createAttendanceRecord(payload: {
     () =>
       fetch('/api/attendance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
         body: JSON.stringify(payload),
       }),
     () => clientCreateAttendanceRecord(payload)
@@ -217,7 +229,10 @@ export async function updateAttendanceRecord(
     () =>
       fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
         body: JSON.stringify(payload),
       }),
     () => clientUpdateAttendanceRecord(recordId, payload)
@@ -256,6 +271,9 @@ export async function deleteAttendanceRecord(recordId: string): Promise<void> {
     () =>
       fetch(`/api/attendance/${encodeURIComponent(recordId)}`, {
         method: 'DELETE',
+        headers: {
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
       }),
     async () => {
       await clientDeleteAttendanceRecord(recordId);
@@ -283,7 +301,10 @@ export async function bulkMarkScheduledOffDays(
     () =>
       fetch('/api/attendance/bulk-off-days', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
         body: JSON.stringify({ date }),
       }),
     () => clientBulkMarkScheduledOffDays(date)
@@ -329,7 +350,10 @@ export async function createLateSettlement(payload: {
     () =>
       fetch('/api/late-settlements', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
         body: JSON.stringify(payload),
       }),
     () => clientCreateLateSettlement(payload)
@@ -363,6 +387,9 @@ export async function deleteLateSettlement(settlementId: string): Promise<void> 
     () =>
       fetch(`/api/late-settlements/${encodeURIComponent(settlementId)}`, {
         method: 'DELETE',
+        headers: {
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
       }),
     async () => {
       await clientDeleteLateSettlement(settlementId);
@@ -396,7 +423,10 @@ export async function updateAppSettings(payload: {
     () =>
       fetch('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
         body: JSON.stringify(payload),
       }),
     () => clientUpdateAppSettings(payload)
@@ -461,7 +491,12 @@ export async function updateAppSettings(payload: {
 
 export async function downloadBackupJson(): Promise<void> {
   const data = await executeApiWithFallback<Record<string, unknown>>(
-    () => fetch('/api/backup'),
+    () =>
+      fetch('/api/backup', {
+        headers: {
+          'X-Attendance-Token': getAttendanceAdminToken() || '',
+        },
+      }),
     () => clientGetBackupPayload()
   );
   const now = new Date();
@@ -497,15 +532,21 @@ export async function downloadBackupJson(): Promise<void> {
 export async function restoreDatabaseBackup(
   backupPayload: unknown
 ): Promise<AppDatabaseState> {
-  const restored = await executeApiWithFallback(
-    () =>
-      fetch('/api/restore', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(backupPayload),
-      }),
-    () => clientRestoreDatabaseBackup(backupPayload)
-  );
+  const restored = await runRestoreWithToken(backupPayload);
+  async function runRestoreWithToken(rawPayload: unknown) {
+    return executeApiWithFallback(
+      () =>
+        fetch('/api/restore', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Attendance-Token': getAttendanceAdminToken() || '',
+          },
+          body: JSON.stringify(rawPayload),
+        }),
+      () => clientRestoreDatabaseBackup(rawPayload)
+    );
+  }
   notifyLocalScopeMutation('attendance', 'restore_database');
   if (isFirestoreEngineActive()) {
     void pushAllLocalStateToFirestore({
@@ -537,11 +578,12 @@ export async function resetApplicationData(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-token': adminToken,
+          'X-Attendance-Token': adminToken || getAttendanceAdminToken() || '',
+          'x-admin-token': adminToken || getAttendanceAdminToken() || '',
         },
         body: JSON.stringify(payload),
       }),
-    () => clientResetApplicationData(adminToken, payload)
+    () => clientResetApplicationData(adminToken || getAttendanceAdminToken() || '', payload)
   );
 
   notifyLocalScopeMutation('attendance', 'reset_data');

@@ -59,7 +59,11 @@ interface SettingsViewProps {
   onNavigate?: (nav: NavSection) => void;
   isAdminMode?: boolean;
   adminToken?: string | null;
-  onOpenAdminModeModal?: () => void;
+  isAttendanceAdmin?: boolean;
+  isFinanceAdmin?: boolean;
+  attendanceToken?: string | null;
+  financeToken?: string | null;
+  onOpenAdminModeModal?: (scope?: 'auto' | 'attendance' | 'finance') => void;
 }
 
 type SettingsGroup =
@@ -90,8 +94,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onNavigate,
   isAdminMode = false,
   adminToken = null,
+  isAttendanceAdmin = false,
+  isFinanceAdmin = false,
+  attendanceToken = null,
+  financeToken = null,
   onOpenAdminModeModal,
 }) => {
+  const attendanceAccessActive = isAttendanceAdmin || isAdminMode;
+  const financeAccessActive = isFinanceAdmin;
+  const effectiveAttendanceToken = attendanceToken || adminToken || null;
+  const effectiveDatabaseAdminToken = financeToken || attendanceToken || adminToken || null;
+
   const [activeGroup, setActiveGroup] = useState<SettingsGroup>('semua');
 
   // Shift & lateness policy state
@@ -136,16 +149,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Admin Mode PIN change state
-  const [currentAdminPin, setCurrentAdminPin] = useState<string>('');
-  const [newAdminPin, setNewAdminPin] = useState<string>('');
-  const [confirmAdminPin, setConfirmAdminPin] = useState<string>('');
-  const [showPinFields, setShowPinFields] = useState<boolean>(false);
-  const [savingAdminPin, setSavingAdminPin] = useState<boolean>(false);
-  const [adminPinNotice, setAdminPinNotice] = useState<{
+  // Dual Admin Mode PIN change state (Absensi vs Keuangan)
+  const [currentAttPin, setCurrentAttPin] = useState<string>('');
+  const [newAttPin, setNewAttPin] = useState<string>('');
+  const [confirmAttPin, setConfirmAttPin] = useState<string>('');
+  const [savingAttPin, setSavingAttPin] = useState<boolean>(false);
+  const [attPinNotice, setAttPinNotice] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  const [currentFinPin, setCurrentFinPin] = useState<string>('');
+  const [newFinPin, setNewFinPin] = useState<string>('');
+  const [confirmFinPin, setConfirmFinPin] = useState<string>('');
+  const [savingFinPin, setSavingFinPin] = useState<boolean>(false);
+  const [finPinNotice, setFinPinNotice] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  const [showPinFields, setShowPinFields] = useState<boolean>(false);
 
   // Reset Data Sistem state
   const [resetModalMode, setResetModalMode] = useState<ResetDataMode | null>(null);
@@ -447,53 +470,105 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const handleChangeAdminPin = async (e: React.FormEvent) => {
+  const handleChangeAttendancePin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAdminPinNotice(null);
+    setAttPinNotice(null);
 
-    if (!currentAdminPin.trim()) {
-      setAdminPinNotice({
+    if (!currentAttPin.trim()) {
+      setAttPinNotice({
         type: 'error',
-        text: 'Masukkan PIN Mode Admin saat ini untuk verifikasi.',
+        text: 'Masukkan PIN Admin Absensi saat ini (atau Superuser) untuk verifikasi.',
       });
       return;
     }
-    const cleanNew = newAdminPin.trim();
+    const cleanNew = newAttPin.trim();
     if (cleanNew.length < 4 || cleanNew.length > 20) {
-      setAdminPinNotice({
+      setAttPinNotice({
         type: 'error',
-        text: 'PIN Mode Admin baru minimal 4 karakter dan maksimal 20 karakter.',
+        text: 'PIN Admin Absensi baru minimal 4 karakter dan maksimal 20 karakter.',
       });
       return;
     }
-    if (cleanNew !== confirmAdminPin.trim()) {
-      setAdminPinNotice({
+    if (cleanNew !== confirmAttPin.trim()) {
+      setAttPinNotice({
         type: 'error',
-        text: 'Konfirmasi PIN baru tidak cocok.',
+        text: 'Konfirmasi PIN Admin Absensi baru tidak cocok.',
       });
       return;
     }
 
-    setSavingAdminPin(true);
+    setSavingAttPin(true);
     try {
       await changeAdminModePin({
-        currentPin: currentAdminPin.trim(),
+        target: 'attendance',
+        currentPin: currentAttPin.trim(),
         newPin: cleanNew,
       });
-      setCurrentAdminPin('');
-      setNewAdminPin('');
-      setConfirmAdminPin('');
-      setAdminPinNotice({
+      setCurrentAttPin('');
+      setNewAttPin('');
+      setConfirmAttPin('');
+      setAttPinNotice({
         type: 'success',
-        text: 'PIN Mode Admin berhasil diperbarui dan langsung berlaku.',
+        text: 'PIN Admin Absensi & Pengaturan berhasil diperbarui dan langsung berlaku.',
       });
     } catch (err) {
-      setAdminPinNotice({
+      setAttPinNotice({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Gagal mengubah PIN Mode Admin.',
+        text: err instanceof Error ? err.message : 'Gagal mengubah PIN Admin Absensi.',
       });
     } finally {
-      setSavingAdminPin(false);
+      setSavingAttPin(false);
+    }
+  };
+
+  const handleChangeFinancePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFinPinNotice(null);
+
+    if (!currentFinPin.trim()) {
+      setFinPinNotice({
+        type: 'error',
+        text: 'Masukkan PIN Admin Keuangan saat ini (atau Superuser) untuk verifikasi.',
+      });
+      return;
+    }
+    const cleanNew = newFinPin.trim();
+    if (cleanNew.length < 4 || cleanNew.length > 20) {
+      setFinPinNotice({
+        type: 'error',
+        text: 'PIN Admin Keuangan baru minimal 4 karakter dan maksimal 20 karakter.',
+      });
+      return;
+    }
+    if (cleanNew !== confirmFinPin.trim()) {
+      setFinPinNotice({
+        type: 'error',
+        text: 'Konfirmasi PIN Admin Keuangan baru tidak cocok.',
+      });
+      return;
+    }
+
+    setSavingFinPin(true);
+    try {
+      await changeAdminModePin({
+        target: 'finance',
+        currentPin: currentFinPin.trim(),
+        newPin: cleanNew,
+      });
+      setCurrentFinPin('');
+      setNewFinPin('');
+      setConfirmFinPin('');
+      setFinPinNotice({
+        type: 'success',
+        text: 'PIN Admin Keuangan & Rekap Gaji berhasil diperbarui dan langsung berlaku.',
+      });
+    } catch (err) {
+      setFinPinNotice({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal mengubah PIN Admin Keuangan.',
+      });
+    } finally {
+      setSavingFinPin(false);
     }
   };
 
@@ -584,9 +659,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!resetModalMode) return;
     setResetModalError(null);
 
-    if (!adminToken) {
+    if (!effectiveAttendanceToken) {
       setResetModalError(
-        'Sesi Mode Admin belum aktif. Silakan masuk Mode Admin terlebih dahulu.'
+        'Sesi Admin Absensi belum aktif. Silakan masuk Admin Absensi terlebih dahulu.'
       );
       return;
     }
@@ -600,13 +675,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
 
     if (!resetPinInput.trim()) {
-      setResetModalError('Masukkan PIN Mode Admin untuk memverifikasi reset data.');
+      setResetModalError(
+        resetModalMode === 'attendance'
+          ? 'Masukkan PIN Admin Absensi untuk memverifikasi reset data absensi.'
+          : 'Masukkan PIN Admin Keuangan atau Superuser untuk memverifikasi reset data menyeluruh.'
+      );
       return;
     }
 
     setResettingData(true);
     try {
-      const result = await resetApplicationData(adminToken, {
+      const result = await resetApplicationData(effectiveAttendanceToken, {
         mode: resetModalMode,
         pin: resetPinInput.trim(),
       });
@@ -726,13 +805,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <span
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold border inline-flex items-center gap-1.5 ${
-                isAdminMode
+                attendanceAccessActive
                   ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
                   : 'bg-slate-800/90 border-slate-700/80 text-slate-300'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>{isAdminMode ? 'Mode Admin Aktif' : 'Mode Standar'}</span>
+              <span>{attendanceAccessActive ? 'Admin Absensi Aktif' : 'Admin Absensi Terkunci'}</span>
+            </span>
+            <span
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border inline-flex items-center gap-1.5 ${
+                financeAccessActive
+                  ? 'bg-sky-500/15 border-sky-400/30 text-sky-300'
+                  : 'bg-slate-800/90 border-slate-700/80 text-slate-400'
+              }`}
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>{financeAccessActive ? 'Admin Keuangan Aktif' : 'Admin Keuangan Terkunci'}</span>
             </span>
           </div>
         </div>
@@ -1733,7 +1822,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   4. Reset Data Aplikasi
                 </h2>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  Pilih tingkat pembersihan data sesuai kebutuhan. Setiap proses reset membutuhkan konfirmasi teks dan verifikasi PIN Mode Admin.
+                  Pilih tingkat pembersihan data sesuai kebutuhan. Reset absensi diverifikasi dengan PIN Admin Absensi, sedangkan reset menyeluruh membutuhkan PIN Admin Keuangan atau Superuser.
                 </p>
               </div>
             </div>
@@ -1836,7 +1925,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </section>
         )}
 
-        {/* KELOMPOK 4: KEAMANAN & PIN MODE ADMIN */}
+        {/* KELOMPOK 4: KEAMANAN & PIN AKSES TERPISAH */}
         {showKeamanan && (
           <section className="surface-3d rounded-2xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1846,38 +1935,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 <div>
                   <h2 className="font-display text-base font-semibold text-slate-900">
-                    5. Keamanan &amp; PIN Mode Admin
+                    5. Keamanan &amp; PIN Akses Terpisah
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    PIN Mode Admin digunakan untuk membuka Mode Admin agar menu Keuangan Perusahaan, Rekap Gaji, dan Pengaturan dapat diakses. Pada Mode Biasa, menu tersebut disembunyikan.
+                    PIN Absensi (bawaan: <code className="font-mono font-semibold text-slate-700">1234</code>) membuka fitur input/edit absensi, jadwal, profil &amp; Pengaturan. PIN Keuangan (bawaan: <code className="font-mono font-semibold text-slate-700">123456</code>) membuka Keuangan Perusahaan &amp; Rekap Gaji. Kedua PIN wajib berbeda.
                   </p>
                 </div>
               </div>
 
-              {!isAdminMode && onOpenAdminModeModal && (
-                <button
-                  type="button"
-                  onClick={onOpenAdminModeModal}
-                  className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Masuk Mode Admin</span>
-                </button>
-              )}
-            </div>
-
-            <form onSubmit={handleChangeAdminPin} className="p-4 sm:p-6 space-y-4">
-              <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between gap-3">
-                <span>
-                  Status sesi saat ini:{' '}
-                  <strong className={isAdminMode ? 'text-emerald-700' : 'text-slate-900'}>
-                    {isAdminMode ? 'Mode Admin Aktif' : 'Mode Biasa'}
-                  </strong>
-                </span>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowPinFields((prev) => !prev)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                  className="btn-3d-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer"
                 >
                   {showPinFields ? (
                     <>
@@ -1891,81 +1961,250 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </>
                   )}
                 </button>
+                {!financeAccessActive && onOpenAdminModeModal && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenAdminModeModal('finance')}
+                    className="btn-3d-primary inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white rounded-xl whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Buka Admin Keuangan</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-6 space-y-5">
+              {/* Role Status Strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      Sesi Admin Absensi &amp; Pengaturan
+                    </div>
+                    <div className="text-xs font-bold mt-0.5 text-slate-900">
+                      {attendanceAccessActive ? 'Aktif — Input & Edit Diizinkan' : 'Terkunci (Mode Biasa)'}
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
+                      attendanceAccessActive
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {attendanceAccessActive ? 'Terbuka' : 'Terkunci'}
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      Sesi Admin Keuangan &amp; Gaji
+                    </div>
+                    <div className="text-xs font-bold mt-0.5 text-slate-900">
+                      {financeAccessActive ? 'Aktif — Keuangan & Gaji Terbuka' : 'Terkunci'}
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
+                      financeAccessActive
+                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {financeAccessActive ? 'Terbuka' : 'Terkunci'}
+                  </span>
+                </div>
               </div>
 
-              {adminPinNotice && (
-                <div
-                  className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
-                    adminPinNotice.type === 'success'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-red-50 border-red-200 text-red-800'
-                  }`}
+              {/* Two Independent PIN Change Forms */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Form 1: PIN Absensi & Pengaturan */}
+                <form
+                  onSubmit={handleChangeAttendancePin}
+                  className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-white space-y-4"
                 >
-                  {adminPinNotice.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-100">
+                    <div>
+                      <h3 className="font-display text-sm font-bold text-slate-900">
+                        PIN Admin Absensi &amp; Pengaturan
+                      </h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Untuk input/ubah absensi, jadwal shift &amp; libur, profil, dan membuka halaman Pengaturan. Bawaan: <span className="font-mono font-semibold text-slate-700">1234</span>.
+                      </p>
+                    </div>
+                  </div>
+
+                  {attPinNotice && (
+                    <div
+                      className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
+                        attPinNotice.type === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-red-50 border-red-200 text-red-800'
+                      }`}
+                    >
+                      {attPinNotice.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                      )}
+                      <span>{attPinNotice.text}</span>
+                    </div>
                   )}
-                  <span>{adminPinNotice.text}</span>
-                </div>
-              )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                    PIN Mode Admin Saat Ini
-                  </label>
-                  <input
-                    type={showPinFields ? 'text' : 'password'}
-                    inputMode="numeric"
-                    autoComplete="off"
-                    value={currentAdminPin}
-                    onChange={(e) => setCurrentAdminPin(e.target.value)}
-                    placeholder="Masukkan PIN saat ini"
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                    PIN Mode Admin Baru
-                  </label>
-                  <input
-                    type={showPinFields ? 'text' : 'password'}
-                    inputMode="numeric"
-                    autoComplete="new-password"
-                    value={newAdminPin}
-                    onChange={(e) => setNewAdminPin(e.target.value)}
-                    placeholder="Minimal 4 digit/karakter"
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                    Konfirmasi PIN Baru
-                  </label>
-                  <input
-                    type={showPinFields ? 'text' : 'password'}
-                    inputMode="numeric"
-                    autoComplete="new-password"
-                    value={confirmAdminPin}
-                    onChange={(e) => setConfirmAdminPin(e.target.value)}
-                    placeholder="Ulangi PIN baru"
-                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                  />
-                </div>
-              </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        PIN Absensi Saat Ini (atau Superuser)
+                      </label>
+                      <input
+                        type={showPinFields ? 'text' : 'password'}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={currentAttPin}
+                        onChange={(e) => setCurrentAttPin(e.target.value)}
+                        placeholder="Masukkan PIN absensi saat ini"
+                        className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          PIN Absensi Baru
+                        </label>
+                        <input
+                          type={showPinFields ? 'text' : 'password'}
+                          inputMode="numeric"
+                          autoComplete="new-password"
+                          value={newAttPin}
+                          onChange={(e) => setNewAttPin(e.target.value)}
+                          placeholder="Min. 4 karakter"
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          Konfirmasi PIN Baru
+                        </label>
+                        <input
+                          type={showPinFields ? 'text' : 'password'}
+                          inputMode="numeric"
+                          autoComplete="new-password"
+                          value={confirmAttPin}
+                          onChange={(e) => setConfirmAttPin(e.target.value)}
+                          placeholder="Ulangi PIN baru"
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="flex justify-end pt-2 border-t border-slate-100">
-                <button
-                  type="submit"
-                  disabled={savingAdminPin}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer"
+                  <div className="flex justify-end pt-2 border-t border-slate-100">
+                    <button
+                      type="submit"
+                      disabled={savingAttPin}
+                      className="btn-3d-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-b from-blue-600 to-blue-700 rounded-lg hover:from-blue-500 hover:to-blue-600 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{savingAttPin ? 'Menyimpan...' : 'Simpan PIN Absensi'}</span>
+                    </button>
+                  </div>
+                </form>
+
+                {/* Form 2: PIN Keuangan & Rekap Gaji */}
+                <form
+                  onSubmit={handleChangeFinancePin}
+                  className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-white space-y-4"
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{savingAdminPin ? 'Menyimpan...' : 'Simpan PIN Mode Admin'}</span>
-                </button>
+                  <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-100">
+                    <div>
+                      <h3 className="font-display text-sm font-bold text-slate-900">
+                        PIN Admin Keuangan &amp; Rekap Gaji
+                      </h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Untuk membuka Keuangan Perusahaan, Rekap Gaji, serta verifikasi reset menyeluruh. Bawaan: <span className="font-mono font-semibold text-slate-700">123456</span>.
+                      </p>
+                    </div>
+                  </div>
+
+                  {finPinNotice && (
+                    <div
+                      className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
+                        finPinNotice.type === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-red-50 border-red-200 text-red-800'
+                      }`}
+                    >
+                      {finPinNotice.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                      )}
+                      <span>{finPinNotice.text}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        PIN Keuangan Saat Ini (atau Superuser)
+                      </label>
+                      <input
+                        type={showPinFields ? 'text' : 'password'}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={currentFinPin}
+                        onChange={(e) => setCurrentFinPin(e.target.value)}
+                        placeholder="Masukkan PIN keuangan saat ini"
+                        className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          PIN Keuangan Baru
+                        </label>
+                        <input
+                          type={showPinFields ? 'text' : 'password'}
+                          inputMode="numeric"
+                          autoComplete="new-password"
+                          value={newFinPin}
+                          onChange={(e) => setNewFinPin(e.target.value)}
+                          placeholder="Min. 4 karakter"
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          Konfirmasi PIN Baru
+                        </label>
+                        <input
+                          type={showPinFields ? 'text' : 'password'}
+                          inputMode="numeric"
+                          autoComplete="new-password"
+                          value={confirmFinPin}
+                          onChange={(e) => setConfirmFinPin(e.target.value)}
+                          placeholder="Ulangi PIN baru"
+                          className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2 border-t border-slate-100">
+                    <button
+                      type="submit"
+                      disabled={savingFinPin}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{savingFinPin ? 'Menyimpan...' : 'Simpan PIN Keuangan'}</span>
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
+            </div>
           </section>
         )}
 
@@ -1976,7 +2215,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             attendanceRecords={attendanceRecords}
             lateSettlements={lateSettlements}
             settings={settings}
-            adminToken={adminToken}
+            adminToken={effectiveDatabaseAdminToken}
             databaseToken={databaseToken}
             onDatabaseTokenChange={setDatabaseToken}
             onRefresh={onRefresh}
@@ -2103,7 +2342,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     htmlFor="reset-admin-pin"
                     className="block text-xs font-semibold text-slate-700 mb-1.5"
                   >
-                    Verifikasi PIN Mode Admin
+                    {resetModalMode === 'attendance'
+                      ? 'Verifikasi PIN Admin Absensi'
+                      : 'Verifikasi PIN Admin Keuangan / Superuser'}
                   </label>
                   <div className="relative">
                     <input
@@ -2113,7 +2354,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       autoComplete="off"
                       value={resetPinInput}
                       onChange={(e) => setResetPinInput(e.target.value)}
-                      placeholder="Masukkan PIN Mode Admin"
+                      placeholder={
+                        resetModalMode === 'attendance'
+                          ? 'Masukkan PIN Admin Absensi'
+                          : 'Masukkan PIN Admin Keuangan / Superuser'
+                      }
                       className="w-full min-h-[44px] pl-3.5 pr-11 py-2 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                     />
                     <button

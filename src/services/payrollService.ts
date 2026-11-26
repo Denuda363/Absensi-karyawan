@@ -9,7 +9,8 @@ import {
   SalaryRaiseMethod,
   SalaryRaiseRecord,
 } from '../types';
-import { executeApiWithFallback, HttpApiError } from './apiClient';
+import { AdminRoleScope } from '../types';
+import { executeApiWithFallback, getAttendanceAdminToken, HttpApiError } from './apiClient';
 import {
   deletePayrollAdjustmentFromFirestore,
   deletePayrollRaiseFromFirestore,
@@ -64,21 +65,42 @@ async function runPayrollApi<T>(
   }
 }
 
+export interface AdminUnlockResult {
+  token: string;
+  role: AdminRoleScope;
+  attendanceToken?: string;
+  financeToken?: string;
+  expiresAt: number;
+}
+
 export async function unlockAdminModeWithPin(
-  pin: string
-): Promise<{ token: string; expiresAt: number }> {
+  pin: string,
+  scope: 'auto' | 'attendance' | 'finance' = 'auto'
+): Promise<AdminUnlockResult> {
   const session = await runPayrollApi(
     () =>
       fetch('/api/admin-mode/unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, scope }),
       }),
-    () => clientUnlockAdminModeWithPin(pin)
+    () => clientUnlockAdminModeWithPin(pin, scope)
   );
+  const roleLabel =
+    session.role === 'both'
+      ? 'Mode Admin Penuh (Absensi & Keuangan)'
+      : session.role === 'attendance'
+        ? 'Mode Admin Absensi & Pengaturan'
+        : 'Mode Admin Keuangan & Gaji';
+  const roleMsg =
+    session.role === 'both'
+      ? 'Sesi otorisasi terbuka untuk Absensi, Pengaturan, Keuangan, dan Rekap Gaji.'
+      : session.role === 'attendance'
+        ? 'Sesi Admin Absensi aktif: input/ubah absensi, jadwal shift/libur, data karyawan, dan Pengaturan terbuka.'
+        : 'Sesi Admin Keuangan aktif: menu Keuangan Perusahaan dan Rekap Gaji terbuka.';
   emitAppNotification({
-    title: 'Mode Admin Diaktifkan',
-    message: 'Sesi otorisasi terbuka untuk Keuangan Perusahaan, Rekap Gaji, dan Pengaturan Sistem.',
+    title: `${roleLabel} Diaktifkan`,
+    message: roleMsg,
     module: 'sistem',
     severity: 'info',
     actionType: 'unlock_admin_mode',
@@ -86,14 +108,21 @@ export async function unlockAdminModeWithPin(
   return session;
 }
 
-export async function lockAdminModeSession(adminToken: string): Promise<void> {
+export async function lockAdminModeSession(
+  adminToken: string,
+  roleLabel = 'Mode Admin'
+): Promise<void> {
   if (!adminToken) return;
   try {
     await executeApiWithFallback<{ ok: boolean }>(
       () =>
         fetch('/api/admin-mode/lock', {
           method: 'POST',
-          headers: { 'X-Admin-Token': adminToken },
+          headers: {
+            'X-Admin-Token': adminToken,
+            'X-Attendance-Token': adminToken,
+            'X-Finance-Token': adminToken,
+          },
         }),
       async () => {
         await clientLockAdminModeSession(adminToken);
@@ -104,8 +133,8 @@ export async function lockAdminModeSession(adminToken: string): Promise<void> {
     await clientLockAdminModeSession(adminToken);
   }
   emitAppNotification({
-    title: 'Mode Admin Dikunci',
-    message: 'Sesi Mode Admin ditutup dan menu rahasia kembali terlindungi.',
+    title: `${roleLabel} Dikunci`,
+    message: `Sesi ${roleLabel} ditutup dan kembali ke akses terbatas.`,
     module: 'sistem',
     severity: 'info',
     actionType: 'lock_admin_mode',
@@ -113,14 +142,19 @@ export async function lockAdminModeSession(adminToken: string): Promise<void> {
 }
 
 export async function changeAdminModePin(payload: {
+  target: 'attendance' | 'finance';
   currentPin: string;
   newPin: string;
 }): Promise<void> {
+  const attToken = getAttendanceAdminToken() || '';
   await runPayrollApi<{ ok: boolean }>(
     () =>
       fetch('/api/admin-mode/pin', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Attendance-Token': attToken,
+        },
         body: JSON.stringify(payload),
       }),
     async () => {
@@ -129,9 +163,11 @@ export async function changeAdminModePin(payload: {
     }
   );
   notifyLocalScopeMutation('security', 'change_admin_pin');
+  const pinLabel =
+    payload.target === 'attendance' ? 'PIN Absensi & Pengaturan' : 'PIN Keuangan & Rekap Gaji';
   emitAppNotification({
-    title: 'PIN Mode Admin Diperbarui',
-    message: 'PIN keamanan Mode Admin berhasil diganti dengan kombinasi baru.',
+    title: `${pinLabel} Diperbarui`,
+    message: `${pinLabel} berhasil diganti dengan kombinasi baru yang unik.`,
     module: 'sistem',
     severity: 'warning',
     actionType: 'change_admin_pin',

@@ -242,6 +242,7 @@ function buildPostgresScript(
     `CREATE TABLE IF NOT EXISTS ${t('security_config')} (`,
     `  id VARCHAR(64) PRIMARY KEY,`,
     `  admin_pin_sha256 CHAR(64) NOT NULL,`,
+    `  attendance_pin_sha256 CHAR(64),`,
     `  database_pin_sha256 CHAR(64),`,
     `  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
     `);`
@@ -545,6 +546,7 @@ function buildMysqlScript(opts: ScriptGeneratorOptions): string {
     `CREATE TABLE IF NOT EXISTS ${t('security_config')} (`,
     `  id VARCHAR(64) PRIMARY KEY,`,
     `  admin_pin_sha256 CHAR(64) NOT NULL,`,
+    `  attendance_pin_sha256 CHAR(64) NULL,`,
     `  database_pin_sha256 CHAR(64) NULL,`,
     `  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`,
     `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
@@ -780,6 +782,7 @@ function buildSqliteScript(opts: ScriptGeneratorOptions): string {
     `CREATE TABLE IF NOT EXISTS ${t('security_config')} (`,
     `  id TEXT PRIMARY KEY,`,
     `  admin_pin_sha256 TEXT NOT NULL,`,
+    `  attendance_pin_sha256 TEXT,`,
     `  database_pin_sha256 TEXT,`,
     `  updated_at TEXT NOT NULL`,
     `);`

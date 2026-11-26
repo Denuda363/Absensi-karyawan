@@ -31,6 +31,7 @@ import {
 } from '../types';
 import { RealtimeClock } from './RealtimeClock';
 import { Tilt3DCard } from './Tilt3DCard';
+import { ReadOnlyModeBanner } from './ReadOnlyModeBanner';
 
 interface OverviewViewProps {
   employees: Employee[];
@@ -39,6 +40,8 @@ interface OverviewViewProps {
   settings?: AppSettings;
   loading: boolean;
   onNavigate: (nav: NavSection) => void;
+  isAttendanceAdmin?: boolean;
+  onRequestAttendanceAdmin?: () => void;
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({
@@ -48,6 +51,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   settings,
   loading,
   onNavigate,
+  isAttendanceAdmin = false,
+  onRequestAttendanceAdmin,
 }) => {
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
   const [unloggedSearch, setUnloggedSearch] = useState<string>('');
@@ -268,6 +273,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {!isAttendanceAdmin && (
+        <ReadOnlyModeBanner
+          areaLabel="ringkasan kehadiran"
+          onRequestAttendanceAdmin={onRequestAttendanceAdmin}
+        />
+      )}
       {/* Executive 3D Command Header */}
       <section className="surface-3d-dark rounded-2xl p-4 sm:p-6 relative overflow-hidden text-white">
         <div
@@ -626,7 +637,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 Wajib Masuk — Belum Diabsen Hari Ini
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Daftar monitoring harian (input absensi hanya dilakukan di halaman Matriks Daftar Hadir)
+                {isAttendanceAdmin
+                  ? 'Daftar monitoring harian (input absensi hanya dilakukan di halaman Matriks Daftar Hadir)'
+                  : 'Daftar monitoring harian (Mode Biasa hanya dapat melihat data)'}
               </p>
             </div>
             <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
@@ -674,7 +687,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <span>Seluruh karyawan wajib masuk hari ini sudah diabsen</span>
               </div>
               <p className="text-xs text-slate-500">
-                Untuk mengubah atau menginput absensi, buka menu Matriks Daftar Hadir.
+                {isAttendanceAdmin
+                  ? 'Untuk mengubah atau menginput absensi, buka menu Matriks Daftar Hadir.'
+                  : 'Mode Biasa hanya menampilkan pratinjau. Aktifkan Admin Absensi untuk menginput absensi.'}
               </p>
             </div>
           ) : filteredUnloggedToday.length === 0 ? (
@@ -727,7 +742,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 onClick={() => onNavigate('jadwal-libur')}
                 className="text-xs font-medium text-blue-700 hover:text-blue-800 cursor-pointer"
               >
-                Atur Jadwal
+                {isAttendanceAdmin ? 'Atur Jadwal' : 'Lihat Jadwal'}
               </button>
             </div>
 

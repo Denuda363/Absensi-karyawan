@@ -16,6 +16,30 @@ export class HttpApiError extends Error {
 
 let clientDirectModeActive = false;
 
+let activeAttendanceAdminToken: string | null = null;
+let activeFinanceAdminToken: string | null = null;
+
+export function setAttendanceAdminToken(token: string | null): void {
+  activeAttendanceAdminToken = token && token.trim() ? token.trim() : null;
+}
+
+export function getAttendanceAdminToken(): string | null {
+  return activeAttendanceAdminToken;
+}
+
+export function setFinanceAdminToken(token: string | null): void {
+  activeFinanceAdminToken = token && token.trim() ? token.trim() : null;
+}
+
+export function getFinanceAdminToken(): string | null {
+  return activeFinanceAdminToken;
+}
+
+export function clearAllAdminTokens(): void {
+  activeAttendanceAdminToken = null;
+  activeFinanceAdminToken = null;
+}
+
 export function isClientDirectModeActive(): boolean {
   return clientDirectModeActive;
 }

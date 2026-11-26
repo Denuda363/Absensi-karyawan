@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { User } from 'firebase/auth';
 import {
   AlertCircle,
+  BookOpen,
   CalendarRange,
   CircleDollarSign,
   Clock,
@@ -30,6 +31,11 @@ import {
 } from './types';
 import { fetchDatabaseState } from './services/attendanceService';
 import {
+  clearAllAdminTokens,
+  setAttendanceAdminToken,
+  setFinanceAdminToken,
+} from './services/apiClient';
+import {
   lockAdminModeSession,
   unlockAdminModeWithPin,
 } from './services/payrollService';
@@ -54,6 +60,7 @@ import { SettingsView } from './components/SettingsView';
 import { PayrollRecapView } from './components/PayrollRecapView';
 import { FinanceView } from './components/FinanceView';
 import { ShiftScheduleView } from './components/ShiftScheduleView';
+import { PanduanPenggunaView } from './components/PanduanPenggunaView';
 import { RealtimeClock } from './components/RealtimeClock';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallControls';
 import {
@@ -73,6 +80,7 @@ const NAV_ICONS: Record<NavSection, React.ComponentType<{ className?: string }>>
   keuangan: CircleDollarSign,
   'rekap-gaji': Wallet,
   'profil-perusahaan': Landmark,
+  panduan: BookOpen,
   pengaturan: Settings,
 };
 
@@ -99,19 +107,23 @@ const PAGE_TITLES: Record<NavSection, { title: string; subtitle: string }> = {
   },
   keuangan: {
     title: 'Keuangan Perusahaan',
-    subtitle: 'Pendapatan cash & transfer, pengeluaran perusahaan, serta pengaturan kategori khusus Mode Admin',
+    subtitle: 'Pendapatan cash & transfer, pengeluaran perusahaan, serta pengaturan kategori khusus Admin Keuangan',
   },
   'rekap-gaji': {
     title: 'Rekap Gaji Karyawan',
-    subtitle: 'Data penggajian rahasia dilindungi otorisasi PIN Admin / Superuser',
+    subtitle: 'Data penggajian rahasia dilindungi otorisasi PIN Admin Keuangan / Superuser',
   },
   'profil-perusahaan': {
     title: 'Profil Perusahaan',
     subtitle: 'Identitas resmi, legalitas, struktur pimpinan, sebaran divisi, dan lokasi kantor cabang',
   },
+  panduan: {
+    title: 'Panduan Pengguna',
+    subtitle: 'Buku panduan operasional resmi siap cetak & jilid A4 — Penyusun & Developer: Denuda',
+  },
   pengaturan: {
     title: 'Pengaturan Sistem',
-    subtitle: 'Kelola jam kerja tiap shift, identitas perusahaan, dan backup/restore data',
+    subtitle: 'Kelola jam kerja tiap shift, identitas perusahaan, PIN admin ganda, dan backup/restore data',
   },
 };
 
@@ -141,14 +153,25 @@ function AppWorkspace() {
     permission: deviceNotificationPermission,
   } = useNotificationCenterState();
 
-  // Mode Biasa (default) vs Mode Admin
-  const [adminToken, setAdminToken] = useState<string | null>(null);
-  const isAdminMode = Boolean(adminToken);
+  // Mode Biasa (Hanya Lihat) vs Dual-PIN Mode Admin (Absensi & Pengaturan vs Keuangan & Gaji)
+  const [attendanceToken, setAttendanceToken] = useState<string | null>(null);
+  const [financeToken, setFinanceToken] = useState<string | null>(null);
+  const isAttendanceAdmin = Boolean(attendanceToken);
+  const isFinanceAdmin = Boolean(financeToken);
   const [adminModalOpen, setAdminModalOpen] = useState<boolean>(false);
+  const [unlockScope, setUnlockScope] = useState<'auto' | 'attendance' | 'finance'>('auto');
   const [adminPinInput, setAdminPinInput] = useState<string>('');
   const [showAdminPin, setShowAdminPin] = useState<boolean>(false);
   const [unlockingAdmin, setUnlockingAdmin] = useState<boolean>(false);
   const [adminPinError, setAdminPinError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAttendanceAdminToken(attendanceToken);
+  }, [attendanceToken]);
+
+  useEffect(() => {
+    setFinanceAdminToken(financeToken);
+  }, [financeToken]);
 
   const [fbUser, setFbUser] = useState<User | null>(null);
   const [activeDbEngine, setActiveDbEngine] = useState<string>(
@@ -265,12 +288,16 @@ function AppWorkspace() {
     ).length;
   }, [employees, attendanceRecords]);
 
-  const handleOpenAdminModeModal = useCallback(() => {
-    setAdminPinInput('');
-    setAdminPinError(null);
-    setShowAdminPin(false);
-    setAdminModalOpen(true);
-  }, []);
+  const handleOpenAdminModeModal = useCallback(
+    (scope: 'auto' | 'attendance' | 'finance' = 'auto') => {
+      setUnlockScope(scope);
+      setAdminPinInput('');
+      setAdminPinError(null);
+      setShowAdminPin(false);
+      setAdminModalOpen(true);
+    },
+    []
+  );
 
   const handleUnlockAdminMode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -281,8 +308,21 @@ function AppWorkspace() {
     setUnlockingAdmin(true);
     setAdminPinError(null);
     try {
-      const res = await unlockAdminModeWithPin(adminPinInput.trim());
-      setAdminToken(res.token);
+      const res = await unlockAdminModeWithPin(adminPinInput.trim(), unlockScope);
+      const nextAttToken =
+        res.attendanceToken ||
+        (res.role === 'attendance' || res.role === 'both' ? res.token : null);
+      const nextFinToken =
+        res.financeToken ||
+        (res.role === 'finance' || res.role === 'both' ? res.token : null);
+      if (nextAttToken) {
+        setAttendanceAdminToken(nextAttToken);
+        setAttendanceToken(nextAttToken);
+      }
+      if (nextFinToken) {
+        setFinanceAdminToken(nextFinToken);
+        setFinanceToken(nextFinToken);
+      }
       setAdminPinInput('');
       setAdminModalOpen(false);
     } catch (err) {
@@ -295,39 +335,71 @@ function AppWorkspace() {
     }
   };
 
-  const handleExitAdminMode = useCallback(async () => {
-    const token = adminToken;
-    setAdminToken(null);
-    setActiveNav((prev) =>
-      prev === 'rekap-gaji' || prev === 'keuangan' || prev === 'pengaturan'
-        ? 'ringkasan'
-        : prev
-    );
-    if (token) {
-      await lockAdminModeSession(token);
-    }
-  }, [adminToken]);
+  const handleExitAdminRole = useCallback(
+    async (role: 'attendance' | 'finance' | 'all') => {
+      if (role === 'attendance') {
+        const token = attendanceToken;
+        setAttendanceToken(null);
+        setAttendanceAdminToken(null);
+        setActiveNav((prev) => (prev === 'pengaturan' ? 'ringkasan' : prev));
+        if (token && token !== financeToken) {
+          await lockAdminModeSession(token, 'Mode Admin Absensi & Pengaturan');
+        }
+        return;
+      }
+
+      if (role === 'finance') {
+        const token = financeToken;
+        setFinanceToken(null);
+        setFinanceAdminToken(null);
+        setActiveNav((prev) =>
+          prev === 'rekap-gaji' || prev === 'keuangan' ? 'ringkasan' : prev
+        );
+        if (token && token !== attendanceToken) {
+          await lockAdminModeSession(token, 'Mode Admin Keuangan & Gaji');
+        }
+        return;
+      }
+
+      const tokensToLock = Array.from(
+        new Set([attendanceToken, financeToken].filter((t): t is string => Boolean(t)))
+      );
+      setAttendanceToken(null);
+      setFinanceToken(null);
+      clearAllAdminTokens();
+      setActiveNav((prev) =>
+        prev === 'rekap-gaji' || prev === 'keuangan' || prev === 'pengaturan'
+          ? 'ringkasan'
+          : prev
+      );
+      for (const tok of tokensToLock) {
+        await lockAdminModeSession(tok, 'Mode Admin');
+      }
+    },
+    [attendanceToken, financeToken]
+  );
 
   const handleGuardedNavigate = useCallback(
     (nav: NavSection) => {
-      if (
-        !isAdminMode &&
-        (nav === 'rekap-gaji' || nav === 'keuangan' || nav === 'pengaturan')
-      ) {
+      if (nav === 'pengaturan' && !isAttendanceAdmin) {
+        handleOpenAdminModeModal('attendance');
+        return;
+      }
+      if ((nav === 'rekap-gaji' || nav === 'keuangan') && !isFinanceAdmin) {
+        handleOpenAdminModeModal('finance');
         return;
       }
       setActiveNav(nav);
     },
-    [isAdminMode]
+    [handleOpenAdminModeModal, isAttendanceAdmin, isFinanceAdmin]
   );
 
   const effectiveNav: NavSection =
-    !isAdminMode &&
-    (activeNav === 'rekap-gaji' ||
-      activeNav === 'keuangan' ||
-      activeNav === 'pengaturan')
+    activeNav === 'pengaturan' && !isAttendanceAdmin
       ? 'ringkasan'
-      : activeNav;
+      : (activeNav === 'rekap-gaji' || activeNav === 'keuangan') && !isFinanceAdmin
+        ? 'ringkasan'
+        : activeNav;
   const pageMeta = PAGE_TITLES[effectiveNav];
   const ActivePageIcon = NAV_ICONS[effectiveNav];
 
@@ -341,9 +413,10 @@ function AppWorkspace() {
         onCloseMobile={() => setMobileMenuOpen(false)}
         companyName={settings.companyName}
         companyLogo={settings.companyProfile?.logoDataUrl}
-        isAdminMode={isAdminMode}
+        isAttendanceAdmin={isAttendanceAdmin}
+        isFinanceAdmin={isFinanceAdmin}
         onOpenAdminModeModal={handleOpenAdminModeModal}
-        onExitAdminMode={handleExitAdminMode}
+        onExitAdminRole={handleExitAdminRole}
       />
 
       <div className="flex-1 min-w-0 flex flex-col workspace-3d-canvas">
@@ -394,28 +467,53 @@ function AppWorkspace() {
               onClick={() => setNotificationOpen((prev) => !prev)}
             />
 
-            {isAdminMode ? (
-              <button
-                type="button"
-                onClick={handleExitAdminMode}
-                title="Keluar dari Mode Admin dan kunci menu Keuangan, Rekap Gaji & Pengaturan"
-                className="btn-3d-secondary min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Mode Admin</span>
-                <LogOut className="w-3.5 h-3.5 text-emerald-700" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleOpenAdminModeModal}
-                title="Masuk ke Mode Admin"
-                className="btn-3d-secondary min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-slate-500" />
-                <span className="hidden sm:inline">Mode Admin</span>
-              </button>
-            )}
+            <div className="flex items-center gap-1.5">
+              {isAttendanceAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => void handleExitAdminRole('attendance')}
+                  title="Admin Absensi & Pengaturan aktif — klik untuk mengunci kembali"
+                  className="btn-3d-secondary min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Admin Absensi</span>
+                  <LogOut className="w-3.5 h-3.5 text-emerald-700" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleOpenAdminModeModal('attendance')}
+                  title="Masuk Admin Absensi untuk input absensi, ubah data & Pengaturan"
+                  className="btn-3d-secondary min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="hidden sm:inline">Admin Absensi</span>
+                </button>
+              )}
+
+              {isFinanceAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => void handleExitAdminRole('finance')}
+                  title="Admin Keuangan & Gaji aktif — klik untuk mengunci kembali"
+                  className="btn-3d-secondary min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Admin Keuangan</span>
+                  <LogOut className="w-3.5 h-3.5 text-indigo-700" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleOpenAdminModeModal('finance')}
+                  title="Masuk Admin Keuangan untuk akses Keuangan & Rekap Gaji"
+                  className="btn-3d-secondary hidden md:inline-flex min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0 items-center gap-1.5 cursor-pointer"
+                >
+                  <Wallet className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Admin Keuangan</span>
+                </button>
+              )}
+            </div>
 
             {effectiveNav !== 'matriks' ? (
               <button
@@ -461,84 +559,100 @@ function AppWorkspace() {
                 settings={settings}
                 loading={loading}
                 onNavigate={handleGuardedNavigate}
+                isAttendanceAdmin={isAttendanceAdmin}
+                onRequestAttendanceAdmin={() => handleOpenAdminModeModal('attendance')}
               />
             )}
 
-          {effectiveNav === 'matriks' && (
-            <AttendanceMatrixView
-              employees={employees}
-              attendanceRecords={attendanceRecords}
-              lateSettlements={lateSettlements}
-              settings={settings}
-              loading={loading}
-              onRefresh={loadData}
-            />
-          )}
+            {effectiveNav === 'matriks' && (
+              <AttendanceMatrixView
+                employees={employees}
+                attendanceRecords={attendanceRecords}
+                lateSettlements={lateSettlements}
+                settings={settings}
+                loading={loading}
+                onRefresh={loadData}
+                isAttendanceAdmin={isAttendanceAdmin}
+                onRequestAttendanceAdmin={() => handleOpenAdminModeModal('attendance')}
+              />
+            )}
 
-          {effectiveNav === 'jadwal-shift' && (
-            <ShiftScheduleView
-              employees={employees}
-              settings={settings}
-              loading={loading}
-              onRefresh={loadData}
-              onNavigate={handleGuardedNavigate}
-            />
-          )}
+            {effectiveNav === 'jadwal-shift' && (
+              <ShiftScheduleView
+                employees={employees}
+                settings={settings}
+                loading={loading}
+                onRefresh={loadData}
+                onNavigate={handleGuardedNavigate}
+                isAttendanceAdmin={isAttendanceAdmin}
+                onRequestAttendanceAdmin={() => handleOpenAdminModeModal('attendance')}
+              />
+            )}
 
-          {effectiveNav === 'jadwal-libur' && (
-            <DayOffScheduleView
-              employees={employees}
-              shifts={settings.shifts}
-              loading={loading}
-              onRefresh={loadData}
-            />
-          )}
+            {effectiveNav === 'jadwal-libur' && (
+              <DayOffScheduleView
+                employees={employees}
+                shifts={settings.shifts}
+                loading={loading}
+                onRefresh={loadData}
+                isAttendanceAdmin={isAttendanceAdmin}
+                onRequestAttendanceAdmin={() => handleOpenAdminModeModal('attendance')}
+              />
+            )}
 
-          {effectiveNav === 'rekap' && (
-            <ReportsView
-              employees={employees}
-              attendanceRecords={attendanceRecords}
-              lateSettlements={lateSettlements}
-              settings={settings}
-              loading={loading}
-              onRefresh={loadData}
-              onNavigate={handleGuardedNavigate}
-            />
-          )}
+            {effectiveNav === 'rekap' && (
+              <ReportsView
+                employees={employees}
+                attendanceRecords={attendanceRecords}
+                lateSettlements={lateSettlements}
+                settings={settings}
+                loading={loading}
+                onRefresh={loadData}
+                onNavigate={handleGuardedNavigate}
+                isAttendanceAdmin={isAttendanceAdmin}
+                onRequestAttendanceAdmin={() => handleOpenAdminModeModal('attendance')}
+              />
+            )}
 
-          {effectiveNav === 'keuangan' && isAdminMode && adminToken && (
-            <FinanceView
-              adminToken={adminToken}
-              settings={settings}
-              employees={employees}
-              attendanceRecords={attendanceRecords}
-              lateSettlements={lateSettlements}
-              onExitAdminMode={handleExitAdminMode}
-            />
-          )}
+            {effectiveNav === 'keuangan' && isFinanceAdmin && financeToken && (
+              <FinanceView
+                adminToken={financeToken}
+                settings={settings}
+                employees={employees}
+                attendanceRecords={attendanceRecords}
+                lateSettlements={lateSettlements}
+                onExitAdminMode={() => void handleExitAdminRole('finance')}
+              />
+            )}
 
-          {effectiveNav === 'rekap-gaji' && isAdminMode && (
-            <PayrollRecapView
-              employees={employees}
-              attendanceRecords={attendanceRecords}
-              lateSettlements={lateSettlements}
-              settings={settings}
-              adminToken={adminToken}
-            />
-          )}
+            {effectiveNav === 'rekap-gaji' && isFinanceAdmin && (
+              <PayrollRecapView
+                employees={employees}
+                attendanceRecords={attendanceRecords}
+                lateSettlements={lateSettlements}
+                settings={settings}
+                adminToken={financeToken}
+              />
+            )}
 
-          {effectiveNav === 'profil-perusahaan' && (
-            <CompanyProfileView
-              employees={employees}
-              settings={settings}
-              loading={loading}
-              onRefresh={loadData}
-              onNavigate={handleGuardedNavigate}
-              isAdminMode={isAdminMode}
-            />
-          )}
+            {effectiveNav === 'profil-perusahaan' && (
+              <CompanyProfileView
+                employees={employees}
+                settings={settings}
+                loading={loading}
+                onRefresh={loadData}
+                onNavigate={handleGuardedNavigate}
+                isAdminMode={isAttendanceAdmin}
+                isAttendanceAdmin={isAttendanceAdmin}
+                onRequestAttendanceAdmin={() => handleOpenAdminModeModal('attendance')}
+              />
+            )}
 
-          {effectiveNav === 'pengaturan' && isAdminMode && (
+            {effectiveNav === 'panduan' && (
+              <PanduanPenggunaView settings={settings} />
+            )}
+
+            {effectiveNav === 'pengaturan' && isAttendanceAdmin && (
               <SettingsView
                 employees={employees}
                 attendanceRecords={attendanceRecords}
@@ -546,8 +660,12 @@ function AppWorkspace() {
                 settings={settings}
                 onRefresh={loadData}
                 onNavigate={handleGuardedNavigate}
-                isAdminMode={isAdminMode}
-                adminToken={adminToken}
+                isAdminMode={isAttendanceAdmin || isFinanceAdmin}
+                adminToken={attendanceToken}
+                isAttendanceAdmin={isAttendanceAdmin}
+                isFinanceAdmin={isFinanceAdmin}
+                attendanceToken={attendanceToken}
+                financeToken={financeToken}
                 onOpenAdminModeModal={handleOpenAdminModeModal}
               />
             )}
@@ -627,6 +745,7 @@ function AppWorkspace() {
               mobileMenuOpen ||
               effectiveNav === 'jadwal-libur' ||
               effectiveNav === 'profil-perusahaan' ||
+              effectiveNav === 'panduan' ||
               effectiveNav === 'keuangan' ||
               effectiveNav === 'rekap-gaji' ||
               effectiveNav === 'pengaturan'
@@ -643,7 +762,7 @@ function AppWorkspace() {
       {/* Modal Masuk Mode Admin */}
       {adminModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
-          <div className="bg-white w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden pb-safe">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden pb-safe">
             <div className="sm:hidden pt-2.5 pb-1 flex justify-center bg-slate-950">
               <div className="w-10 h-1 bg-slate-700 rounded-full" />
             </div>
@@ -657,7 +776,7 @@ function AppWorkspace() {
                     Masuk ke Mode Admin
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Buka akses menu manajemen lanjutan
+                    Otorisasi PIN terpisah: Absensi & Pengaturan vs Keuangan & Gaji
                   </p>
                 </div>
               </div>
@@ -672,9 +791,42 @@ function AppWorkspace() {
             </div>
 
             <form onSubmit={handleUnlockAdminMode} className="p-5 space-y-4">
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Masukkan PIN Mode Admin untuk membuka menu Keuangan Perusahaan, Rekap Gaji, dan Pengaturan Sistem. PIN dapat diubah melalui menu Pengaturan saat Mode Admin aktif.
-              </p>
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200">
+                {(
+                  [
+                    { id: 'auto', label: 'Otomatis' },
+                    { id: 'attendance', label: 'Admin Absensi' },
+                    { id: 'finance', label: 'Admin Keuangan' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setUnlockScope(opt.id);
+                      setAdminPinError(null);
+                    }}
+                    className={`min-h-[34px] px-2 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
+                      unlockScope === opt.id
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/90 text-[11.5px] text-slate-600 leading-relaxed space-y-1">
+                <p>
+                  <strong className="text-slate-800">PIN Absensi (default 1234):</strong>{' '}
+                  Membuka input/ubah absensi, jadwal shift & libur, warna matriks, profil perusahaan, dan menu <strong className="text-slate-800">Pengaturan</strong>.
+                </p>
+                <p>
+                  <strong className="text-slate-800">PIN Keuangan (default 123456):</strong>{' '}
+                  Membuka menu rahasia <strong className="text-slate-800">Keuangan Perusahaan</strong> dan <strong className="text-slate-800">Rekap Gaji</strong>.
+                </p>
+              </div>
 
               {adminPinError && (
                 <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-medium text-red-700 flex items-center gap-2">
@@ -688,7 +840,11 @@ function AppWorkspace() {
                   htmlFor="admin-mode-pin-input"
                   className="block text-xs font-semibold text-slate-700 mb-1.5"
                 >
-                  PIN Mode Admin
+                  {unlockScope === 'attendance'
+                    ? 'PIN Admin Absensi & Pengaturan'
+                    : unlockScope === 'finance'
+                      ? 'PIN Admin Keuangan & Rekap Gaji'
+                      : 'PIN Mode Admin (Absensi / Keuangan)'}
                 </label>
                 <div className="relative">
                   <input
@@ -699,7 +855,13 @@ function AppWorkspace() {
                     autoFocus
                     value={adminPinInput}
                     onChange={(e) => setAdminPinInput(e.target.value)}
-                    placeholder="Masukkan PIN Mode Admin"
+                    placeholder={
+                      unlockScope === 'attendance'
+                        ? 'Masukkan PIN Absensi (contoh: 1234)'
+                        : unlockScope === 'finance'
+                          ? 'Masukkan PIN Keuangan (contoh: 123456)'
+                          : 'Masukkan PIN Absensi atau PIN Keuangan'
+                    }
                     className="w-full min-h-[44px] pl-3.5 pr-11 py-2.5 text-sm font-mono tracking-widest border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                   />
                   <button
@@ -730,7 +892,7 @@ function AppWorkspace() {
                   disabled={unlockingAdmin}
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-[38px] px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-slate-400 rounded-xl sm:rounded-lg cursor-pointer"
                 >
-                  {unlockingAdmin ? 'Memeriksa...' : 'Aktifkan Mode Admin'}
+                  {unlockingAdmin ? 'Memeriksa...' : 'Verifikasi & Aktifkan'}
                 </button>
               </div>
             </form>
@@ -750,7 +912,8 @@ function AppWorkspace() {
         unreadCount={unreadCount}
         prefs={notificationPrefs}
         permission={deviceNotificationPermission}
-        isAdminMode={isAdminMode}
+        isAttendanceAdmin={isAttendanceAdmin}
+        isFinanceAdmin={isFinanceAdmin}
         onNavigate={handleGuardedNavigate}
         onOpenAdminModeModal={handleOpenAdminModeModal}
       />

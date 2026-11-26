@@ -621,11 +621,12 @@
     },
     "SecurityConfigDoc": {
       "title": "SecurityConfigDoc",
-      "description": "SHA-256 hashes for Admin Mode and Database Settings PINs.",
+      "description": "SHA-256 hashes for Attendance Admin, Finance Admin, and Database Settings PINs.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "adminPinSha256": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "attendancePinSha256": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
         "databasePinSha256": { "type": "string", "maxLength": 64, "pattern": "^[a-f0-9]{64}$|^$" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },

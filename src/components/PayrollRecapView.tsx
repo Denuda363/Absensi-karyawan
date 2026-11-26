@@ -955,7 +955,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   Akses Terbatas — Rekap Gaji
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Otorisasi PIN Standar Admin / Superuser
+                  Otorisasi PIN Admin Keuangan / Superuser
                 </p>
               </div>
             </div>
@@ -965,7 +965,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed flex items-start gap-2.5">
               <ShieldAlert className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
               <span>
-                Seluruh informasi gaji pokok, tunjangan, tanggal gajian, kenaikan gaji, bonus, potongan, dan slip gaji karyawan bersifat rahasia. Masukkan PIN standar Mode Admin atau PIN Superuser untuk membuka akses sementara.
+                Seluruh informasi gaji pokok, tunjangan, tanggal gajian, kenaikan gaji, bonus, potongan, dan slip gaji karyawan bersifat rahasia. Masukkan PIN Admin Keuangan (bawaan 123456) atau PIN Superuser untuk membuka akses sementara.
               </span>
             </div>
 
@@ -993,7 +993,7 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   autoFocus
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="Masukkan PIN standar Admin atau Superuser"
+                  placeholder="Masukkan PIN Admin Keuangan atau Superuser"
                   className="w-full pl-10 pr-10 py-2.5 text-sm font-mono tracking-widest bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
                 />
                 <button
@@ -1025,10 +1025,10 @@ export const PayrollRecapView: React.FC<PayrollRecapViewProps> = ({
                   className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <span>Masuk Langsung (Sesi Mode Admin Aktif)</span>
+                  <span>Masuk Langsung (Sesi Admin Keuangan Aktif)</span>
                 </button>
                 <p className="text-[11px] text-center text-slate-500">
-                  Mode Admin sudah terverifikasi — Anda dapat langsung masuk atau memasukkan PIN Admin / Superuser di atas.
+                  Admin Keuangan sudah terverifikasi — Anda dapat langsung masuk atau memasukkan PIN Admin Keuangan / Superuser di atas.
                 </p>
               </div>
             )}

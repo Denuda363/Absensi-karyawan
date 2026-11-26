@@ -351,4 +351,88 @@
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
+
+  .book-container {
+    gap: 0 !important;
+  }
+
+  .book-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 263mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .book-sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .book-cover {
+    min-height: 263mm !important;
+    padding: 12mm !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #080f1f !important;
+  }
+
+  .book-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
 }
+
+/* Printable & Bindable Book Manual Styles */
+.book-prose p,
+.book-prose li {
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+  line-height: 1.76;
+}
+
+.book-prose p.book-indent {
+  text-indent: 1.75rem;
+}
+
+.book-prose p.book-center-copy {
+  text-align: center;
+  text-indent: 0;
+}
+
+.book-prose p + p {
+  margin-top: 0.65rem;
+}
+
+.book-toc-leader {
+  flex: 1;
+  min-width: 16px;
+  border-bottom: 1px dotted #94a3b8;
+  margin: 0 0.55rem;
+  transform: translateY(-4px);
+}
+
+@media screen {
+  .book-sheet {
+    width: 100%;
+    max-width: 210mm;
+    min-height: 297mm;
+    margin-left: auto;
+    margin-right: auto;
+    background: #ffffff;
+    border: 1px solid rgba(203, 213, 225, 0.95);
+    border-radius: 14px;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.95) inset,
+      0 14px 34px -14px rgba(15, 23, 42, 0.16),
+      0 4px 12px -4px rgba(15, 23, 42, 0.08);
+  }
+}
+

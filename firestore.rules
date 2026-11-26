@@ -397,9 +397,10 @@ service cloud.firestore {
 
     function isValidSecurityConfig(data) {
       return data.keys().hasAll(['id', 'adminPinSha256', 'databasePinSha256', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'adminPinSha256', 'databasePinSha256', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'adminPinSha256', 'attendancePinSha256', 'databasePinSha256', 'updatedAt'])
         && isValidId(data.id)
         && data.adminPinSha256 is string && data.adminPinSha256.size() == 64 && data.adminPinSha256.matches('^[a-f0-9]{64}$')
+        && (!('attendancePinSha256' in data) || (data.attendancePinSha256 is string && data.attendancePinSha256.size() == 64 && data.attendancePinSha256.matches('^[a-f0-9]{64}$')))
         && data.databasePinSha256 is string && (data.databasePinSha256.size() == 0 || (data.databasePinSha256.size() == 64 && data.databasePinSha256.matches('^[a-f0-9]{64}$')))
         && data.updatedAt is timestamp;
     }
@@ -839,7 +840,7 @@ service cloud.firestore {
         && incoming().id == existing().id
         && incoming().updatedAt == request.time
         && incoming().diff(existing()).affectedKeys().hasOnly([
-          'adminPinSha256', 'databasePinSha256', 'updatedAt'
+          'adminPinSha256', 'attendancePinSha256', 'databasePinSha256', 'updatedAt'
         ]);
       allow delete: if false;
     }

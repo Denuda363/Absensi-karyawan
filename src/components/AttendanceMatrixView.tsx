@@ -62,6 +62,7 @@ import {
 } from '../services/attendanceService';
 import { exportAttendanceMatrixToExcel } from '../utils/excelAttendanceExport';
 import { SearchableEmployeeSelect } from './SearchableEmployeeSelect';
+import { ReadOnlyModeBanner } from './ReadOnlyModeBanner';
 
 interface AttendanceMatrixViewProps {
   employees: Employee[];
@@ -70,6 +71,8 @@ interface AttendanceMatrixViewProps {
   settings?: AppSettings;
   loading: boolean;
   onRefresh: () => Promise<void>;
+  isAttendanceAdmin?: boolean;
+  onRequestAttendanceAdmin?: () => void;
 }
 
 type MatrixSubTab = 'matriks' | 'log';
@@ -100,6 +103,8 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   settings,
   loading,
   onRefresh,
+  isAttendanceAdmin = false,
+  onRequestAttendanceAdmin,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<MatrixSubTab>('matriks');
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentYearMonth());
@@ -353,6 +358,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
   // Open full input modal from toolbar (Matriks page only)
   const openToolbarInputModal = (initialStatus?: AttendanceStatus) => {
+    if (!isAttendanceAdmin) {
+      setActionBanner({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Masuk Admin Absensi (PIN 1234) untuk input atau mengubah absensi.',
+      });
+      return;
+    }
     const defaultEmp = scopedEmployees[0] || activeEmployees[0] || null;
     const today = getTodayDateStr();
     const defaultDate =
@@ -425,6 +437,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   };
 
   const handleQuickArriveLog = async (rec: AttendanceRecord) => {
+    if (!isAttendanceAdmin) {
+      setActionBanner({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Masuk Admin Absensi (PIN 1234) untuk mengubah.',
+      });
+      return;
+    }
     setLogBusyId(rec.id);
     setActionBanner(null);
     try {
@@ -441,6 +460,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   };
 
   const handleQuickCheckOutLog = async (rec: AttendanceRecord) => {
+    if (!isAttendanceAdmin) {
+      setActionBanner({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Masuk Admin Absensi (PIN 1234) untuk mengubah.',
+      });
+      return;
+    }
     setLogBusyId(rec.id);
     setActionBanner(null);
     try {
@@ -457,6 +483,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   };
 
   const handleDeleteLog = async (recordId: string) => {
+    if (!isAttendanceAdmin) {
+      setActionBanner({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Masuk Admin Absensi (PIN 1234) untuk menghapus.',
+      });
+      return;
+    }
     setLogBusyId(recordId);
     setActionBanner(null);
     try {
@@ -473,6 +506,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   };
 
   const handleBulkMarkOff = async () => {
+    if (!isAttendanceAdmin) {
+      setActionBanner({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Masuk Admin Absensi (PIN 1234) untuk mengubah.',
+      });
+      return;
+    }
     setBulkBusy(true);
     setActionBanner(null);
     try {
@@ -814,6 +854,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     date: string,
     record: AttendanceRecord | null
   ) => {
+    if (!isAttendanceAdmin) {
+      setActionBanner({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Masuk Admin Absensi (PIN 1234) untuk mengubah.',
+      });
+      return;
+    }
     setInputModalTitle(record ? 'Ubah Kehadiran Sel' : 'Input Kehadiran Sel');
     setInputEmpQuery('');
     setInputEmpId(employee.id);
@@ -864,6 +911,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     existingRecord: AttendanceRecord | null,
     action: 'hadir' | 'terlambat' | 'izin' | 'sakit' | 'alpha' | 'libur' | 'hapus'
   ) => {
+    if (!isAttendanceAdmin) return;
     const cellKey = `${employee.id}__${date}`;
     if (savingCellKey === cellKey) return;
     setSavingCellKey(cellKey);
@@ -944,6 +992,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     date: string,
     record: AttendanceRecord | null
   ) => {
+    if (!isAttendanceAdmin) return;
     if (matrixClickMode === 'detail') {
       openCellEditor(employee, date, record);
       return;
@@ -957,6 +1006,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     date: string,
     record: AttendanceRecord | null
   ) => {
+    if (!isAttendanceAdmin) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const key = e.key.toLowerCase();
     if (key === 'h') {
@@ -1016,6 +1066,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   ];
 
   const openColorEditorModal = (focusKey: keyof MatrixColorSettings = 'hadir') => {
+    if (!isAttendanceAdmin) {
+      setActionBanner({
+        type: 'error',
+        text: 'Mode Biasa hanya dapat melihat data. Masuk Admin Absensi (PIN 1234) untuk mengubah warna matriks.',
+      });
+      return;
+    }
     setDraftMatrixColors(normalizeMatrixColors(settings?.matrixColors));
     setActiveColorKey(focusKey);
     setColorModalError(null);
@@ -1133,6 +1190,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
         </div>
       </section>
 
+      {!isAttendanceAdmin && (
+        <ReadOnlyModeBanner
+          areaLabel="matriks daftar hadir & log absensi"
+          onRequestAttendanceAdmin={onRequestAttendanceAdmin}
+        />
+      )}
+
       {/* Unified Toolbar */}
       <div className="surface-3d rounded-2xl p-3.5 sm:p-4 space-y-3.5 no-print">
         {/* Sub-tab Switcher & Primary Attendance Actions */}
@@ -1171,35 +1235,39 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
             {activeSubTab === 'matriks' ? (
               <>
-                <button
-                  type="button"
-                  onClick={() => openToolbarInputModal()}
-                  disabled={activeEmployees.length === 0}
-                  className="btn-3d-primary col-span-2 sm:col-span-1 sm:order-3 min-h-[42px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-blue-600 to-blue-700 rounded-xl hover:from-blue-500 hover:to-blue-600 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Input Absensi</span>
-                </button>
+                {isAttendanceAdmin && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openToolbarInputModal()}
+                      disabled={activeEmployees.length === 0}
+                      className="btn-3d-primary col-span-2 sm:col-span-1 sm:order-3 min-h-[42px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-blue-600 to-blue-700 rounded-xl hover:from-blue-500 hover:to-blue-600 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Input Absensi</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => openToolbarInputModal('izin_terlambat')}
-                  disabled={activeEmployees.length === 0}
-                  className="sm:order-2 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-gradient-to-b from-teal-600 to-teal-700 rounded-xl hover:from-teal-500 hover:to-teal-600 shadow-[0_2px_0_#115e59,0_6px_12px_-4px_rgba(13,148,136,0.35)] disabled:opacity-50 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Clock className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Izin Terlambat</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => openToolbarInputModal('izin_terlambat')}
+                      disabled={activeEmployees.length === 0}
+                      className="sm:order-2 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-gradient-to-b from-teal-600 to-teal-700 rounded-xl hover:from-teal-500 hover:to-teal-600 shadow-[0_2px_0_#115e59,0_6px_12px_-4px_rgba(13,148,136,0.35)] disabled:opacity-50 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Izin Terlambat</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={handleBulkMarkOff}
-                  disabled={bulkBusy}
-                  className="btn-3d-secondary sm:order-1 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <CalendarOff className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{bulkBusy ? 'Memproses...' : 'Isi Libur'}</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={handleBulkMarkOff}
+                      disabled={bulkBusy}
+                      className="btn-3d-secondary sm:order-1 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <CalendarOff className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{bulkBusy ? 'Memproses...' : 'Isi Libur'}</span>
+                    </button>
+                  </>
+                )}
 
                 <button
                   type="button"
@@ -1222,14 +1290,16 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => setActiveSubTab('matriks')}
-                  className="min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Table2 className="w-3.5 h-3.5" />
-                  <span>Input di Matriks</span>
-                </button>
+                {isAttendanceAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubTab('matriks')}
+                    className="min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Table2 className="w-3.5 h-3.5" />
+                    <span>Input di Matriks</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -1458,6 +1528,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
         ) : (
           <div className="space-y-3 print:space-y-1.5">
             {/* Quick Direct Input Mode Bar inside Matrix Tab */}
+            {isAttendanceAdmin && (
             <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2 pb-1 no-print">
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap">
                 <span className="text-[11px] font-semibold text-slate-600 mr-1 shrink-0">
@@ -1510,6 +1581,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     }".`}
               </span>
             </div>
+            )}
 
             {/* Top Title Banner aligned over the main table */}
             <div className="xl:pl-60 print:pl-[124px]">
@@ -1631,7 +1703,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   </div>
                 </div>
 
-                {/* Legend (Keterangan — klik untuk ubah warna langsung) */}
+                {/* Legend (Keterangan — klik untuk ubah warna langsung saat Admin Absensi aktif) */}
                 <div
                   style={{
                     backgroundColor: matrixColors.groupHeader.bg,
@@ -1640,15 +1712,17 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   className="border-b border-slate-400 py-1 px-2 print:py-0.5 print:text-[7.5px] font-bold text-[11px] flex items-center justify-between gap-1"
                 >
                   <span className="flex-1 text-center print:text-center">KETERANGAN</span>
-                  <button
-                    type="button"
-                    onClick={() => openColorEditorModal('hadir')}
-                    title="Ubah skema warna matriks langsung"
-                    className="no-print inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/85 hover:bg-white text-slate-800 border border-slate-400/70 text-[9.5px] font-semibold cursor-pointer shrink-0 shadow-2xs"
-                  >
-                    <Palette className="w-2.5 h-2.5 text-blue-700" />
-                    <span>Warna</span>
-                  </button>
+                  {isAttendanceAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => openColorEditorModal('hadir')}
+                      title="Ubah skema warna matriks langsung"
+                      className="no-print inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/85 hover:bg-white text-slate-800 border border-slate-400/70 text-[9.5px] font-semibold cursor-pointer shrink-0 shadow-2xs"
+                    >
+                      <Palette className="w-2.5 h-2.5 text-blue-700" />
+                      <span>Warna</span>
+                    </button>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-1 print:grid-cols-1 xl:divide-y xl:divide-slate-200 print:divide-y print:divide-slate-200 text-[11px] print:text-[7px]">
                   {(
@@ -1663,16 +1737,13 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     ] as const
                   ).map((item, idx) => {
                     const pair = matrixColors[item.key];
-                    return (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => openColorEditorModal(item.key)}
-                        title={`Klik untuk ubah warna ${item.label}`}
-                        className={`w-full text-left px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 xl:border-0 print:border-0 flex items-center justify-between gap-1.5 hover:bg-blue-50/70 transition-colors cursor-pointer group ${
-                          idx % 2 === 0 ? 'border-r sm:border-r' : 'sm:border-r'
-                        } ${idx === 6 ? 'col-span-2 sm:col-span-1 border-b-0' : ''}`}
-                      >
+                    const rowClass = `w-full text-left px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 xl:border-0 print:border-0 flex items-center justify-between gap-1.5 ${
+                      isAttendanceAdmin ? 'hover:bg-blue-50/70 transition-colors cursor-pointer group' : ''
+                    } ${idx % 2 === 0 ? 'border-r sm:border-r' : 'sm:border-r'} ${
+                      idx === 6 ? 'col-span-2 sm:col-span-1 border-b-0' : ''
+                    }`;
+                    const innerContent = (
+                      <>
                         <div className="flex items-center gap-2 print:gap-1 min-w-0">
                           <span
                             style={{
@@ -1685,14 +1756,33 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                           </span>
                           <span className="truncate">{item.label}</span>
                         </div>
-                        <Pencil className="w-2.5 h-2.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 no-print" />
+                        {isAttendanceAdmin && (
+                          <Pencil className="w-2.5 h-2.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 no-print" />
+                        )}
+                      </>
+                    );
+                    return isAttendanceAdmin ? (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => openColorEditorModal(item.key)}
+                        title={`Klik untuk ubah warna ${item.label}`}
+                        className={rowClass}
+                      >
+                        {innerContent}
                       </button>
+                    ) : (
+                      <div key={item.key} className={rowClass}>
+                        {innerContent}
+                      </div>
                     );
                   })}
                 </div>
-                <div className="no-print px-2 py-1 bg-slate-50 border-t border-slate-200 text-[9.5px] text-slate-500 text-center">
-                  Ketuk item keterangan untuk ubah warna
-                </div>
+                {isAttendanceAdmin && (
+                  <div className="no-print px-2 py-1 bg-slate-50 border-t border-slate-200 text-[9.5px] text-slate-500 text-center">
+                    Ketuk item keterangan untuk ubah warna
+                  </div>
+                )}
               </aside>
 
               {/* Right Main Excel Matrix */}
@@ -1920,8 +2010,8 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                                     : ''
                                 }`
                               : cell.isOff
-                              ? `${row.employee.name} (${cell.date}): Jadwal Libur — Klik untuk input`
-                              : `${row.employee.name} (${cell.date}): Belum diisi — Klik untuk input`;
+                              ? `${row.employee.name} (${cell.date}): Jadwal Libur${isAttendanceAdmin ? ' — Klik untuk input' : ''}`
+                              : `${row.employee.name} (${cell.date}): Belum diisi${isAttendanceAdmin ? ' — Klik untuk input' : ''}`;
 
                             const cellKey = `${row.employee.id}__${cell.date}`;
                             const isCellSaving = savingCellKey === cellKey;
@@ -1934,24 +2024,33 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                                   isCellSaving ? 'opacity-60 animate-pulse' : ''
                                 }`}
                               >
-                                <button
-                                  type="button"
-                                  title={tooltip}
-                                  disabled={isCellSaving}
-                                  onClick={() =>
-                                    handleMatrixCellClick(row.employee, cell.date, cell.rec)
-                                  }
-                                  onKeyDown={(e) =>
-                                    handleMatrixCellKeyDown(e, row.employee, cell.date, cell.rec)
-                                  }
-                                  onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    openCellEditor(row.employee, cell.date, cell.rec);
-                                  }}
-                                  className="w-full h-8 sm:h-6 min-w-[30px] sm:min-w-0 flex items-center justify-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-700 matrix-print-cell-btn"
-                                >
-                                  {isCellSaving ? '·' : cell.code}
-                                </button>
+                                {isAttendanceAdmin ? (
+                                  <button
+                                    type="button"
+                                    title={tooltip}
+                                    disabled={isCellSaving}
+                                    onClick={() =>
+                                      handleMatrixCellClick(row.employee, cell.date, cell.rec)
+                                    }
+                                    onKeyDown={(e) =>
+                                      handleMatrixCellKeyDown(e, row.employee, cell.date, cell.rec)
+                                    }
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
+                                      openCellEditor(row.employee, cell.date, cell.rec);
+                                    }}
+                                    className="w-full h-8 sm:h-6 min-w-[30px] sm:min-w-0 flex items-center justify-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-700 matrix-print-cell-btn"
+                                  >
+                                    {isCellSaving ? '·' : cell.code}
+                                  </button>
+                                ) : (
+                                  <div
+                                    title={tooltip}
+                                    className="w-full h-8 sm:h-6 min-w-[30px] sm:min-w-0 flex items-center justify-center matrix-print-cell-btn"
+                                  >
+                                    {cell.code}
+                                  </div>
+                                )}
                               </td>
                             );
                           })}
@@ -2043,7 +2142,15 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 </div>
 
                 <p className="mt-2.5 text-[11px] text-slate-500 no-print">
-                  Tip: Ketuk tombol <strong>Input Absensi</strong>, <strong>Izin Terlambat</strong>, atau ketuk sel tanggal mana saja pada tabel untuk mencatat/mengubah kehadiran. Gunakan tab <strong>Log Absensi</strong> di atas untuk melihat rincian log jam masuk/pulang, alasan izin, dan lembur.
+                  {isAttendanceAdmin ? (
+                    <>
+                      Tip: Ketuk tombol <strong>Input Absensi</strong>, <strong>Izin Terlambat</strong>, atau ketuk sel tanggal mana saja pada tabel untuk mencatat/mengubah kehadiran. Gunakan tab <strong>Log Absensi</strong> di atas untuk melihat rincian log jam masuk/pulang, alasan izin, dan lembur.
+                    </>
+                  ) : (
+                    <>
+                      Mode Biasa (Hanya Lihat): Tabel matriks hanya dapat dilihat, dicetak, atau diekspor ke Excel (.xlsx). Aktifkan <strong>Admin Absensi</strong> (PIN 1234) untuk mencatat atau mengubah kehadiran.
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -2083,16 +2190,20 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                 Belum ada log catatan absensi pada filter ini
               </p>
               <p className="text-xs text-slate-500 mb-5">
-                Seluruh pencatatan absensi baru dilakukan melalui tabel Matriks Daftar Hadir.
+                {isAttendanceAdmin
+                  ? 'Seluruh pencatatan absensi baru dilakukan melalui tabel Matriks Daftar Hadir.'
+                  : 'Tidak ada catatan log absensi yang sesuai dengan filter bulan atau pencarian saat ini.'}
               </p>
-              <button
-                type="button"
-                onClick={() => setActiveSubTab('matriks')}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 cursor-pointer"
-              >
-                <Table2 className="w-4 h-4" />
-                <span>Ke Matriks Daftar Hadir</span>
-              </button>
+              {isAttendanceAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('matriks')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 cursor-pointer"
+                >
+                  <Table2 className="w-4 h-4" />
+                  <span>Ke Matriks Daftar Hadir</span>
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -2179,49 +2290,51 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                         </p>
                       )}
 
-                      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-                        {canQuickArrive && (
+                      {isAttendanceAdmin && (
+                        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                          {canQuickArrive && (
+                            <button
+                              type="button"
+                              disabled={logBusyId === rec.id}
+                              onClick={() => handleQuickArriveLog(rec)}
+                              className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 cursor-pointer"
+                            >
+                              <LogIn className="w-3.5 h-3.5" />
+                              <span>Catat Tiba</span>
+                            </button>
+                          )}
+                          {canQuickOut && (
+                            <button
+                              type="button"
+                              disabled={logBusyId === rec.id}
+                              onClick={() => handleQuickCheckOutLog(rec)}
+                              className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
+                            >
+                              <LogOut className="w-3.5 h-3.5" />
+                              <span>Pulang</span>
+                            </button>
+                          )}
+                          {emp && (
+                            <button
+                              type="button"
+                              onClick={() => openCellEditor(emp, rec.date, rec)}
+                              className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              <span>Ubah</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             disabled={logBusyId === rec.id}
-                            onClick={() => handleQuickArriveLog(rec)}
-                            className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 cursor-pointer"
+                            onClick={() => handleDeleteLog(rec.id)}
+                            aria-label={`Hapus absensi ${rec.employeeName}`}
+                            className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 cursor-pointer"
                           >
-                            <LogIn className="w-3.5 h-3.5" />
-                            <span>Catat Tiba</span>
+                            <Trash2 className="w-4 h-4" />
                           </button>
-                        )}
-                        {canQuickOut && (
-                          <button
-                            type="button"
-                            disabled={logBusyId === rec.id}
-                            onClick={() => handleQuickCheckOutLog(rec)}
-                            className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
-                          >
-                            <LogOut className="w-3.5 h-3.5" />
-                            <span>Pulang</span>
-                          </button>
-                        )}
-                        {emp && (
-                          <button
-                            type="button"
-                            onClick={() => openCellEditor(emp, rec.date, rec)}
-                            className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 cursor-pointer"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                            <span>Ubah</span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={logBusyId === rec.id}
-                          onClick={() => handleDeleteLog(rec.id)}
-                          aria-label={`Hapus absensi ${rec.employeeName}`}
-                          className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2242,7 +2355,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       <th className="py-3 px-4 text-right">Durasi</th>
                       <th className="py-3 px-4 text-right">Lembur</th>
                       <th className="py-3 px-4">Catatan &amp; Izin</th>
-                      <th className="py-3 px-4 text-right">Aksi</th>
+                      {isAttendanceAdmin && <th className="py-3 px-4 text-right">Aksi</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -2372,53 +2485,55 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                               <span className="text-xs text-slate-400">—</span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1">
-                              {canQuickArrive && (
+                          {isAttendanceAdmin && (
+                            <td className="py-3 px-4 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1">
+                                {canQuickArrive && (
+                                  <button
+                                    type="button"
+                                    disabled={logBusyId === rec.id}
+                                    onClick={() => handleQuickArriveLog(rec)}
+                                    title="Catat jam tiba aktual sekarang"
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100 transition-colors cursor-pointer mr-1"
+                                  >
+                                    <LogIn className="w-3 h-3" />
+                                    <span>Catat Tiba</span>
+                                  </button>
+                                )}
+                                {canQuickOut && (
+                                  <button
+                                    type="button"
+                                    disabled={logBusyId === rec.id}
+                                    onClick={() => handleQuickCheckOutLog(rec)}
+                                    title="Catat jam pulang sekarang"
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-800 bg-slate-100 rounded-md hover:bg-slate-200 transition-colors cursor-pointer mr-1"
+                                  >
+                                    <LogOut className="w-3 h-3" />
+                                    <span>Pulang</span>
+                                  </button>
+                                )}
+                                {emp && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openCellEditor(emp, rec.date, rec)}
+                                    aria-label={`Ubah absensi ${rec.employeeName}`}
+                                    className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   disabled={logBusyId === rec.id}
-                                  onClick={() => handleQuickArriveLog(rec)}
-                                  title="Catat jam tiba aktual sekarang"
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100 transition-colors cursor-pointer mr-1"
+                                  onClick={() => handleDeleteLog(rec.id)}
+                                  aria-label={`Hapus absensi ${rec.employeeName}`}
+                                  className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
                                 >
-                                  <LogIn className="w-3 h-3" />
-                                  <span>Catat Tiba</span>
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
-                              )}
-                              {canQuickOut && (
-                                <button
-                                  type="button"
-                                  disabled={logBusyId === rec.id}
-                                  onClick={() => handleQuickCheckOutLog(rec)}
-                                  title="Catat jam pulang sekarang"
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-800 bg-slate-100 rounded-md hover:bg-slate-200 transition-colors cursor-pointer mr-1"
-                                >
-                                  <LogOut className="w-3 h-3" />
-                                  <span>Pulang</span>
-                                </button>
-                              )}
-                              {emp && (
-                                <button
-                                  type="button"
-                                  onClick={() => openCellEditor(emp, rec.date, rec)}
-                                  aria-label={`Ubah absensi ${rec.employeeName}`}
-                                  className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                disabled={logBusyId === rec.id}
-                                onClick={() => handleDeleteLog(rec.id)}
-                                aria-label={`Hapus absensi ${rec.employeeName}`}
-                                className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}

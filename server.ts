@@ -102,7 +102,9 @@ const SECURITY_CONFIG_FILE = path.join(DATA_DIR, 'security-config.json');
 const DATABASE_CONFIG_FILE = path.join(DATA_DIR, 'database-config.json');
 const FIREBASE_APPLET_CONFIG_FILE = path.join(__dirname, 'firebase-applet-config.json');
 const DEFAULT_ADMIN_PIN_SHA256 =
-  '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+  '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'; // PIN Keuangan default: 123456
+const DEFAULT_ATTENDANCE_PIN_SHA256 =
+  '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // PIN Absensi default: 1234
 const SUPERUSER_PIN_SHA256 =
   'b9196683c40dd7cecb4dfc8ffc9ed64d4bc192f126d9d771706e791726582b26';
 const PAYROLL_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -1189,7 +1191,8 @@ function timingSafeHashEqual(actualHex: string, expectedHex: string): boolean {
 }
 
 interface SecurityConfigData {
-  adminPinSha256: string;
+  adminPinSha256: string; // PIN Keuangan & Rekap Gaji
+  attendancePinSha256: string; // PIN Absensi & Pengaturan
   databasePinSha256?: string;
   updatedAt: string;
 }
@@ -1201,6 +1204,7 @@ function readSecurityConfig(): SecurityConfigData {
   if (!fs.existsSync(SECURITY_CONFIG_FILE)) {
     const initCfg: SecurityConfigData = {
       adminPinSha256: DEFAULT_ADMIN_PIN_SHA256,
+      attendancePinSha256: DEFAULT_ATTENDANCE_PIN_SHA256,
       updatedAt: new Date().toISOString(),
     };
     fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(initCfg, null, 2), 'utf-8');
@@ -1214,12 +1218,21 @@ function readSecurityConfig(): SecurityConfigData {
       typeof parsed.adminPinSha256 === 'string' &&
       /^[a-f0-9]{64}$/i.test(parsed.adminPinSha256)
     ) {
+      const validAttendancePin =
+        typeof parsed.attendancePinSha256 === 'string' &&
+        /^[a-f0-9]{64}$/i.test(parsed.attendancePinSha256) &&
+        !timingSafeHashEqual(parsed.attendancePinSha256.toLowerCase(), parsed.adminPinSha256.toLowerCase())
+          ? parsed.attendancePinSha256.toLowerCase()
+          : !timingSafeHashEqual(DEFAULT_ATTENDANCE_PIN_SHA256, parsed.adminPinSha256.toLowerCase())
+            ? DEFAULT_ATTENDANCE_PIN_SHA256
+            : hashPinSha256('12345');
       return {
-        adminPinSha256: parsed.adminPinSha256,
+        adminPinSha256: parsed.adminPinSha256.toLowerCase(),
+        attendancePinSha256: validAttendancePin,
         databasePinSha256:
           typeof parsed.databasePinSha256 === 'string' &&
           /^[a-f0-9]{64}$/i.test(parsed.databasePinSha256)
-            ? parsed.databasePinSha256
+            ? parsed.databasePinSha256.toLowerCase()
             : undefined,
         updatedAt: parsed.updatedAt || new Date().toISOString(),
       };
@@ -1229,6 +1242,7 @@ function readSecurityConfig(): SecurityConfigData {
   }
   const fallbackCfg: SecurityConfigData = {
     adminPinSha256: DEFAULT_ADMIN_PIN_SHA256,
+    attendancePinSha256: DEFAULT_ATTENDANCE_PIN_SHA256,
     updatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(SECURITY_CONFIG_FILE, JSON.stringify(fallbackCfg, null, 2), 'utf-8');
@@ -1256,7 +1270,18 @@ function verifySuperuserPin(pin: string): boolean {
   return timingSafeHashEqual(hashPinSha256(normalizedPin), expectedHash);
 }
 
-function verifyAdminModePin(pin: string): boolean {
+function verifyAttendanceModePin(pin: string): boolean {
+  const normalizedPin = String(pin || '').trim();
+  if (!normalizedPin) return false;
+  const cfg = readSecurityConfig();
+  const inputHash = hashPinSha256(normalizedPin);
+  return (
+    timingSafeHashEqual(inputHash, cfg.attendancePinSha256) ||
+    verifySuperuserPin(normalizedPin)
+  );
+}
+
+function verifyFinanceModePin(pin: string): boolean {
   const normalizedPin = String(pin || '').trim();
   if (!normalizedPin) return false;
   const cfg = readSecurityConfig();
@@ -1268,7 +1293,7 @@ function verifyAdminModePin(pin: string): boolean {
 }
 
 function verifyPayrollAccessPin(pin: string): boolean {
-  return verifyAdminModePin(pin);
+  return verifyFinanceModePin(pin);
 }
 
 function verifyDatabasePin(pin: string): boolean {
@@ -1283,12 +1308,14 @@ function verifyDatabasePin(pin: string): boolean {
     );
   }
   return (
+    timingSafeHashEqual(inputHash, cfg.attendancePinSha256) ||
     timingSafeHashEqual(inputHash, cfg.adminPinSha256) ||
     verifySuperuserPin(normalizedPin)
   );
 }
 
-const activeAdminSessions = new Map<string, { expiresAt: number }>();
+type AdminSessionRole = 'attendance' | 'finance' | 'both';
+const activeAdminSessions = new Map<string, { role: AdminSessionRole; expiresAt: number }>();
 const adminPinAttemptTracker = new Map<string, { count: number; lockedUntil: number }>();
 
 const activePayrollSessions = new Map<string, { expiresAt: number }>();
@@ -1986,9 +2013,11 @@ CREATE TABLE IF NOT EXISTS public.finance_transfers (
 CREATE TABLE IF NOT EXISTS public.security_config (
   id VARCHAR(64) PRIMARY KEY,
   admin_pin_sha256 CHAR(64) NOT NULL,
+  attendance_pin_sha256 CHAR(64),
   database_pin_sha256 CHAR(64),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE public.security_config ADD COLUMN IF NOT EXISTS attendance_pin_sha256 CHAR(64);
 
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON public.attendance_records (attendance_date);
 CREATE INDEX IF NOT EXISTS idx_attendance_emp ON public.attendance_records (employee_id, attendance_date);
@@ -2363,14 +2392,25 @@ async function syncSecurityModuleToSupabase(cfg?: DatabaseConnectionConfigData):
   const activeCfg = cfg || readDatabaseConfig();
   const sb = getSupabaseClientForConfig(activeCfg);
   const sec = readSecurityConfig();
-  const res = await upsertRowsSupabase(sb, 'security_config', [
+  let res = await upsertRowsSupabase(sb, 'security_config', [
     {
       id: 'default',
       admin_pin_sha256: sec.adminPinSha256,
+      attendance_pin_sha256: sec.attendancePinSha256,
       database_pin_sha256: sec.databasePinSha256 || null,
       updated_at: sec.updatedAt || new Date().toISOString(),
     },
   ]);
+  if (res.error && /attendance_pin_sha256|PGRST204|42703/i.test(res.error)) {
+    res = await upsertRowsSupabase(sb, 'security_config', [
+      {
+        id: 'default',
+        admin_pin_sha256: sec.adminPinSha256,
+        database_pin_sha256: sec.databasePinSha256 || null,
+        updated_at: sec.updatedAt || new Date().toISOString(),
+      },
+    ]);
+  }
   if (res.error) {
     return { synced: [], failed: [{ tableName: 'security_config', error: res.error }] };
   }
@@ -3457,12 +3497,19 @@ async function pullAllSupabaseToLocal(): Promise<{
       if (secRows.length > 0) {
         const sr = secRows[0] as Record<string, unknown>;
         if (typeof sr.admin_pin_sha256 === 'string' && /^[a-f0-9]{64}$/i.test(sr.admin_pin_sha256)) {
+          const curSec = readSecurityConfig();
+          const remoteAttPin =
+            typeof sr.attendance_pin_sha256 === 'string' &&
+            /^[a-f0-9]{64}$/i.test(sr.attendance_pin_sha256)
+              ? sr.attendance_pin_sha256.toLowerCase()
+              : curSec.attendancePinSha256;
           writeSecurityConfig({
-            adminPinSha256: sr.admin_pin_sha256,
+            adminPinSha256: sr.admin_pin_sha256.toLowerCase(),
+            attendancePinSha256: remoteAttPin,
             databasePinSha256:
               typeof sr.database_pin_sha256 === 'string' &&
               /^[a-f0-9]{64}$/i.test(sr.database_pin_sha256)
-                ? sr.database_pin_sha256
+                ? sr.database_pin_sha256.toLowerCase()
                 : undefined,
             updatedAt: String(sr.updated_at || new Date().toISOString()),
           });
@@ -4317,12 +4364,15 @@ async function startServer() {
     new Promise<void>((resolve) => setTimeout(resolve, 5000)),
   ]);
 
-  const requireAdminModeAuth: express.RequestHandler = (req, res, next) => {
+  const requireAttendanceAdminAuth: express.RequestHandler = (req, res, next) => {
     cleanupExpiredAdminSessions();
-    const token = String(req.headers['x-admin-token'] || '');
+    const token = String(
+      req.headers['x-attendance-token'] || req.headers['x-admin-token'] || ''
+    );
     if (!token) {
       res.status(401).json({
-        error: 'Akses keuangan hanya tersedia pada Mode Admin. Silakan masuk Mode Admin terlebih dahulu.',
+        error:
+          'Mode Biasa hanya dapat melihat data. Masuk Mode Admin Absensi untuk input atau mengubah data.',
       });
       return;
     }
@@ -4330,7 +4380,43 @@ async function startServer() {
     if (!session || session.expiresAt <= Date.now()) {
       activeAdminSessions.delete(token);
       res.status(401).json({
-        error: 'Sesi Mode Admin telah berakhir. Silakan masuk kembali ke Mode Admin.',
+        error: 'Sesi Admin Absensi telah berakhir. Silakan masuk kembali dengan PIN Absensi.',
+      });
+      return;
+    }
+    if (session.role !== 'attendance' && session.role !== 'both') {
+      res.status(403).json({
+        error: 'Akses ditolak. Perubahan absensi & pengaturan memerlukan otorisasi PIN Admin Absensi.',
+      });
+      return;
+    }
+    session.expiresAt = Date.now() + PAYROLL_TOKEN_TTL_MS;
+    next();
+  };
+
+  const requireFinanceAdminAuth: express.RequestHandler = (req, res, next) => {
+    cleanupExpiredAdminSessions();
+    const token = String(
+      req.headers['x-finance-token'] || req.headers['x-admin-token'] || ''
+    );
+    if (!token) {
+      res.status(401).json({
+        error:
+          'Akses keuangan hanya tersedia pada Mode Admin Keuangan. Masukkan PIN Keuangan terlebih dahulu.',
+      });
+      return;
+    }
+    const session = activeAdminSessions.get(token);
+    if (!session || session.expiresAt <= Date.now()) {
+      activeAdminSessions.delete(token);
+      res.status(401).json({
+        error: 'Sesi Admin Keuangan telah berakhir. Silakan masuk kembali dengan PIN Keuangan.',
+      });
+      return;
+    }
+    if (session.role !== 'finance' && session.role !== 'both') {
+      res.status(403).json({
+        error: 'Akses ditolak. Modul keuangan & gaji memerlukan otorisasi PIN Admin Keuangan.',
       });
       return;
     }
@@ -4387,7 +4473,7 @@ async function startServer() {
     res.json(db);
   });
 
-  app.put('/api/settings', (req, res) => {
+  app.put('/api/settings', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const body = req.body as Partial<AppSettingsData> & { syncEmployees?: boolean };
     const mergedProfile = body.companyProfile
@@ -4439,7 +4525,7 @@ async function startServer() {
     res.json(db.settings);
   });
 
-  app.get('/api/backup', (_req, res) => {
+  app.get('/api/backup', requireAttendanceAdminAuth, (_req, res) => {
     const db = readDb();
     res.json({
       app: 'KaryaPresensi',
@@ -4452,7 +4538,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/restore', (req, res) => {
+  app.post('/api/restore', requireAttendanceAdminAuth, (req, res) => {
     const body = req.body as Partial<DatabaseSchema>;
     if (!body || !Array.isArray(body.employees) || !Array.isArray(body.attendanceRecords)) {
       res.status(400).json({
@@ -4471,7 +4557,7 @@ async function startServer() {
     res.json(restored);
   });
 
-  app.post('/api/employees', (req, res) => {
+  app.post('/api/employees', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const body = req.body as Partial<EmployeeData>;
     const cleanCode = String(body.employeeCode || '').trim().toUpperCase().slice(0, 20);
@@ -4509,7 +4595,7 @@ async function startServer() {
     res.status(201).json(newEmp);
   });
 
-  app.put('/api/employees/:id', (req, res) => {
+  app.put('/api/employees/:id', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const { id } = req.params;
     const idx = db.employees.findIndex((e) => e.id === id);
@@ -4594,7 +4680,7 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/employees/:id', (req, res) => {
+  app.delete('/api/employees/:id', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const { id } = req.params;
     const exists = db.employees.some((e) => e.id === id);
@@ -4625,7 +4711,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.post('/api/attendance', (req, res) => {
+  app.post('/api/attendance', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const body = req.body as Partial<AttendanceData>;
     const validStatuses: AttendanceData['status'][] = [
@@ -4726,7 +4812,7 @@ async function startServer() {
     res.status(201).json(record);
   });
 
-  app.post('/api/attendance/bulk-off-days', (req, res) => {
+  app.post('/api/attendance/bulk-off-days', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const { date } = req.body as { date?: string };
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -4769,7 +4855,7 @@ async function startServer() {
     res.json({ createdCount });
   });
 
-  app.put('/api/attendance/:id', (req, res) => {
+  app.put('/api/attendance/:id', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const { id } = req.params;
     const idx = db.attendanceRecords.findIndex((r) => r.id === id);
@@ -4837,7 +4923,7 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/attendance/:id', (req, res) => {
+  app.delete('/api/attendance/:id', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const { id } = req.params;
     const target = db.attendanceRecords.find((r) => r.id === id);
@@ -4864,7 +4950,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.post('/api/late-settlements', (req, res) => {
+  app.post('/api/late-settlements', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const body = req.body as Partial<LateSettlementData>;
     if (!body.employeeId || !body.yearMonth || !body.date || !body.method) {
@@ -4912,7 +4998,7 @@ async function startServer() {
     res.status(201).json(settlement);
   });
 
-  app.delete('/api/late-settlements/:id', (req, res) => {
+  app.delete('/api/late-settlements/:id', requireAttendanceAdminAuth, (req, res) => {
     const db = readDb();
     const { id } = req.params;
     db.lateSettlements = db.lateSettlements.filter((s) => s.id !== id);
@@ -4921,7 +5007,9 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  // Admin Mode Routes (PIN configurable in Settings; default 123456)
+  // Dual-PIN Admin Mode Routes:
+  // - PIN Absensi (default 1234): unlocks attendance/schedule/employee edits & Settings
+  // - PIN Keuangan (default 123456): unlocks Keuangan Perusahaan & Rekap Gaji
   app.post('/api/admin-mode/unlock', (req, res) => {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
@@ -4934,8 +5022,30 @@ async function startServer() {
       return;
     }
 
-    const { pin } = (req.body || {}) as { pin?: string };
-    if (!verifyAdminModePin(pin || '')) {
+    const { pin, scope } = (req.body || {}) as {
+      pin?: string;
+      scope?: 'auto' | 'attendance' | 'finance';
+    };
+    const rawPin = String(pin || '').trim();
+    const requestedScope =
+      scope === 'attendance' || scope === 'finance' ? scope : 'auto';
+
+    let matchedRole: AdminSessionRole | null = null;
+    if (verifySuperuserPin(rawPin)) {
+      matchedRole = requestedScope === 'auto' ? 'both' : requestedScope;
+    } else if (requestedScope === 'attendance') {
+      if (verifyAttendanceModePin(rawPin)) matchedRole = 'attendance';
+    } else if (requestedScope === 'finance') {
+      if (verifyFinanceModePin(rawPin)) matchedRole = 'finance';
+    } else {
+      if (verifyAttendanceModePin(rawPin)) {
+        matchedRole = 'attendance';
+      } else if (verifyFinanceModePin(rawPin)) {
+        matchedRole = 'finance';
+      }
+    }
+
+    if (!matchedRole) {
       const prevCount = tracker && tracker.lockedUntil <= now ? tracker.count : 0;
       const nextCount = prevCount + 1;
       if (nextCount >= MAX_PIN_ATTEMPTS) {
@@ -4949,29 +5059,54 @@ async function startServer() {
         return;
       }
       adminPinAttemptTracker.set(clientIp, { count: nextCount, lockedUntil: 0 });
-      res.status(401).json({
-        error: 'PIN Mode Admin tidak valid.',
-      });
+      const scopeHint =
+        requestedScope === 'attendance'
+          ? 'PIN Admin Absensi tidak valid.'
+          : requestedScope === 'finance'
+            ? 'PIN Admin Keuangan tidak valid.'
+            : 'PIN Admin Absensi / Admin Keuangan tidak valid.';
+      res.status(401).json({ error: scopeHint });
       return;
     }
 
     adminPinAttemptTracker.delete(clientIp);
     cleanupExpiredAdminSessions();
-    const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = now + PAYROLL_TOKEN_TTL_MS;
-    activeAdminSessions.set(token, { expiresAt });
-    res.json({ token, expiresAt });
+    if (matchedRole === 'both') {
+      const token = crypto.randomBytes(32).toString('hex');
+      activeAdminSessions.set(token, { role: 'both', expiresAt });
+      res.json({
+        token,
+        role: 'both',
+        attendanceToken: token,
+        financeToken: token,
+        expiresAt,
+      });
+      return;
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    activeAdminSessions.set(token, { role: matchedRole, expiresAt });
+    res.json({
+      token,
+      role: matchedRole,
+      ...(matchedRole === 'attendance' ? { attendanceToken: token } : { financeToken: token }),
+      expiresAt,
+    });
   });
 
   app.post('/api/admin-mode/lock', (req, res) => {
-    const token = String(req.headers['x-admin-token'] || '');
-    if (token) {
-      activeAdminSessions.delete(token);
+    const tokens = [
+      String(req.headers['x-admin-token'] || ''),
+      String(req.headers['x-attendance-token'] || ''),
+      String(req.headers['x-finance-token'] || ''),
+    ].filter(Boolean);
+    for (const tk of tokens) {
+      activeAdminSessions.delete(tk);
     }
     res.json({ ok: true });
   });
 
-  app.put('/api/admin-mode/pin', (req, res) => {
+  app.put('/api/admin-mode/pin', requireAttendanceAdminAuth, (req, res) => {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const tracker = adminPinAttemptTracker.get(clientIp);
@@ -4983,11 +5118,19 @@ async function startServer() {
       return;
     }
 
-    const { currentPin, newPin } = (req.body || {}) as {
+    const { target, currentPin, newPin } = (req.body || {}) as {
+      target?: 'attendance' | 'finance';
       currentPin?: string;
       newPin?: string;
     };
-    if (!verifyAdminModePin(currentPin || '')) {
+    const pinTarget: 'attendance' | 'finance' =
+      target === 'attendance' ? 'attendance' : 'finance';
+    const isValidCurrent =
+      pinTarget === 'attendance'
+        ? verifyAttendanceModePin(currentPin || '')
+        : verifyFinanceModePin(currentPin || '');
+
+    if (!isValidCurrent) {
       const prevCount = tracker && tracker.lockedUntil <= now ? tracker.count : 0;
       const nextCount = prevCount + 1;
       if (nextCount >= MAX_PIN_ATTEMPTS) {
@@ -5002,28 +5145,56 @@ async function startServer() {
       }
       adminPinAttemptTracker.set(clientIp, { count: nextCount, lockedUntil: 0 });
       res.status(401).json({
-        error: 'PIN saat ini tidak sesuai. Perubahan PIN Mode Admin ditolak.',
+        error:
+          pinTarget === 'attendance'
+            ? 'PIN Absensi saat ini tidak sesuai.'
+            : 'PIN Keuangan saat ini tidak sesuai.',
       });
       return;
     }
+
     adminPinAttemptTracker.delete(clientIp);
     const cleanNew = String(newPin || '').trim();
     if (cleanNew.length < 4 || cleanNew.length > 20) {
       res.status(400).json({
-        error: 'PIN Mode Admin baru harus terdiri dari 4 hingga 20 karakter.',
+        error: 'PIN baru harus terdiri dari 4 hingga 20 karakter.',
       });
       return;
     }
+
     const prevSec = readSecurityConfig();
+    const nextHash = hashPinSha256(cleanNew);
+
+    if (
+      pinTarget === 'attendance' &&
+      timingSafeHashEqual(nextHash, prevSec.adminPinSha256)
+    ) {
+      res.status(400).json({
+        error: 'PIN Absensi dan PIN Keuangan harus berbeda.',
+      });
+      return;
+    }
+    if (
+      pinTarget === 'finance' &&
+      timingSafeHashEqual(nextHash, prevSec.attendancePinSha256)
+    ) {
+      res.status(400).json({
+        error: 'PIN Keuangan dan PIN Absensi harus berbeda.',
+      });
+      return;
+    }
+
     writeSecurityConfig({
       ...prevSec,
-      adminPinSha256: hashPinSha256(cleanNew),
+      ...(pinTarget === 'attendance'
+        ? { attendancePinSha256: nextHash }
+        : { adminPinSha256: nextHash }),
       updatedAt: new Date().toISOString(),
     });
-    res.json({ ok: true });
+    res.json({ ok: true, target: pinTarget });
   });
 
-  app.post('/api/admin/reset-data', requireAdminModeAuth, async (req, res) => {
+  app.post('/api/admin/reset-data', requireAttendanceAdminAuth, async (req, res) => {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const tracker = adminPinAttemptTracker.get(clientIp);
@@ -5047,7 +5218,12 @@ async function startServer() {
       return;
     }
 
-    if (!verifyAdminModePin(pin || '')) {
+    const isPinAuthorized =
+      mode === 'attendance'
+        ? verifyAttendanceModePin(pin || '')
+        : verifyFinanceModePin(pin || '');
+
+    if (!isPinAuthorized) {
       const prevCount = tracker && tracker.lockedUntil <= now ? tracker.count : 0;
       const nextCount = prevCount + 1;
       if (nextCount >= MAX_PIN_ATTEMPTS) {
@@ -5062,7 +5238,10 @@ async function startServer() {
       }
       adminPinAttemptTracker.set(clientIp, { count: nextCount, lockedUntil: 0 });
       res.status(401).json({
-        error: 'PIN Mode Admin tidak valid. Reset data dibatalkan.',
+        error:
+          mode === 'attendance'
+            ? 'PIN Admin Absensi tidak valid. Reset data dibatalkan.'
+            : 'Reset menyeluruh (termasuk Gaji & Keuangan) memerlukan PIN Admin Keuangan atau Superuser.',
       });
       return;
     }
@@ -5955,7 +6134,7 @@ async function startServer() {
     res.json({ token, expiresAt });
   });
 
-  app.post('/api/payroll/unlock-from-admin', requireAdminModeAuth, (_req, res) => {
+  app.post('/api/payroll/unlock-from-admin', requireFinanceAdminAuth, (_req, res) => {
     cleanupExpiredPayrollSessions();
     const now = Date.now();
     const token = crypto.randomBytes(32).toString('hex');
@@ -6316,19 +6495,19 @@ async function startServer() {
   });
 
   // Protected Company Finance Routes (Accessible ONLY in Mode Admin)
-  app.get('/api/finance/state', requireAdminModeAuth, async (_req, res) => {
+  app.get('/api/finance/state', requireFinanceAdminAuth, async (_req, res) => {
     await ensureScopeFreshFromSupabase('finance');
     const finDb = readFinanceDb();
     res.json(finDb);
   });
 
-  app.get('/api/finance/payroll-overview', requireAdminModeAuth, async (_req, res) => {
+  app.get('/api/finance/payroll-overview', requireFinanceAdminAuth, async (_req, res) => {
     await ensureScopeFreshFromSupabase('payroll');
     const payrollDb = readPayrollDb();
     res.json(payrollDb);
   });
 
-  app.post('/api/finance/pay-salary', requireAdminModeAuth, (req, res) => {
+  app.post('/api/finance/pay-salary', requireFinanceAdminAuth, (req, res) => {
     const db = readDb();
     const finDb = readFinanceDb();
     const payrollDb = readPayrollDb();
@@ -6470,7 +6649,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/finance/categories', requireAdminModeAuth, (req, res) => {
+  app.post('/api/finance/categories', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const body = req.body as Partial<FinanceCategoryData>;
     const name = String(body.name || '').trim().slice(0, 60);
@@ -6499,7 +6678,7 @@ async function startServer() {
     res.status(201).json(newCat);
   });
 
-  app.put('/api/finance/categories/:id', requireAdminModeAuth, (req, res) => {
+  app.put('/api/finance/categories/:id', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const { id } = req.params;
     const idx = finDb.categories.findIndex((c) => c.id === id);
@@ -6541,7 +6720,7 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/finance/categories/:id', requireAdminModeAuth, (req, res) => {
+  app.delete('/api/finance/categories/:id', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const { id } = req.params;
     const target = finDb.categories.find((c) => c.id === id);
@@ -6570,7 +6749,7 @@ async function startServer() {
   });
 
   // Bank & Cash Accounts Management (Mode Admin)
-  app.post('/api/finance/accounts', requireAdminModeAuth, (req, res) => {
+  app.post('/api/finance/accounts', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const body = req.body as Partial<FinanceAccountData>;
     const name = String(body.name || '').trim().slice(0, 60);
@@ -6612,7 +6791,7 @@ async function startServer() {
     res.status(201).json(newAcc);
   });
 
-  app.put('/api/finance/accounts/:id', requireAdminModeAuth, (req, res) => {
+  app.put('/api/finance/accounts/:id', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const { id } = req.params;
     const idx = finDb.accounts.findIndex((a) => a.id === id);
@@ -6676,7 +6855,7 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/finance/accounts/:id', requireAdminModeAuth, (req, res) => {
+  app.delete('/api/finance/accounts/:id', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const { id } = req.params;
     const target = finDb.accounts.find((a) => a.id === id);
@@ -6710,7 +6889,7 @@ async function startServer() {
   });
 
   // Internal Transfers (Cash <-> Rekening / Antar Rekening)
-  app.post('/api/finance/transfers', requireAdminModeAuth, (req, res) => {
+  app.post('/api/finance/transfers', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const body = req.body as Partial<FinanceTransferData>;
     if (!body.date || !body.fromAccountId || !body.toAccountId) {
@@ -6754,7 +6933,7 @@ async function startServer() {
     res.status(201).json(tr);
   });
 
-  app.delete('/api/finance/transfers/:id', requireAdminModeAuth, (req, res) => {
+  app.delete('/api/finance/transfers/:id', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const { id } = req.params;
     finDb.transfers = finDb.transfers.filter((tr) => tr.id !== id);
@@ -6763,7 +6942,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.post('/api/finance/transactions', requireAdminModeAuth, (req, res) => {
+  app.post('/api/finance/transactions', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const body = req.body as Partial<FinanceTransactionData>;
     if (!body.date || !body.type || !body.method || !body.title || !body.categoryId) {
@@ -6832,7 +7011,7 @@ async function startServer() {
     res.status(201).json(tx);
   });
 
-  app.put('/api/finance/transactions/:id', requireAdminModeAuth, (req, res) => {
+  app.put('/api/finance/transactions/:id', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const { id } = req.params;
     const idx = finDb.transactions.findIndex((t) => t.id === id);
@@ -6908,7 +7087,7 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/finance/transactions/:id', requireAdminModeAuth, (req, res) => {
+  app.delete('/api/finance/transactions/:id', requireFinanceAdminAuth, (req, res) => {
     const finDb = readFinanceDb();
     const { id } = req.params;
     finDb.transactions = finDb.transactions.filter((t) => t.id !== id);
@@ -6917,7 +7096,7 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.get('/api/finance/backup', requireAdminModeAuth, (_req, res) => {
+  app.get('/api/finance/backup', requireFinanceAdminAuth, (_req, res) => {
     const finDb = readFinanceDb();
     res.json({
       app: 'KaryaPresensi-Finance',
@@ -6927,7 +7106,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/finance/restore', requireAdminModeAuth, (req, res) => {
+  app.post('/api/finance/restore', requireFinanceAdminAuth, (req, res) => {
     const body = req.body as Partial<FinanceDatabaseSchema>;
     if (!body || !Array.isArray(body.categories) || !Array.isArray(body.transactions)) {
       res.status(400).json({ error: 'Format file backup keuangan tidak valid.' });

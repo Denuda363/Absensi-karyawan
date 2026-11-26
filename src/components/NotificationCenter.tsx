@@ -317,9 +317,10 @@ interface NotificationCenterDrawerProps {
   unreadCount: number;
   prefs: NotificationPreferences;
   permission: DevicePermissionState;
-  isAdminMode: boolean;
+  isAttendanceAdmin: boolean;
+  isFinanceAdmin: boolean;
   onNavigate: (nav: NavSection) => void;
-  onOpenAdminModeModal: () => void;
+  onOpenAdminModeModal: (scope?: 'auto' | 'attendance' | 'finance') => void;
 }
 
 export const NotificationCenterDrawer: React.FC<
@@ -331,7 +332,8 @@ export const NotificationCenterDrawer: React.FC<
   unreadCount,
   prefs,
   permission,
-  isAdminMode,
+  isAttendanceAdmin,
+  isFinanceAdmin,
   onNavigate,
   onOpenAdminModeModal,
 }) => {
@@ -366,17 +368,17 @@ export const NotificationCenterDrawer: React.FC<
 
   useEffect(() => {
     return subscribeSystemNotificationClick((notif) => {
-      if (notif.targetNav) {
-        const needsAdmin =
-          notif.targetNav === 'keuangan' ||
-          notif.targetNav === 'rekap-gaji' ||
-          notif.targetNav === 'pengaturan';
-        if (!needsAdmin || isAdminMode) {
-          onNavigate(notif.targetNav);
-        }
+      if (!notif.targetNav) return;
+      if (notif.targetNav === 'pengaturan' && !isAttendanceAdmin) return;
+      if (
+        (notif.targetNav === 'keuangan' || notif.targetNav === 'rekap-gaji') &&
+        !isFinanceAdmin
+      ) {
+        return;
       }
+      onNavigate(notif.targetNav);
     });
-  }, [isAdminMode, onNavigate]);
+  }, [isAttendanceAdmin, isFinanceAdmin, onNavigate]);
 
   const todayKey = useMemo(() => getLocalDayKey(new Date(nowMs)), [nowMs]);
   const yesterdayKey = useMemo(() => {
@@ -485,13 +487,17 @@ export const NotificationCenterDrawer: React.FC<
   const handleNavigateToNotif = (notif: AppNotification) => {
     markNotificationRead(notif.id);
     if (!notif.targetNav) return;
-    const requiresAdmin =
-      notif.targetNav === 'keuangan' ||
-      notif.targetNav === 'rekap-gaji' ||
-      notif.targetNav === 'pengaturan';
-    if (requiresAdmin && !isAdminMode) {
+    if (notif.targetNav === 'pengaturan' && !isAttendanceAdmin) {
       onClose();
-      onOpenAdminModeModal();
+      onOpenAdminModeModal('attendance');
+      return;
+    }
+    if (
+      (notif.targetNav === 'keuangan' || notif.targetNav === 'rekap-gaji') &&
+      !isFinanceAdmin
+    ) {
+      onClose();
+      onOpenAdminModeModal('finance');
       return;
     }
     onNavigate(notif.targetNav);

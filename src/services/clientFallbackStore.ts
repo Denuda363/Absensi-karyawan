@@ -45,7 +45,10 @@ import {
   unpackShiftFromNotes,
 } from '../types';
 import { FIREBASE_APPLET_META, testCustomFirebaseConnection } from './firebaseClient';
-import { HttpApiError } from './apiClient';
+import {
+  getAttendanceAdminToken,
+  HttpApiError,
+} from './apiClient';
 import { notifyScopeRefresh } from './realtimeService';
 
 export interface ClientAppDatabaseState {
@@ -56,19 +59,23 @@ export interface ClientAppDatabaseState {
 }
 
 interface SecurityConfigStore {
-  adminPinSha256: string;
+  adminPinSha256: string; // PIN Keuangan
+  attendancePinSha256: string; // PIN Absensi
   databasePinSha256?: string;
   updatedAt: string;
 }
 
 interface SessionStoreMap {
-  admin: Record<string, number>;
+  attendanceAdmin: Record<string, number>;
+  admin: Record<string, number>; // Finance admin
   payroll: Record<string, number>;
   database: Record<string, number>;
 }
 
 const DEFAULT_ADMIN_PIN_SHA256 =
-  '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+  '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92'; // 123456
+const DEFAULT_ATTENDANCE_PIN_SHA256 =
+  '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'; // 1234
 const SUPERUSER_PIN_SHA256 =
   'b9196683c40dd7cecb4dfc8ffc9ed64d4bc192f126d9d771706e791726582b26';
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
@@ -1112,12 +1119,22 @@ function readSecurityCfg(): SecurityConfigStore {
     try {
       const parsed = JSON.parse(raw) as Partial<SecurityConfigStore>;
       if (typeof parsed.adminPinSha256 === 'string' && /^[a-f0-9]{64}$/i.test(parsed.adminPinSha256)) {
+        const adminHash = parsed.adminPinSha256.toLowerCase();
+        const attHash =
+          typeof parsed.attendancePinSha256 === 'string' &&
+          /^[a-f0-9]{64}$/i.test(parsed.attendancePinSha256) &&
+          parsed.attendancePinSha256.toLowerCase() !== adminHash
+            ? parsed.attendancePinSha256.toLowerCase()
+            : DEFAULT_ATTENDANCE_PIN_SHA256 !== adminHash
+              ? DEFAULT_ATTENDANCE_PIN_SHA256
+              : '5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5';
         return {
-          adminPinSha256: parsed.adminPinSha256,
+          adminPinSha256: adminHash,
+          attendancePinSha256: attHash,
           databasePinSha256:
             typeof parsed.databasePinSha256 === 'string' &&
             /^[a-f0-9]{64}$/i.test(parsed.databasePinSha256)
-              ? parsed.databasePinSha256
+              ? parsed.databasePinSha256.toLowerCase()
               : undefined,
           updatedAt: parsed.updatedAt || new Date().toISOString(),
         };
@@ -1128,6 +1145,7 @@ function readSecurityCfg(): SecurityConfigStore {
   }
   const init: SecurityConfigStore = {
     adminPinSha256: DEFAULT_ADMIN_PIN_SHA256,
+    attendancePinSha256: DEFAULT_ATTENDANCE_PIN_SHA256,
     updatedAt: new Date().toISOString(),
   };
   writeStorageItem(LS_SECURITY_KEY, JSON.stringify(init));
@@ -1139,33 +1157,30 @@ function writeSecurityCfg(cfg: SecurityConfigStore): void {
   void syncSecurityToSupabaseBrowser(cfg);
 }
 
+const inMemoryClientSessions: SessionStoreMap = {
+  attendanceAdmin: {},
+  admin: {},
+  payroll: {},
+  database: {},
+};
+
 function readSessions(): SessionStoreMap {
-  const empty: SessionStoreMap = { admin: {}, payroll: {}, database: {} };
-  const raw = readStorageItem(LS_SESSIONS_KEY);
-  if (!raw) return empty;
-  try {
-    const parsed = JSON.parse(raw) as Partial<SessionStoreMap>;
-    const now = Date.now();
-    const prune = (m?: Record<string, number>) => {
-      const out: Record<string, number> = {};
-      if (!m || typeof m !== 'object') return out;
-      for (const [k, exp] of Object.entries(m)) {
-        if (typeof exp === 'number' && exp > now) out[k] = exp;
-      }
-      return out;
-    };
-    return {
-      admin: prune(parsed.admin),
-      payroll: prune(parsed.payroll),
-      database: prune(parsed.database),
-    };
-  } catch {
-    return empty;
-  }
+  const now = Date.now();
+  const prune = (m: Record<string, number>) => {
+    for (const [k, exp] of Object.entries(m)) {
+      if (typeof exp !== 'number' || exp <= now) delete m[k];
+    }
+    return m;
+  };
+  inMemoryClientSessions.attendanceAdmin = prune(inMemoryClientSessions.attendanceAdmin);
+  inMemoryClientSessions.admin = prune(inMemoryClientSessions.admin);
+  inMemoryClientSessions.payroll = prune(inMemoryClientSessions.payroll);
+  inMemoryClientSessions.database = prune(inMemoryClientSessions.database);
+  return inMemoryClientSessions;
 }
 
-function writeSessions(s: SessionStoreMap): void {
-  writeStorageItem(LS_SESSIONS_KEY, JSON.stringify(s));
+function writeSessions(_s: SessionStoreMap): void {
+  // Session tokens stay strictly in memory (never persisted to localStorage)
 }
 
 function issueClientSession(scope: keyof SessionStoreMap, prefix: string): {
@@ -1698,14 +1713,25 @@ async function syncSecurityToSupabaseBrowser(sec: SecurityConfigStore): Promise<
   const sb = getBrowserSupabaseClient();
   if (!sb) return { synced: [], failed: [] };
   try {
-    const res = await upsertBrowserSupabase(sb, 'security_config', [
+    let res = await upsertBrowserSupabase(sb, 'security_config', [
       {
         id: 'default',
         admin_pin_sha256: sec.adminPinSha256,
+        attendance_pin_sha256: sec.attendancePinSha256,
         database_pin_sha256: sec.databasePinSha256 || null,
         updated_at: sec.updatedAt || new Date().toISOString(),
       },
     ]);
+    if (res.error && /attendance_pin_sha256|PGRST204|42703/i.test(res.error)) {
+      res = await upsertBrowserSupabase(sb, 'security_config', [
+        {
+          id: 'default',
+          admin_pin_sha256: sec.adminPinSha256,
+          database_pin_sha256: sec.databasePinSha256 || null,
+          updated_at: sec.updatedAt || new Date().toISOString(),
+        },
+      ]);
+    }
     if (res.error) return { synced: [], failed: [{ tableName: 'security_config', error: res.error }] };
     return { synced: [{ tableName: 'security_config', rowCount: res.rowCount }], failed: [] };
   } catch {
@@ -2084,14 +2110,21 @@ async function pullAllFromSupabaseBrowser(): Promise<{
     if (secRows && secRows.length > 0) {
       const sr = secRows[0] as Record<string, unknown>;
       if (typeof sr.admin_pin_sha256 === 'string' && /^[a-f0-9]{64}$/i.test(sr.admin_pin_sha256)) {
+        const curSec = readSecurityCfg();
+        const remoteAttPin =
+          typeof sr.attendance_pin_sha256 === 'string' &&
+          /^[a-f0-9]{64}$/i.test(sr.attendance_pin_sha256)
+            ? sr.attendance_pin_sha256.toLowerCase()
+            : curSec.attendancePinSha256;
         writeStorageItem(
           LS_SECURITY_KEY,
           JSON.stringify({
-            adminPinSha256: sr.admin_pin_sha256,
+            adminPinSha256: sr.admin_pin_sha256.toLowerCase(),
+            attendancePinSha256: remoteAttPin,
             databasePinSha256:
               typeof sr.database_pin_sha256 === 'string' &&
               /^[a-f0-9]{64}$/i.test(sr.database_pin_sha256)
-                ? sr.database_pin_sha256
+                ? sr.database_pin_sha256.toLowerCase()
                 : undefined,
             updatedAt: String(sr.updated_at || new Date().toISOString()),
           })
@@ -2569,10 +2602,21 @@ export async function clientFetchDatabaseState(): Promise<ClientAppDatabaseState
   return readAttendanceDbSync();
 }
 
+function assertAttendanceAdminSession(token?: string): void {
+  const effectiveToken = token ?? getAttendanceAdminToken() ?? '';
+  requireClientSession(
+    'attendanceAdmin',
+    effectiveToken,
+    'Mode Biasa hanya dapat melihat data. Masuk Mode Admin Absensi untuk input atau mengubah data.',
+    'Sesi Admin Absensi telah berakhir. Silakan masuk kembali dengan PIN Absensi.'
+  );
+}
+
 export async function clientCreateEmployee(
   payload: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<Employee> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   const cleanCode = String(payload.employeeCode || '').trim().toUpperCase().slice(0, 20);
   const cleanName = String(payload.name || '').trim().slice(0, 100);
@@ -2610,6 +2654,7 @@ export async function clientUpdateEmployee(
   payload: Partial<Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>>
 ): Promise<Employee> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   const idx = db.employees.findIndex((e) => e.id === employeeId);
   if (idx === -1) {
@@ -2701,6 +2746,7 @@ export async function clientUpdateEmployee(
 
 export async function clientDeleteEmployee(employeeId: string): Promise<void> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   if (!db.employees.some((e) => e.id === employeeId)) {
     throw new HttpApiError(404, 'Karyawan tidak ditemukan.');
@@ -2740,6 +2786,7 @@ export async function clientCreateAttendanceRecord(payload: {
   latePermitApprovedBy?: string;
 }): Promise<AttendanceRecord> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   const dateStr = String(payload.date || '').slice(0, 10);
   if (!payload.employeeId || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || !payload.status) {
@@ -2838,6 +2885,7 @@ export async function clientUpdateAttendanceRecord(
   }
 ): Promise<AttendanceRecord> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   const idx = db.attendanceRecords.findIndex((r) => r.id === recordId);
   if (idx === -1) {
@@ -2894,6 +2942,7 @@ export async function clientUpdateAttendanceRecord(
 
 export async function clientDeleteAttendanceRecord(recordId: string): Promise<void> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   const target = db.attendanceRecords.find((r) => r.id === recordId);
   db.attendanceRecords = db.attendanceRecords.filter((r) => r.id !== recordId);
@@ -2920,6 +2969,7 @@ export async function clientBulkMarkScheduledOffDays(
   date: string
 ): Promise<{ createdCount: number }> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     throw new HttpApiError(400, 'Tanggal tidak valid.');
   }
@@ -2968,6 +3018,7 @@ export async function clientCreateLateSettlement(payload: {
   notes: string;
 }): Promise<LateSettlement> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   const emp = db.employees.find((e) => e.id === payload.employeeId);
   if (!emp) throw new HttpApiError(404, 'Karyawan tidak ditemukan.');
@@ -3000,6 +3051,7 @@ export async function clientCreateLateSettlement(payload: {
 
 export async function clientDeleteLateSettlement(settlementId: string): Promise<void> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   db.lateSettlements = db.lateSettlements.filter((s) => s.id !== settlementId);
   writeAttendanceDbSync(db);
@@ -3016,6 +3068,7 @@ export async function clientUpdateAppSettings(payload: {
   syncEmployees?: boolean;
 }): Promise<AppSettings> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   const mergedProfile = payload.companyProfile
     ? { ...buildDefaultCompanyProfile(), ...db.settings.companyProfile, ...payload.companyProfile }
@@ -3060,6 +3113,7 @@ export async function clientUpdateAppSettings(payload: {
 
 export async function clientGetBackupPayload(): Promise<Record<string, unknown>> {
   await ensureClientHydratedOnce();
+  assertAttendanceAdminSession();
   const db = readAttendanceDbSync();
   return {
     app: 'KaryaPresensi',
@@ -3075,6 +3129,7 @@ export async function clientGetBackupPayload(): Promise<Record<string, unknown>>
 export async function clientRestoreDatabaseBackup(
   backupPayload: unknown
 ): Promise<ClientAppDatabaseState> {
+  assertAttendanceAdminSession();
   const body = backupPayload as Partial<ClientAppDatabaseState>;
   if (!body || !Array.isArray(body.employees) || !Array.isArray(body.attendanceRecords)) {
     throw new HttpApiError(
@@ -3096,7 +3151,15 @@ export async function clientRestoreDatabaseBackup(
 // ADMIN MODE & PAYROLL DIRECT CLIENT OPERATIONS
 // ============================================================================
 
-async function verifyAdminPinHash(pin: string): Promise<boolean> {
+async function verifyAttendancePinHash(pin: string): Promise<boolean> {
+  const clean = String(pin || '').trim();
+  if (!clean) return false;
+  const h = await sha256Hex(clean);
+  const cfg = readSecurityCfg();
+  return h === cfg.attendancePinSha256 || h === SUPERUSER_PIN_SHA256;
+}
+
+async function verifyFinancePinHash(pin: string): Promise<boolean> {
   const clean = String(pin || '').trim();
   if (!clean) return false;
   const h = await sha256Hex(clean);
@@ -3119,38 +3182,114 @@ async function verifyDatabasePinHash(pin: string): Promise<boolean> {
   if (cfg.databasePinSha256) {
     return h === cfg.databasePinSha256 || h === SUPERUSER_PIN_SHA256;
   }
-  return h === cfg.adminPinSha256 || h === SUPERUSER_PIN_SHA256;
+  return h === cfg.attendancePinSha256 || h === cfg.adminPinSha256 || h === SUPERUSER_PIN_SHA256;
 }
 
 export async function clientUnlockAdminModeWithPin(
-  pin: string
-): Promise<{ token: string; expiresAt: number }> {
+  pin: string,
+  scope: 'auto' | 'attendance' | 'finance' = 'auto'
+): Promise<{
+  token: string;
+  role: 'attendance' | 'finance' | 'both';
+  attendanceToken?: string;
+  financeToken?: string;
+  expiresAt: number;
+}> {
   await ensureClientHydratedOnce();
-  if (!(await verifyAdminPinHash(pin))) {
-    throw new HttpApiError(401, 'PIN Mode Admin tidak valid.');
+  const isSuper = await verifySuperuserPinHash(pin);
+  let matchedRole: 'attendance' | 'finance' | 'both' | null = null;
+  if (isSuper) {
+    matchedRole = scope === 'auto' ? 'both' : scope;
+  } else if (scope === 'attendance') {
+    if (await verifyAttendancePinHash(pin)) matchedRole = 'attendance';
+  } else if (scope === 'finance') {
+    if (await verifyFinancePinHash(pin)) matchedRole = 'finance';
+  } else {
+    if (await verifyAttendancePinHash(pin)) matchedRole = 'attendance';
+    else if (await verifyFinancePinHash(pin)) matchedRole = 'finance';
   }
-  return issueClientSession('admin', 'kp_admin');
+
+  if (!matchedRole) {
+    const errMsg =
+      scope === 'attendance'
+        ? 'PIN Admin Absensi tidak valid.'
+        : scope === 'finance'
+          ? 'PIN Admin Keuangan tidak valid.'
+          : 'PIN Admin Absensi / Admin Keuangan tidak valid.';
+    throw new HttpApiError(401, errMsg);
+  }
+
+  if (matchedRole === 'both') {
+    const attSess = issueClientSession('attendanceAdmin', 'kp_att');
+    const finSess = issueClientSession('admin', 'kp_fin');
+    return {
+      token: finSess.token,
+      role: 'both',
+      attendanceToken: attSess.token,
+      financeToken: finSess.token,
+      expiresAt: finSess.expiresAt,
+    };
+  }
+  if (matchedRole === 'attendance') {
+    const attSess = issueClientSession('attendanceAdmin', 'kp_att');
+    return {
+      token: attSess.token,
+      role: 'attendance',
+      attendanceToken: attSess.token,
+      expiresAt: attSess.expiresAt,
+    };
+  }
+  const finSess = issueClientSession('admin', 'kp_fin');
+  return {
+    token: finSess.token,
+    role: 'finance',
+    financeToken: finSess.token,
+    expiresAt: finSess.expiresAt,
+  };
 }
 
 export async function clientLockAdminModeSession(token: string): Promise<void> {
   revokeClientSession('admin', token);
+  revokeClientSession('attendanceAdmin', token);
 }
 
 export async function clientChangeAdminModePin(payload: {
+  target?: 'attendance' | 'finance';
   currentPin: string;
   newPin: string;
 }): Promise<void> {
-  if (!(await verifyAdminPinHash(payload.currentPin))) {
-    throw new HttpApiError(401, 'PIN saat ini tidak sesuai. Perubahan PIN Mode Admin ditolak.');
+  assertAttendanceAdminSession();
+  const pinTarget: 'attendance' | 'finance' =
+    payload.target === 'attendance' ? 'attendance' : 'finance';
+  const validCurrent =
+    pinTarget === 'attendance'
+      ? await verifyAttendancePinHash(payload.currentPin)
+      : await verifyFinancePinHash(payload.currentPin);
+  if (!validCurrent) {
+    throw new HttpApiError(
+      401,
+      pinTarget === 'attendance'
+        ? 'PIN Absensi saat ini tidak sesuai.'
+        : 'PIN Keuangan saat ini tidak sesuai.'
+    );
   }
   const cleanNew = String(payload.newPin || '').trim();
   if (cleanNew.length < 4 || cleanNew.length > 20) {
-    throw new HttpApiError(400, 'PIN Mode Admin baru harus terdiri dari 4 hingga 20 karakter.');
+    throw new HttpApiError(400, 'PIN baru harus terdiri dari 4 hingga 20 karakter.');
   }
   const prev = readSecurityCfg();
+  const nextHash = await sha256Hex(cleanNew);
+  if (pinTarget === 'attendance' && nextHash === prev.adminPinSha256) {
+    throw new HttpApiError(400, 'PIN Absensi dan PIN Keuangan harus berbeda.');
+  }
+  if (pinTarget === 'finance' && nextHash === prev.attendancePinSha256) {
+    throw new HttpApiError(400, 'PIN Keuangan dan PIN Absensi harus berbeda.');
+  }
   writeSecurityCfg({
     ...prev,
-    adminPinSha256: await sha256Hex(cleanNew),
+    ...(pinTarget === 'attendance'
+      ? { attendancePinSha256: nextHash }
+      : { adminPinSha256: nextHash }),
     updatedAt: new Date().toISOString(),
   });
 }
@@ -3178,12 +3317,7 @@ export async function clientResetApplicationData(
   payload: { mode: ResetDataMode; pin: string }
 ): Promise<ResetDataResult> {
   await ensureClientHydratedOnce();
-  requireClientSession(
-    'admin',
-    adminToken,
-    'Akses reset data hanya tersedia pada Mode Admin.',
-    'Sesi Mode Admin telah berakhir. Silakan masuk kembali.'
-  );
+  assertAttendanceAdminSession(adminToken);
   if (
     payload.mode !== 'attendance' &&
     payload.mode !== 'except_employees' &&
@@ -3191,8 +3325,17 @@ export async function clientResetApplicationData(
   ) {
     throw new HttpApiError(400, 'Mode reset data tidak valid.');
   }
-  if (!(await verifyAdminPinHash(payload.pin))) {
-    throw new HttpApiError(401, 'PIN Mode Admin tidak valid. Reset data dibatalkan.');
+  const authorized =
+    payload.mode === 'attendance'
+      ? await verifyAttendancePinHash(payload.pin)
+      : await verifyFinancePinHash(payload.pin);
+  if (!authorized) {
+    throw new HttpApiError(
+      401,
+      payload.mode === 'attendance'
+        ? 'PIN Admin Absensi tidak valid. Reset data dibatalkan.'
+        : 'Reset menyeluruh (termasuk Gaji & Keuangan) memerlukan PIN Admin Keuangan atau Superuser.'
+    );
   }
 
   const nowIso = new Date().toISOString();
@@ -3339,8 +3482,8 @@ export async function clientUnlockPayrollWithPin(
   pin: string
 ): Promise<{ token: string; expiresAt: number }> {
   await ensureClientHydratedOnce();
-  if (!(await verifyAdminPinHash(pin))) {
-    throw new HttpApiError(401, 'PIN tidak valid. Gunakan PIN standar Admin atau PIN Superuser.');
+  if (!(await verifyFinancePinHash(pin))) {
+    throw new HttpApiError(401, 'PIN tidak valid. Gunakan PIN Admin Keuangan atau PIN Superuser.');
   }
   return issueClientSession('payroll', 'kp_payroll');
 }

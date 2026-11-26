@@ -64,6 +64,8 @@ export const FIREBASE_APPLET_META = {
 export const BOOTSTRAPPED_ADMIN_EMAIL = 'assyfachanel99@gmail.com';
 export const DEFAULT_ADMIN_PIN_SHA256 =
   '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+export const DEFAULT_ATTENDANCE_PIN_SHA256 =
+  '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4';
 
 export enum OperationType {
   CREATE = 'create',
@@ -742,6 +744,7 @@ export interface AutoInitFirestorePayload {
   financeTransfers?: FinanceTransfer[];
   securityConfig?: {
     adminPinSha256: string;
+    attendancePinSha256?: string;
     databasePinSha256?: string;
   };
   forceOverwrite?: boolean;
@@ -1111,6 +1114,11 @@ export async function autoInitializeFirestoreCollections(
         /^[a-f0-9]{64}$/i.test(payload.securityConfig.adminPinSha256)
           ? payload.securityConfig.adminPinSha256.toLowerCase()
           : DEFAULT_ADMIN_PIN_SHA256;
+      const attendancePin =
+        payload.securityConfig?.attendancePinSha256 &&
+        /^[a-f0-9]{64}$/i.test(payload.securityConfig.attendancePinSha256)
+          ? payload.securityConfig.attendancePinSha256.toLowerCase()
+          : DEFAULT_ATTENDANCE_PIN_SHA256;
       const dbPin =
         payload.securityConfig?.databasePinSha256 &&
         /^[a-f0-9]{64}$/i.test(payload.securityConfig.databasePinSha256)
@@ -1119,6 +1127,7 @@ export async function autoInitializeFirestoreCollections(
       await setDoc(secRef, {
         id: 'primary',
         adminPinSha256: adminPin,
+        attendancePinSha256: attendancePin,
         databasePinSha256: dbPin,
         updatedAt: serverTimestamp(),
       });
@@ -1150,7 +1159,7 @@ export interface PulledFirestoreState {
   financeCategories: FinanceCategory[];
   financeTransactions: FinanceTransaction[];
   financeTransfers: FinanceTransfer[];
-  securityConfig: { adminPinSha256: string; databasePinSha256?: string } | null;
+  securityConfig: { adminPinSha256: string; attendancePinSha256?: string; databasePinSha256?: string } | null;
 }
 
 export async function fetchAllStateFromFirestore(): Promise<PulledFirestoreState> {
@@ -1460,7 +1469,7 @@ export async function fetchAllStateFromFirestore(): Promise<PulledFirestoreState
     handleFirestoreError(error, OperationType.LIST, 'financeTransfers');
   }
 
-  let securityConfig: { adminPinSha256: string; databasePinSha256?: string } | null = null;
+  let securityConfig: { adminPinSha256: string; attendancePinSha256?: string; databasePinSha256?: string } | null = null;
   try {
     const snap = await getDoc(doc(db, 'securityConfig', 'primary'));
     if (snap.exists()) {
@@ -1468,6 +1477,10 @@ export async function fetchAllStateFromFirestore(): Promise<PulledFirestoreState
       if (typeof x.adminPinSha256 === 'string' && /^[a-f0-9]{64}$/i.test(x.adminPinSha256)) {
         securityConfig = {
           adminPinSha256: x.adminPinSha256,
+          attendancePinSha256:
+            typeof x.attendancePinSha256 === 'string' && /^[a-f0-9]{64}$/i.test(x.attendancePinSha256)
+              ? x.attendancePinSha256
+              : undefined,
           databasePinSha256:
             typeof x.databasePinSha256 === 'string' && /^[a-f0-9]{64}$/i.test(x.databasePinSha256)
               ? x.databasePinSha256
@@ -1683,6 +1696,7 @@ export async function deleteFinanceTransferFromFirestore(transferId: string): Pr
 
 export async function syncSecurityConfigToFirestore(sec: {
   adminPinSha256: string;
+  attendancePinSha256?: string;
   databasePinSha256?: string;
 }): Promise<void> {
   if (!getVerifiedCurrentUser()) return;
@@ -1691,6 +1705,10 @@ export async function syncSecurityConfigToFirestore(sec: {
     await setDoc(doc(db, 'securityConfig', 'primary'), {
       id: 'primary',
       adminPinSha256: sec.adminPinSha256,
+      attendancePinSha256:
+        sec.attendancePinSha256 && /^[a-f0-9]{64}$/i.test(sec.attendancePinSha256)
+          ? sec.attendancePinSha256.toLowerCase()
+          : DEFAULT_ATTENDANCE_PIN_SHA256,
       databasePinSha256: sec.databasePinSha256 || '',
       updatedAt: serverTimestamp(),
     });

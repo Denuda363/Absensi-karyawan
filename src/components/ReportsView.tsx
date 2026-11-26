@@ -43,6 +43,7 @@ import {
 import { exportAttendanceMatrixToExcel } from '../utils/excelAttendanceExport';
 import { SearchableEmployeeSelect } from './SearchableEmployeeSelect';
 import { Tilt3DCard } from './Tilt3DCard';
+import { ReadOnlyModeBanner } from './ReadOnlyModeBanner';
 
 interface ReportsViewProps {
   employees: Employee[];
@@ -52,6 +53,8 @@ interface ReportsViewProps {
   loading: boolean;
   onRefresh?: () => Promise<void>;
   onNavigate?: (nav: NavSection) => void;
+  isAttendanceAdmin?: boolean;
+  onRequestAttendanceAdmin?: () => void;
 }
 
 type ReportTab = 'kehadiran' | 'terlambat';
@@ -143,6 +146,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   loading,
   onRefresh,
   onNavigate,
+  isAttendanceAdmin = false,
+  onRequestAttendanceAdmin,
 }) => {
   const [activeTab, setActiveTab] = useState<ReportTab>('kehadiran');
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentYearMonth());
@@ -563,6 +568,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   );
 
   const openSettlementModal = (employeeId?: string) => {
+    if (!isAttendanceAdmin) {
+      setErrorMessage(
+        'Mode Biasa hanya dapat melihat laporan. Masuk Admin Absensi (PIN 1234) untuk mencatat cicilan atau potongan keterlambatan.'
+      );
+      return;
+    }
     const targetSummary =
       (employeeId
         ? lateEmployeeSummaries.find((s) => s.employee.id === employeeId)
@@ -715,6 +726,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   };
 
   const handleDeleteSettlement = async (settlement: LateSettlement) => {
+    if (!isAttendanceAdmin) {
+      setErrorMessage(
+        'Mode Biasa hanya dapat melihat laporan. Masuk Admin Absensi (PIN 1234) untuk menghapus catatan keterlambatan.'
+      );
+      return;
+    }
     setDeletingSettlementId(settlement.id);
     setBannerMessage(null);
     setErrorMessage(null);
@@ -1022,7 +1039,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
 
           <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
-            {activeTab === 'terlambat' && (
+            {activeTab === 'terlambat' && isAttendanceAdmin && (
               <button
                 type="button"
                 onClick={() => openSettlementModal()}
@@ -1112,6 +1129,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         </div>
       </div>
+
+      {!isAttendanceAdmin && (
+        <ReadOnlyModeBanner
+          areaLabel="rekapitulasi kehadiran & catatan keterlambatan"
+          onRequestAttendanceAdmin={onRequestAttendanceAdmin}
+        />
+      )}
 
       {bannerMessage && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-xs font-medium flex items-center justify-between gap-3 no-print">
@@ -1602,15 +1626,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                           </div>
                         )}
 
-                        <button
-                          type="button"
-                          disabled={row.remainingLateMinutes === 0}
-                          onClick={() => openSettlementModal(row.employee.id)}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Ganti / Cicil Keterlambatan</span>
-                        </button>
+                        {isAttendanceAdmin && (
+                          <button
+                            type="button"
+                            disabled={row.remainingLateMinutes === 0}
+                            onClick={() => openSettlementModal(row.employee.id)}
+                            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Ganti / Cicil Keterlambatan</span>
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -1628,7 +1654,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                       <th className="py-3 px-3 text-right">Ganti Jam Kerja</th>
                       <th className="py-3 px-3 text-right">Potongan Gaji</th>
                       <th className="py-3 px-3 text-right">Sisa Tunggakan</th>
-                      <th className="py-3 px-4 text-right no-print">Aksi</th>
+                      {isAttendanceAdmin && (
+                        <th className="py-3 px-4 text-right no-print">Aksi</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -1739,22 +1767,24 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                                 </span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-right no-print whitespace-nowrap">
-                              <button
-                                type="button"
-                                disabled={row.remainingLateMinutes === 0}
-                                onClick={() => openSettlementModal(row.employee.id)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Ganti / Cicil</span>
-                              </button>
-                            </td>
+                            {isAttendanceAdmin && (
+                              <td className="py-3 px-4 text-right no-print whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  disabled={row.remainingLateMinutes === 0}
+                                  onClick={() => openSettlementModal(row.employee.id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>Ganti / Cicil</span>
+                                </button>
+                              </td>
+                            )}
                           </tr>
 
                           {isExpanded && row.lateLogs.length > 0 && (
                             <tr className="bg-slate-50/80">
-                              <td colSpan={8} className="px-4 py-3 border-t border-slate-200/70">
+                              <td colSpan={isAttendanceAdmin ? 8 : 7} className="px-4 py-3 border-t border-slate-200/70">
                                 <div className="text-xs font-semibold text-slate-800 mb-2">
                                   Rincian Keterlambatan {row.employee.name} ({row.lateLogs.length} kejadian)
                                 </div>
@@ -1835,8 +1865,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
             {monthScopedSettlements.length === 0 ? (
               <div className="py-10 px-6 text-center text-xs text-slate-500">
-                Belum ada catatan penggantian keterlambatan (tambahan jam kerja atau potongan gaji) pada bulan ini. Klik{' '}
-                <span className="font-semibold text-slate-700">Ganti / Cicil</span> pada baris karyawan untuk mencatat.
+                {isAttendanceAdmin ? (
+                  <>
+                    Belum ada catatan penggantian keterlambatan (tambahan jam kerja atau potongan gaji) pada bulan ini. Klik{' '}
+                    <span className="font-semibold text-slate-700">Ganti / Cicil</span> pada baris karyawan untuk mencatat.
+                  </>
+                ) : (
+                  'Belum ada catatan penggantian keterlambatan (tambahan jam kerja atau potongan gaji) pada bulan ini.'
+                )}
               </div>
             ) : (
               <>
@@ -1881,15 +1917,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        disabled={deletingSettlementId === st.id}
-                        onClick={() => handleDeleteSettlement(st)}
-                        aria-label={`Hapus transaksi ${st.employeeName}`}
-                        className="p-2 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg disabled:opacity-40 shrink-0 cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {isAttendanceAdmin && (
+                        <button
+                          type="button"
+                          disabled={deletingSettlementId === st.id}
+                          onClick={() => handleDeleteSettlement(st)}
+                          aria-label={`Hapus transaksi ${st.employeeName}`}
+                          className="p-2 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg disabled:opacity-40 shrink-0 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1905,7 +1943,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                       <th className="py-3 px-3 text-right">Menit Diganti</th>
                       <th className="py-3 px-4">Jam Tambahan / Potongan</th>
                       <th className="py-3 px-4">Catatan</th>
-                      <th className="py-3 px-4 text-right no-print">Hapus</th>
+                      {isAttendanceAdmin && (
+                        <th className="py-3 px-4 text-right no-print">Hapus</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -1948,17 +1988,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         <td className="py-3 px-4 text-xs text-slate-600 max-w-xs truncate">
                           {st.notes || '—'}
                         </td>
-                        <td className="py-3 px-4 text-right no-print">
-                          <button
-                            type="button"
-                            disabled={deletingSettlementId === st.id}
-                            onClick={() => handleDeleteSettlement(st)}
-                            aria-label={`Hapus transaksi ${st.employeeName}`}
-                            className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-md disabled:opacity-40 cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
+                        {isAttendanceAdmin && (
+                          <td className="py-3 px-4 text-right no-print">
+                            <button
+                              type="button"
+                              disabled={deletingSettlementId === st.id}
+                              onClick={() => handleDeleteSettlement(st)}
+                              aria-label={`Hapus transaksi ${st.employeeName}`}
+                              className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-md disabled:opacity-40 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

@@ -16,7 +16,10 @@ export type NavSection =
   | 'keuangan'
   | 'rekap-gaji'
   | 'profil-perusahaan'
-  | 'pengaturan';
+  | 'pengaturan'
+  | 'panduan';
+
+export type AdminRoleScope = 'attendance' | 'finance' | 'both';
 
 export interface ShiftConfig {
   id: string;
