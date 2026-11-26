@@ -492,6 +492,58 @@ export function isEmployeeOffDay(employee: Employee, dateStr: string): {
   return { isOff: false, reason: null };
 }
 
+export function getActiveWeekDates(
+  referenceDateStr: string = getTodayDateStr()
+): Record<number, string> {
+  const parts = referenceDateStr.split('-').map(Number);
+  const baseDate =
+    parts.length === 3 && !parts.some(isNaN)
+      ? new Date(parts[0], parts[1] - 1, parts[2])
+      : new Date();
+  const baseDow = baseDate.getDay();
+  const mondayOffset = baseDow === 0 ? -6 : 1 - baseDow;
+  const result: Record<number, string> = {};
+  const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
+  weekdayOrder.forEach((dayIdx, offsetIdx) => {
+    const dt = new Date(
+      baseDate.getFullYear(),
+      baseDate.getMonth(),
+      baseDate.getDate() + mondayOffset + offsetIdx
+    );
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    result[dayIdx] = `${y}-${m}-${d}`;
+  });
+  return result;
+}
+
+export function isEmployeeOffOnShiftDay(
+  employee: Employee,
+  dayIndex: number,
+  weekDateStr?: string
+): {
+  isOff: boolean;
+  isRoutineOff: boolean;
+  isCustomDateOff: boolean;
+  reason: 'mingguan' | 'khusus' | 'keduanya' | null;
+} {
+  const isRoutineOff = Boolean(employee.offDays?.includes(dayIndex));
+  const isCustomDateOff = Boolean(
+    weekDateStr && employee.customOffDates?.includes(weekDateStr)
+  );
+  const isOff = isRoutineOff || isCustomDateOff;
+  const reason =
+    isRoutineOff && isCustomDateOff
+      ? 'keduanya'
+      : isCustomDateOff
+        ? 'khusus'
+        : isRoutineOff
+          ? 'mingguan'
+          : null;
+  return { isOff, isRoutineOff, isCustomDateOff, reason };
+}
+
 export function formatOffDaysSummary(offDays: number[]): string {
   if (!offDays || offDays.length === 0) return 'Belum diatur';
   const order = [1, 2, 3, 4, 5, 6, 0];
@@ -604,7 +656,9 @@ export function getShiftMembersForWeekday(
       if (seen.has(id)) continue;
       seen.add(id);
       const found = empById.get(id);
-      if (found) members.push(found);
+      if (found && !found.offDays?.includes(dayIndex)) {
+        members.push(found);
+      }
     }
     return { members, isCustomDayRoster: true };
   }

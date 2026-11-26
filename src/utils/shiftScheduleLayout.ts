@@ -1,7 +1,9 @@
 import {
   Employee,
+  getActiveWeekDates,
   getShiftMembersForWeekday,
   HARI_WEEKDAYS,
+  isEmployeeOffOnShiftDay,
   ShiftConfig,
 } from '../types';
 
@@ -166,15 +168,21 @@ export function buildDailyScheduleBlocks(params: {
   });
 
   const shiftHeaders = shifts.map(formatShiftColumnHeader);
+  const activeWeekDates = getActiveWeekDates();
 
   return days.map((day) => {
-    const offEmployees = activeEmployees.filter((emp) => emp.offDays.includes(day.index));
+    const weekDateStr = activeWeekDates[day.index];
+    const offEmployees = activeEmployees.filter(
+      (emp) => isEmployeeOffOnShiftDay(emp, day.index, weekDateStr).isOff
+    );
     const offNames = offEmployees.map((emp) => emp.name.trim().toUpperCase());
 
-    // Precompute working employees per shift for this weekday (excluding routine OFF)
+    // Precompute working employees per shift for this weekday (excluding routine & custom OFF)
     const workingPerShift: Employee[][] = shifts.map((shift) => {
       const { members } = getShiftMembersForWeekday(shift, day.index, activeEmployees);
-      return members.filter((emp) => !emp.offDays.includes(day.index));
+      return members.filter(
+        (emp) => !isEmployeeOffOnShiftDay(emp, day.index, weekDateStr).isOff
+      );
     });
 
     const roleGroups: DailyScheduleRoleGroup[] = orderedRoles.map((role) => {

@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import {
   AlertCircle,
   ArrowLeft,
+  ArrowRightLeft,
   Calendar,
   CalendarOff,
   CheckCircle2,
@@ -29,6 +30,9 @@ import {
   AppSettings,
   calculateDurationHours,
   Employee,
+  formatIndonesianDate,
+  getActiveWeekDates,
+  getDayOfWeekFromDateStr,
   getEmployeeScheduledShiftsForWeekday,
   getEmployeeWeeklyShiftSummary,
   getShiftMembersForWeekday,
@@ -36,10 +40,11 @@ import {
   HARI_MAP,
   HARI_WEEKDAYS,
   isEmployeeOffDay,
+  isEmployeeOffOnShiftDay,
   NavSection,
   ShiftConfig,
 } from '../types';
-import { updateAppSettings } from '../services/attendanceService';
+import { updateAppSettings, updateEmployee } from '../services/attendanceService';
 import { exportShiftScheduleToExcel } from '../utils/excelShiftExport';
 import {
   buildDailyScheduleBlocks,
@@ -158,6 +163,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   onNavigate,
 }) => {
   const today = getTodayDateStr();
+  const activeWeekDates = useMemo(() => getActiveWeekDates(today), [today]);
   const todayWeekday = useMemo(() => {
     const parts = today.split('-').map(Number);
     if (parts.length !== 3 || parts.some(isNaN)) return new Date().getDay();
@@ -216,6 +222,21 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
   const [deletingShift, setDeletingShift] = useState<ShiftConfig | null>(null);
   const [deleteTargetShiftId, setDeleteTargetShiftId] = useState<string>('');
   const [deletingBusy, setDeletingBusy] = useState<boolean>(false);
+
+  // Modal 4: Pindah Hari Libur / Tanggal Libur
+  const [moveOffModal, setMoveOffModal] = useState<{
+    emp: Employee;
+    sourceDayIndex: number;
+    sourceDateStr: string;
+    autoAddToDailyModal: boolean;
+  } | null>(null);
+  const [moveOffMode, setMoveOffMode] = useState<'hari' | 'tanggal'>('hari');
+  const [moveTargetDayIndex, setMoveTargetDayIndex] = useState<number>(1);
+  const [moveSourceCustomDate, setMoveSourceCustomDate] = useState<string>('');
+  const [moveTargetCustomDate, setMoveTargetCustomDate] = useState<string>('');
+  const [moveTargetShiftId, setMoveTargetShiftId] = useState<string>('');
+  const [moveOffError, setMoveOffError] = useState<string | null>(null);
+  const [savingMoveOff, setSavingMoveOff] = useState<boolean>(false);
 
   const shifts = settings.shifts;
 
@@ -313,20 +334,27 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     const unscheduledItems: { dayLabel: string; employeeNames: string[] }[] = [];
 
     for (const day of visibleWeekdays) {
+      const weekDateStr = activeWeekDates[day.index];
       const assignedIds = new Set<string>();
       for (const s of shifts) {
         const { members } = getShiftMembersForWeekday(s, day.index, activeEmployees);
         members.forEach((m) => {
-          if (!m.offDays.includes(day.index)) {
+          if (!isEmployeeOffOnShiftDay(m, day.index, weekDateStr).isOff) {
             assignedIds.add(m.id);
           }
         });
       }
       totalAssignedSlots += assignedIds.size;
-      const offEmps = activeEmployees.filter((e) => e.offDays.includes(day.index));
+      const offEmps = activeEmployees.filter(
+        (e) => isEmployeeOffOnShiftDay(e, day.index, weekDateStr).isOff
+      );
       totalOffSlots += offEmps.length;
       const unscheduled = activeEmployees
-        .filter((e) => !e.offDays.includes(day.index) && !assignedIds.has(e.id))
+        .filter(
+          (e) =>
+            !isEmployeeOffOnShiftDay(e, day.index, weekDateStr).isOff &&
+            !assignedIds.has(e.id)
+        )
         .map((e) => e.name);
       if (unscheduled.length > 0) {
         unscheduledItems.push({ dayLabel: day.label, employeeNames: unscheduled });
@@ -343,7 +371,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         0
       ),
     };
-  }, [visibleWeekdays, shifts, activeEmployees]);
+  }, [visibleWeekdays, shifts, activeEmployees, activeWeekDates]);
 
   const openPreviewForDay = (dayIndex?: number) => {
     if (typeof dayIndex === 'number') {
@@ -362,13 +390,219 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
 
   // Daily roster modal handlers
   const openDailyMemberModal = (shift: ShiftConfig, dayIndex: number) => {
+    const weekDateStr = activeWeekDates[dayIndex];
     const { members } = getShiftMembersForWeekday(shift, dayIndex, activeEmployees);
+    const eligibleMembers = members.filter(
+      (m) => !isEmployeeOffOnShiftDay(m, dayIndex, weekDateStr).isOff
+    );
     setDailyModal({ shift, dayIndex });
-    setDailyModalSelectedIds(new Set(members.map((m) => m.id)));
+    setDailyModalSelectedIds(new Set(eligibleMembers.map((m) => m.id)));
     setDailyModalSearch('');
     setDailyModalApplyScope('single');
     setDailyModalError(null);
     setErrorMessage(null);
+  };
+
+  const openMoveOffModal = (
+    emp: Employee,
+    dayIndex: number,
+    options?: { autoAddToDailyModal?: boolean; preferredShiftId?: string }
+  ) => {
+    const sourceDateStr = activeWeekDates[dayIndex] || today;
+    const offInfo = isEmployeeOffOnShiftDay(emp, dayIndex, sourceDateStr);
+    const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
+    const candidateDay =
+      weekdayOrder.find((d) => d !== dayIndex && !emp.offDays.includes(d)) ??
+      weekdayOrder.find((d) => d !== dayIndex) ??
+      1;
+
+    // Pick a sensible replacement date (first day in active week that is not already off, or +1 day)
+    const candidateWeekDay = weekdayOrder.find((d) => {
+      if (d === dayIndex) return false;
+      const dtStr = activeWeekDates[d];
+      return dtStr && !isEmployeeOffDay(emp, dtStr).isOff;
+    });
+    let fallbackTargetDate = candidateWeekDay ? activeWeekDates[candidateWeekDay] : '';
+    if (!fallbackTargetDate) {
+      const parts = sourceDateStr.split('-').map(Number);
+      const dt =
+        parts.length === 3 && !parts.some(isNaN)
+          ? new Date(parts[0], parts[1] - 1, parts[2] + 1)
+          : new Date();
+      fallbackTargetDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(
+        2,
+        '0'
+      )}-${String(dt.getDate()).padStart(2, '0')}`;
+    }
+
+    setMoveOffModal({
+      emp,
+      sourceDayIndex: dayIndex,
+      sourceDateStr,
+      autoAddToDailyModal: Boolean(options?.autoAddToDailyModal),
+    });
+    setMoveOffMode(offInfo.isCustomDateOff && !offInfo.isRoutineOff ? 'tanggal' : 'hari');
+    setMoveTargetDayIndex(candidateDay);
+    setMoveSourceCustomDate(sourceDateStr);
+    setMoveTargetCustomDate(fallbackTargetDate);
+    setMoveTargetShiftId(options?.preferredShiftId ?? '');
+    setMoveOffError(null);
+  };
+
+  const handleConfirmMoveOff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!moveOffModal) return;
+
+    const { emp, sourceDayIndex, sourceDateStr, autoAddToDailyModal } = moveOffModal;
+    const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
+    let nextOffDays = [...(emp.offDays || [])];
+    let nextCustomDates = [...(emp.customOffDates || [])];
+    const cleanupDayIndices = new Set<number>();
+    let actionSummary = '';
+
+    if (moveOffMode === 'hari') {
+      if (moveTargetDayIndex === sourceDayIndex) {
+        setMoveOffError('Pilih hari libur pengganti yang berbeda dari hari libur asal.');
+        return;
+      }
+      if (emp.offDays.includes(moveTargetDayIndex)) {
+        setMoveOffError(
+          `Hari ${HARI_MAP[moveTargetDayIndex]?.label ?? ''} sudah merupakan hari libur rutin ${emp.name}.`
+        );
+        return;
+      }
+
+      nextOffDays = Array.from(
+        new Set([
+          ...nextOffDays.filter((d) => d !== sourceDayIndex),
+          moveTargetDayIndex,
+        ])
+      ).sort((a, b) => weekdayOrder.indexOf(a) - weekdayOrder.indexOf(b));
+
+      // Jika tanggal minggu ini pada hari asal juga tercatat di customOffDates, bersihkan agar benar-benar bisa masuk jadwal
+      if (sourceDateStr && nextCustomDates.includes(sourceDateStr)) {
+        nextCustomDates = nextCustomDates.filter((dt) => dt !== sourceDateStr);
+      }
+
+      cleanupDayIndices.add(moveTargetDayIndex);
+      actionSummary = `Hari libur ${emp.name} dipindah dari ${HARI_MAP[sourceDayIndex]?.label ?? ''} ke ${HARI_MAP[moveTargetDayIndex]?.label ?? ''}`;
+    } else {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(moveTargetCustomDate)) {
+        setMoveOffError('Pilih tanggal libur pengganti yang valid.');
+        return;
+      }
+      const srcDateToRemove = moveSourceCustomDate || sourceDateStr;
+      if (moveTargetCustomDate === srcDateToRemove) {
+        setMoveOffError('Tanggal libur pengganti harus berbeda dari tanggal asal.');
+        return;
+      }
+      const targetDow = getDayOfWeekFromDateStr(moveTargetCustomDate);
+      const willTargetRoutineConflict =
+        nextOffDays.filter((d) => d !== sourceDayIndex).includes(targetDow) ||
+        nextCustomDates.filter((dt) => dt !== srcDateToRemove).includes(moveTargetCustomDate);
+      if (willTargetRoutineConflict) {
+        setMoveOffError(
+          `Tanggal ${formatIndonesianDate(moveTargetCustomDate)} sudah termasuk hari/tanggal libur ${emp.name}. Pilih tanggal masuk kerja lainnya.`
+        );
+        return;
+      }
+
+      // Lepas hari libur rutin pada hari asal bila ada, supaya tanggal asal benar-benar bisa dijadwalkan masuk
+      if (nextOffDays.includes(sourceDayIndex)) {
+        nextOffDays = nextOffDays.filter((d) => d !== sourceDayIndex);
+      }
+      if (srcDateToRemove) {
+        nextCustomDates = nextCustomDates.filter((dt) => dt !== srcDateToRemove);
+      }
+      if (!nextCustomDates.includes(moveTargetCustomDate)) {
+        nextCustomDates = [...nextCustomDates, moveTargetCustomDate].sort();
+      }
+
+      if (activeWeekDates[targetDow] === moveTargetCustomDate) {
+        cleanupDayIndices.add(targetDow);
+      }
+
+      actionSummary = `Tanggal libur ${emp.name} dipindah dari ${formatIndonesianDate(
+        srcDateToRemove
+      )} ke ${formatIndonesianDate(moveTargetCustomDate)}`;
+    }
+
+    setSavingMoveOff(true);
+    setMoveOffError(null);
+    setErrorMessage(null);
+    try {
+      await updateEmployee(emp.id, {
+        offDays: nextOffDays,
+        customOffDates: nextCustomDates,
+      });
+
+      let shiftsChanged = false;
+      let nextShifts = shifts.map((s) => {
+        let updatedDaily = s.dailyMemberIds ? { ...s.dailyMemberIds } : undefined;
+        cleanupDayIndices.forEach((cleanDay) => {
+          const dKey = String(cleanDay);
+          if (updatedDaily && Array.isArray(updatedDaily[dKey]) && updatedDaily[dKey].includes(emp.id)) {
+            updatedDaily[dKey] = updatedDaily[dKey].filter((id) => id !== emp.id);
+            shiftsChanged = true;
+          }
+        });
+        return updatedDaily ? { ...s, dailyMemberIds: updatedDaily } : s;
+      });
+
+      let assignedShiftName = '';
+      if (!autoAddToDailyModal && moveTargetShiftId) {
+        const targetShift = nextShifts.find((s) => s.id === moveTargetShiftId);
+        if (targetShift) {
+          const dayKey = String(sourceDayIndex);
+          nextShifts = nextShifts.map((s) => {
+            const nextDaily = { ...(s.dailyMemberIds ?? {}) };
+            const currentIds = Array.isArray(nextDaily[dayKey]) ? [...nextDaily[dayKey]] : [];
+            if (s.id === targetShift.id) {
+              if (!currentIds.includes(emp.id)) {
+                currentIds.push(emp.id);
+              }
+              nextDaily[dayKey] = currentIds;
+              shiftsChanged = true;
+            } else if (currentIds.includes(emp.id)) {
+              nextDaily[dayKey] = currentIds.filter((id) => id !== emp.id);
+              shiftsChanged = true;
+            }
+            return { ...s, dailyMemberIds: nextDaily };
+          });
+          assignedShiftName = targetShift.name;
+        }
+      }
+
+      if (shiftsChanged) {
+        await updateAppSettings({ shifts: nextShifts });
+      }
+
+      await onRefresh();
+
+      if (autoAddToDailyModal && dailyModal && dailyModal.dayIndex === sourceDayIndex) {
+        setDailyModalSelectedIds((prev) => {
+          const next = new Set(prev);
+          next.add(emp.id);
+          return next;
+        });
+        setDailyModalError(null);
+      }
+
+      setMoveOffModal(null);
+      showToast(
+        autoAddToDailyModal && dailyModal
+          ? `${actionSummary}. ${emp.name} otomatis dicentang ke ${dailyModal.shift.name} — klik "Simpan Jadwal Harian" untuk menyimpan.`
+          : assignedShiftName
+            ? `${actionSummary} dan langsung dimasukkan ke ${assignedShiftName} (${HARI_MAP[sourceDayIndex]?.label ?? ''}).`
+            : `${actionSummary}. Sekarang ${emp.name} sudah dapat masuk jadwal hari ${HARI_MAP[sourceDayIndex]?.label ?? ''}.`
+      );
+    } catch (err) {
+      setMoveOffError(
+        err instanceof Error ? err.message : 'Gagal memindahkan jadwal libur karyawan.'
+      );
+    } finally {
+      setSavingMoveOff(false);
+    }
   };
 
   const dailyModalFilteredEmployees = useMemo(() => {
@@ -420,8 +654,11 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
 
   const dailyOffEmployeesOnModalDay = useMemo(() => {
     if (!dailyModal) return [];
-    return activeEmployees.filter((emp) => emp.offDays.includes(dailyModal.dayIndex));
-  }, [dailyModal, activeEmployees]);
+    const weekDateStr = activeWeekDates[dailyModal.dayIndex];
+    return activeEmployees.filter(
+      (emp) => isEmployeeOffOnShiftDay(emp, dailyModal.dayIndex, weekDateStr).isOff
+    );
+  }, [dailyModal, activeEmployees, activeWeekDates]);
 
   const handleSaveDailyModal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -434,16 +671,36 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
           ? [1, 2, 3, 4, 5, 6]
           : [dailyModal.dayIndex];
 
+    const empById = new Map<string, Employee>(activeEmployees.map((emp) => [emp.id, emp]));
     const orderedSelectedIds = activeEmployees
       .filter((emp) => dailyModalSelectedIds.has(emp.id))
       .map((emp) => emp.id);
+
+    // Block selecting employees who are OFF on the primary modal day
+    const modalDayDateStr = activeWeekDates[dailyModal.dayIndex];
+    const offConflictsOnModalDay = orderedSelectedIds
+      .map((empId) => empById.get(empId))
+      .filter(
+        (emp): emp is Employee =>
+          Boolean(
+            emp &&
+              isEmployeeOffOnShiftDay(emp, dailyModal.dayIndex, modalDayDateStr).isOff
+          )
+      );
+    if (offConflictsOnModalDay.length > 0) {
+      const names = offConflictsOnModalDay.slice(0, 3).map((e) => e.name).join(', ');
+      setDailyModalError(
+        `Karyawan sedang libur pada hari ${HARI_MAP[dailyModal.dayIndex]?.label ?? ''}: ${names}. Tidak bisa masuk jadwal tanpa memindahkan hari/tanggal liburnya terlebih dahulu.`
+      );
+      return;
+    }
 
     // Enforce anti-double-shift validation across every target day
     const conflicts: string[] = [];
     for (const empId of orderedSelectedIds) {
       const otherLabels = dailyOtherShiftMap.get(empId);
       if (otherLabels && otherLabels.length > 0) {
-        const emp = activeEmployees.find((item) => item.id === empId);
+        const emp = empById.get(empId);
         if (emp) {
           conflicts.push(`${emp.name} (${otherLabels.join(', ')})`);
         }
@@ -462,11 +719,23 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     setDailyModalError(null);
     setErrorMessage(null);
     try {
+      let skippedOffOnOtherDaysCount = 0;
       const nextShifts = shifts.map((s) => {
         if (s.id !== dailyModal.shift.id) return s;
         const nextDaily: Record<string, string[]> = { ...(s.dailyMemberIds ?? {}) };
         for (const d of targetDays) {
-          nextDaily[String(d)] = orderedSelectedIds;
+          const dayDateStr = activeWeekDates[d];
+          const eligibleForTargetDay = orderedSelectedIds.filter((empId) => {
+            const emp = empById.get(empId);
+            if (!emp) return false;
+            const isOffOnTarget = isEmployeeOffOnShiftDay(emp, d, dayDateStr).isOff;
+            if (isOffOnTarget) {
+              skippedOffOnOtherDaysCount += 1;
+              return false;
+            }
+            return true;
+          });
+          nextDaily[String(d)] = eligibleForTargetDay;
         }
         return {
           ...s,
@@ -482,7 +751,11 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       showToast(
         dailyModalApplyScope === 'single'
           ? `Jadwal ${shiftName} hari ${dayLabel} disimpan (${orderedSelectedIds.length} karyawan).`
-          : `Jadwal ${shiftName} diterapkan ke ${targetDays.length} hari (${orderedSelectedIds.length} karyawan).`
+          : `Jadwal ${shiftName} diterapkan ke ${targetDays.length} hari (${orderedSelectedIds.length} karyawan${
+              skippedOffOnOtherDaysCount > 0
+                ? `, ${skippedOffOnOtherDaysCount} slot hari libur dilewati otomatis`
+                : ''
+            }).`
       );
     } catch (err) {
       const msg =
@@ -581,12 +854,24 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
     setSavingCopyDay(true);
     setErrorMessage(null);
     try {
+      const empById = new Map<string, Employee>(activeEmployees.map((emp) => [emp.id, emp]));
+      let skippedOffSlots = 0;
       const nextShifts = shifts.map((s) => {
         const { members } = getShiftMembersForWeekday(s, copyDaySource, activeEmployees);
         const sourceIds = members.map((m) => m.id);
         const nextDaily: Record<string, string[]> = { ...(s.dailyMemberIds ?? {}) };
         for (const targetDay of copyDayTargets) {
-          nextDaily[String(targetDay)] = sourceIds;
+          const targetDateStr = activeWeekDates[targetDay];
+          const eligibleTargetIds = sourceIds.filter((empId) => {
+            const emp = empById.get(empId);
+            if (!emp) return false;
+            if (isEmployeeOffOnShiftDay(emp, targetDay, targetDateStr).isOff) {
+              skippedOffSlots += 1;
+              return false;
+            }
+            return true;
+          });
+          nextDaily[String(targetDay)] = eligibleTargetIds;
         }
         return {
           ...s,
@@ -598,7 +883,11 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
       const srcLabel = HARI_MAP[copyDaySource]?.label ?? '';
       const count = copyDayTargets.size;
       setCopyDaySource(null);
-      showToast(`Susunan seluruh shift hari ${srcLabel} berhasil disalin ke ${count} hari lainnya.`);
+      showToast(
+        `Susunan seluruh shift hari ${srcLabel} berhasil disalin ke ${count} hari lainnya${
+          skippedOffSlots > 0 ? ` (${skippedOffSlots} slot karyawan libur dilewati otomatis)` : ''
+        }.`
+      );
     } catch (err) {
       setErrorMessage(
         err instanceof Error ? err.message : 'Gagal menyalin jadwal hari.'
@@ -683,13 +972,18 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
         const dailyMemberIds: Record<string, string[]> = {};
         if (selectedEmps.length > 0) {
           for (const day of HARI_WEEKDAYS) {
+            const dayDateStr = activeWeekDates[day.index];
             const occupiedIds = new Set<string>();
             for (const other of shifts) {
               const { members } = getShiftMembersForWeekday(other, day.index, activeEmployees);
               members.forEach((m) => occupiedIds.add(m.id));
             }
             const eligibleForDay = selectedEmps
-              .filter((emp) => !emp.offDays.includes(day.index) && !occupiedIds.has(emp.id))
+              .filter(
+                (emp) =>
+                  !isEmployeeOffOnShiftDay(emp, day.index, dayDateStr).isOff &&
+                  !occupiedIds.has(emp.id)
+              )
               .map((emp) => emp.id);
             if (eligibleForDay.length > 0) {
               dailyMemberIds[String(day.index)] = eligibleForDay;
@@ -765,9 +1059,14 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
               members.forEach((m) => occupiedOtherIds.add(m.id));
             }
             const existingTargetIds = Array.isArray(nextDaily[dKey]) ? nextDaily[dKey] : [];
+            const dayDateStr = activeWeekDates[day.index];
             const merged = [...existingTargetIds];
             for (const m of sourceMembers) {
-              if (!occupiedOtherIds.has(m.id) && !merged.includes(m.id)) {
+              if (
+                !isEmployeeOffOnShiftDay(m, day.index, dayDateStr).isOff &&
+                !occupiedOtherIds.has(m.id) &&
+                !merged.includes(m.id)
+              ) {
                 merged.push(m.id);
               }
             }
@@ -1276,16 +1575,23 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
           <div className="space-y-4 sm:space-y-5">
             {visibleWeekdays.map((day) => {
               const isTodayDay = day.index === todayWeekday;
-              const offEmployeesOnDay = filteredEmployees.filter((emp) =>
-                emp.offDays.includes(day.index)
+              const weekDateStr = activeWeekDates[day.index];
+              const offEmployeesOnDay = filteredEmployees.filter(
+                (emp) => isEmployeeOffOnShiftDay(emp, day.index, weekDateStr).isOff
               );
               const assignedIdsOnDay = new Set<string>();
               for (const s of shifts) {
                 const { members } = getShiftMembersForWeekday(s, day.index, activeEmployees);
-                members.forEach((m) => assignedIdsOnDay.add(m.id));
+                members.forEach((m) => {
+                  if (!isEmployeeOffOnShiftDay(m, day.index, weekDateStr).isOff) {
+                    assignedIdsOnDay.add(m.id);
+                  }
+                });
               }
               const unscheduledEmployeesOnDay = filteredEmployees.filter(
-                (emp) => !emp.offDays.includes(day.index) && !assignedIdsOnDay.has(emp.id)
+                (emp) =>
+                  !isEmployeeOffOnShiftDay(emp, day.index, weekDateStr).isOff &&
+                  !assignedIdsOnDay.has(emp.id)
               );
 
               return (
@@ -1365,8 +1671,11 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     {visibleShiftSummaries.map(({ shift, style }) => {
                       const { members: allDayMembers, isCustomDayRoster } =
                         getShiftMembersForWeekday(shift, day.index, activeEmployees);
+                      const workingAllDayMembers = allDayMembers.filter(
+                        (m) => !isEmployeeOffOnShiftDay(m, day.index, weekDateStr).isOff
+                      );
                       const filteredIds = new Set(filteredEmployees.map((e) => e.id));
-                      const displayMembers = allDayMembers.filter((m) =>
+                      const displayMembers = workingAllDayMembers.filter((m) =>
                         filteredIds.has(m.id)
                       );
                       const isLocked = busyDailyKey === `${shift.id}__${day.index}`;
@@ -1552,30 +1861,55 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                   )}
 
                   {/* Karyawan Libur / OFF Section on Day Card */}
-                  <div className="px-4 sm:px-5 py-3 bg-rose-50/70 border-t border-rose-200/80 flex flex-col sm:flex-row sm:items-center gap-2">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 shrink-0">
-                      <CalendarOff className="w-3.5 h-3.5 text-rose-700" />
-                      <span>
-                        Libur / OFF {day.label} ({offEmployeesOnDay.length}):
-                      </span>
+                  <div className="px-4 sm:px-5 py-3 bg-rose-50/70 border-t border-rose-200/80 flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 shrink-0">
+                        <CalendarOff className="w-3.5 h-3.5 text-rose-700" />
+                        <span>
+                          Libur / OFF {day.label}
+                          {weekDateStr ? ` (${weekDateStr.slice(8, 10)}/${weekDateStr.slice(5, 7)})` : ''} ({offEmployeesOnDay.length}):
+                        </span>
+                      </div>
+                      {offEmployeesOnDay.length > 0 && (
+                        <span className="text-[11px] text-rose-700/90 no-print">
+                          Tidak dapat masuk shift sebelum libur dipindah
+                        </span>
+                      )}
                     </div>
                     {offEmployeesOnDay.length === 0 ? (
                       <span className="text-xs text-slate-500 italic">
-                        Tidak ada karyawan libur rutin pada hari {day.label}.
+                        Tidak ada karyawan libur pada hari {day.label}.
                       </span>
                     ) : (
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {offEmployeesOnDay.map((emp) => (
-                          <span
-                            key={emp.id}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-rose-200 text-[11px] text-rose-950 font-medium"
-                          >
-                            <span className="font-semibold">{emp.name}</span>
-                            <span className="text-[10px] text-rose-700 uppercase font-semibold">
-                              ({emp.position || emp.department})
+                        {offEmployeesOnDay.map((emp) => {
+                          const offInfo = isEmployeeOffOnShiftDay(emp, day.index, weekDateStr);
+                          return (
+                            <span
+                              key={emp.id}
+                              className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-white border border-rose-200 text-[11px] text-rose-950 font-medium"
+                            >
+                              <span className="font-semibold">{emp.name}</span>
+                              <span className="text-[10px] text-rose-700 uppercase font-semibold">
+                                ({emp.position || emp.department})
+                              </span>
+                              {offInfo.isCustomDateOff && (
+                                <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                  Tgl Khusus
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openMoveOffModal(emp, day.index)}
+                                title={`Pindah hari/tanggal libur ${emp.name} agar bisa masuk jadwal`}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 text-[10px] font-semibold text-rose-800 cursor-pointer no-print"
+                              >
+                                <ArrowRightLeft className="w-2.5 h-2.5" />
+                                <span>Pindah Libur</span>
+                              </button>
                             </span>
-                          </span>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1718,16 +2052,24 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                             </div>
                             <div className="grid grid-cols-7 gap-1">
                               {HARI_WEEKDAYS.map((day) => {
-                                const isOff = emp.offDays.includes(day.index);
+                                const weekDateStr = activeWeekDates[day.index];
+                                const isOff = isEmployeeOffOnShiftDay(
+                                  emp,
+                                  day.index,
+                                  weekDateStr
+                                ).isOff;
                                 const scheduled = getEmployeeScheduledShiftsForWeekday(
                                   emp.id,
                                   day.index,
                                   shifts
                                 )[0];
                                 return isOff ? (
-                                  <div
+                                  <button
                                     key={day.index}
-                                    className="py-1.5 px-0.5 rounded-md bg-rose-50 border border-rose-200 text-center"
+                                    type="button"
+                                    onClick={() => openMoveOffModal(emp, day.index)}
+                                    title={`Ketuk untuk pindah hari/tanggal libur ${emp.name}`}
+                                    className="py-1.5 px-0.5 rounded-md bg-rose-50 border border-rose-200 text-center cursor-pointer active:bg-rose-100"
                                   >
                                     <div className="text-[9px] text-rose-700 font-semibold">
                                       {day.short}
@@ -1735,7 +2077,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                     <div className="text-[9px] font-bold text-rose-800 mt-0.5">
                                       OFF
                                     </div>
-                                  </div>
+                                  </button>
                                 ) : scheduled ? (
                                   <button
                                     key={day.index}
@@ -1807,7 +2149,12 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                 </div>
                               </td>
                               {HARI_WEEKDAYS.map((day) => {
-                                const isOff = emp.offDays.includes(day.index);
+                                const weekDateStr = activeWeekDates[day.index];
+                                const isOff = isEmployeeOffOnShiftDay(
+                                  emp,
+                                  day.index,
+                                  weekDateStr
+                                ).isOff;
                                 const scheduled = getEmployeeScheduledShiftsForWeekday(
                                   emp.id,
                                   day.index,
@@ -1816,9 +2163,15 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                 return (
                                   <td key={day.index} className="py-2 px-1.5 text-center">
                                     {isOff ? (
-                                      <span className="inline-block px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-800 font-semibold text-[10px]">
-                                        Libur
-                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => openMoveOffModal(emp, day.index)}
+                                        title={`Klik untuk pindah hari/tanggal libur ${emp.name}`}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 font-semibold text-[10px] cursor-pointer"
+                                      >
+                                        <span>Libur</span>
+                                        <ArrowRightLeft className="w-2.5 h-2.5 opacity-75" />
+                                      </button>
                                     ) : scheduled ? (
                                       <button
                                         type="button"
@@ -1881,13 +2234,18 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 <div className="space-y-1.5">
                   {HARI_WEEKDAYS.map((day) => {
                     const isTodayCol = day.index === todayWeekday;
+                    const weekDateStr = activeWeekDates[day.index];
                     const filteredIds = new Set(filteredEmployees.map((e) => e.id));
                     const { members } = getShiftMembersForWeekday(
                       shift,
                       day.index,
                       activeEmployees
                     );
-                    const workingToday = members.filter((e) => filteredIds.has(e.id));
+                    const workingToday = members.filter(
+                      (e) =>
+                        filteredIds.has(e.id) &&
+                        !isEmployeeOffOnShiftDay(e, day.index, weekDateStr).isOff
+                    );
                     return (
                       <button
                         key={day.index}
@@ -1940,8 +2298,9 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
               </div>
               <div className="grid grid-cols-1 gap-1.5">
                 {HARI_WEEKDAYS.map((day) => {
-                  const offEmployees = filteredEmployees.filter((emp) =>
-                    emp.offDays.includes(day.index)
+                  const weekDateStr = activeWeekDates[day.index];
+                  const offEmployees = filteredEmployees.filter(
+                    (emp) => isEmployeeOffOnShiftDay(emp, day.index, weekDateStr).isOff
                   );
                   return (
                     <div
@@ -2006,13 +2365,18 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
 
                     {HARI_WEEKDAYS.map((day) => {
                       const isTodayCol = day.index === todayWeekday;
+                      const weekDateStr = activeWeekDates[day.index];
                       const filteredIds = new Set(filteredEmployees.map((e) => e.id));
                       const { members } = getShiftMembersForWeekday(
                         shift,
                         day.index,
                         activeEmployees
                       );
-                      const workingToday = members.filter((e) => filteredIds.has(e.id));
+                      const workingToday = members.filter(
+                        (e) =>
+                          filteredIds.has(e.id) &&
+                          !isEmployeeOffOnShiftDay(e, day.index, weekDateStr).isOff
+                      );
 
                       return (
                         <td
@@ -2055,13 +2419,14 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                       Libur Mingguan
                     </div>
                     <div className="text-[11px] text-amber-800 mt-0.5">
-                      Jadwal istirahat rutin per hari
+                      Jadwal istirahat rutin &amp; khusus minggu ini
                     </div>
                   </td>
                   {HARI_WEEKDAYS.map((day) => {
                     const isTodayCol = day.index === todayWeekday;
-                    const offEmployees = filteredEmployees.filter((emp) =>
-                      emp.offDays.includes(day.index)
+                    const weekDateStr = activeWeekDates[day.index];
+                    const offEmployees = filteredEmployees.filter(
+                      (emp) => isEmployeeOffOnShiftDay(emp, day.index, weekDateStr).isOff
                     );
                     return (
                       <td
@@ -2077,12 +2442,22 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                             {offEmployees.map((emp) => (
                               <div
                                 key={emp.id}
-                                className="px-2 py-1 rounded bg-white border border-amber-200 text-amber-950 text-[11px]"
+                                className="px-2 py-1 rounded bg-white border border-amber-200 text-amber-950 text-[11px] flex items-center justify-between gap-1.5"
                               >
-                                <span className="font-semibold">{emp.name}</span>{' '}
-                                <span className="text-amber-700 text-[10px] uppercase">
-                                  ({emp.position || emp.department})
-                                </span>
+                                <div className="min-w-0">
+                                  <span className="font-semibold">{emp.name}</span>{' '}
+                                  <span className="text-amber-700 text-[10px] uppercase">
+                                    ({emp.position || emp.department})
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openMoveOffModal(emp, day.index)}
+                                  title={`Pindah hari/tanggal libur ${emp.name}`}
+                                  className="p-1 rounded bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 shrink-0 cursor-pointer"
+                                >
+                                  <ArrowRightLeft className="w-3 h-3" />
+                                </button>
                               </div>
                             ))}
                           </div>
@@ -2464,7 +2839,12 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                             let workCount = 0;
                             let offCount = 0;
                             const cells = visibleWeekdays.map((day) => {
-                              const isOff = emp.offDays.includes(day.index);
+                              const weekDateStr = activeWeekDates[day.index];
+                              const isOff = isEmployeeOffOnShiftDay(
+                                emp,
+                                day.index,
+                                weekDateStr
+                              ).isOff;
                               const scheduled = getEmployeeScheduledShiftsForWeekday(
                                 emp.id,
                                 day.index,
@@ -2591,7 +2971,12 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                     </div>
                                   </td>
                                   {visibleWeekdays.map((day) => {
-                                    const isOff = emp.offDays.includes(day.index);
+                                    const weekDateStr = activeWeekDates[day.index];
+                                    const isOff = isEmployeeOffOnShiftDay(
+                                      emp,
+                                      day.index,
+                                      weekDateStr
+                                    ).isOff;
                                     const scheduled = getEmployeeScheduledShiftsForWeekday(
                                       emp.id,
                                       day.index,
@@ -2699,10 +3084,16 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                       type="button"
                       onClick={() => {
                         setDailyModalError(null);
+                        const modalWeekDate = activeWeekDates[dailyModal.dayIndex];
                         setDailyModalSelectedIds((prev) => {
                           const next = new Set(prev);
                           dailyModalFilteredEmployees.forEach((emp) => {
-                            if (!dailyOtherShiftMap.has(emp.id)) {
+                            const isOff = isEmployeeOffOnShiftDay(
+                              emp,
+                              dailyModal.dayIndex,
+                              modalWeekDate
+                            ).isOff;
+                            if (!dailyOtherShiftMap.has(emp.id) && !isOff) {
                               next.add(emp.id);
                             }
                           });
@@ -2761,7 +3152,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 <div className="text-[11px] text-slate-600 bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-start gap-2">
                   <AlertCircle className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
                   <span>
-                    Aturan anti double shift: karyawan yang sudah terjadwal di shift lain pada hari target tidak dapat dipilih. Keluarkan dulu dari shift sebelumnya jika ingin memindahkan.
+                    Karyawan yang berstatus <strong>Libur</strong> tidak bisa masuk jadwal shift (klik <strong>Pindah Libur</strong> jika harus masuk). Berlaku juga aturan anti double shift pada hari yang sama.
                   </span>
                 </div>
 
@@ -2770,7 +3161,7 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     <CalendarOff className="w-3.5 h-3.5 text-rose-700 shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold">
-                        Libur Rutin {HARI_MAP[dailyModal.dayIndex]?.label} ({dailyOffEmployeesOnModalDay.length}):
+                        Sedang Libur {HARI_MAP[dailyModal.dayIndex]?.label} ({dailyOffEmployeesOnModalDay.length}):
                       </span>{' '}
                       <span>
                         {dailyOffEmployeesOnModalDay
@@ -2796,8 +3187,11 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                   </div>
                 ) : (
                   dailyModalGroupedEmployees.map((posGroup) => {
+                    const modalWeekDate = activeWeekDates[dailyModal.dayIndex];
                     const eligibleInGroup = posGroup.employees.filter(
-                      (emp) => !dailyOtherShiftMap.has(emp.id)
+                      (emp) =>
+                        !dailyOtherShiftMap.has(emp.id) &&
+                        !isEmployeeOffOnShiftDay(emp, dailyModal.dayIndex, modalWeekDate).isOff
                     );
                     const allEligibleChecked =
                       eligibleInGroup.length > 0 &&
@@ -2842,30 +3236,47 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
 
                         <div className="divide-y divide-slate-100">
                           {posGroup.employees.map((emp) => {
-                            const checked = dailyModalSelectedIds.has(emp.id);
-                            const isOffOnDay = emp.offDays.includes(dailyModal.dayIndex);
+                            const offInfo = isEmployeeOffOnShiftDay(
+                              emp,
+                              dailyModal.dayIndex,
+                              modalWeekDate
+                            );
+                            const isOffBlocked = offInfo.isOff;
+                            const checked = !isOffBlocked && dailyModalSelectedIds.has(emp.id);
                             const otherShifts = dailyOtherShiftMap.get(emp.id) ?? [];
                             const isBlockedByOtherShift = otherShifts.length > 0 && !checked;
+                            const isDisabledRow = isBlockedByOtherShift || isOffBlocked;
+                            const checkboxId = `daily-emp-${emp.id}`;
 
                             return (
-                              <label
+                              <div
                                 key={emp.id}
-                                className={`px-4 sm:px-5 py-3 sm:py-2.5 flex items-center justify-between gap-3 ${
-                                  isBlockedByOtherShift
-                                    ? 'bg-slate-50/80 opacity-65 cursor-not-allowed'
-                                    : checked
-                                      ? 'bg-blue-50/40 cursor-pointer hover:bg-blue-50/60'
-                                      : 'cursor-pointer hover:bg-slate-50'
+                                className={`px-4 sm:px-5 py-3 sm:py-2.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 ${
+                                  isOffBlocked
+                                    ? 'bg-amber-50/40'
+                                    : isBlockedByOtherShift
+                                      ? 'bg-slate-50/80 opacity-65'
+                                      : checked
+                                        ? 'bg-blue-50/40 hover:bg-blue-50/60'
+                                        : 'hover:bg-slate-50'
                                 }`}
                               >
-                                <div className="flex items-center gap-3 min-w-0">
+                                <label
+                                  htmlFor={checkboxId}
+                                  className={`flex items-center gap-3 min-w-0 flex-1 ${
+                                    isDisabledRow ? 'cursor-not-allowed' : 'cursor-pointer'
+                                  }`}
+                                >
                                   <input
+                                    id={checkboxId}
                                     type="checkbox"
                                     checked={checked}
-                                    disabled={isBlockedByOtherShift}
+                                    disabled={isDisabledRow}
                                     onChange={(e) => {
                                       const isChecked = e.target.checked;
-                                      if (isChecked && otherShifts.length > 0) return;
+                                      if (isChecked && (otherShifts.length > 0 || isOffBlocked)) {
+                                        return;
+                                      }
                                       setDailyModalError(null);
                                       setDailyModalSelectedIds((prev) => {
                                         const next = new Set(prev);
@@ -2892,21 +3303,41 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                                       {emp.department} · {emp.position}
                                     </div>
                                   </div>
-                                </div>
+                                </label>
 
-                                <div className="shrink-0 flex flex-wrap items-center justify-end gap-1.5">
+                                <div className="shrink-0 flex flex-wrap items-center justify-end gap-1.5 pl-7 sm:pl-0">
                                   {otherShifts.length > 0 && (
                                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200">
                                       Sudah di {otherShifts.join(', ')}
                                     </span>
                                   )}
-                                  {isOffOnDay && (
+                                  {offInfo.isRoutineOff && (
                                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
                                       Libur Rutin {HARI_MAP[dailyModal.dayIndex]?.short}
                                     </span>
                                   )}
+                                  {offInfo.isCustomDateOff && modalWeekDate && (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200">
+                                      Libur Tgl {modalWeekDate.slice(8, 10)}/{modalWeekDate.slice(5, 7)}
+                                    </span>
+                                  )}
+                                  {isOffBlocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openMoveOffModal(emp, dailyModal.dayIndex, {
+                                          autoAddToDailyModal: true,
+                                          preferredShiftId: dailyModal.shift.id,
+                                        })
+                                      }
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer"
+                                    >
+                                      <ArrowRightLeft className="w-3 h-3" />
+                                      <span>Pindah Libur</span>
+                                    </button>
+                                  )}
                                 </div>
-                              </label>
+                              </div>
                             );
                           })}
                         </div>
@@ -2990,6 +3421,13 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                     </label>
                   );
                 })}
+              </div>
+
+              <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                <span>
+                  Karyawan yang berstatus <strong>Libur</strong> pada hari tujuan otomatis tidak akan dimasukkan ke shift hari tersebut.
+                </span>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -3272,6 +3710,276 @@ export const ShiftScheduleView: React.FC<ShiftScheduleViewProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL 4: Pindah Hari / Tanggal Libur Karyawan */}
+      {moveOffModal && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/65 flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
+            <div className="bg-slate-950 px-5 py-4 text-white flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="font-display text-sm font-bold flex items-center gap-2">
+                  <ArrowRightLeft className="w-4 h-4 text-amber-400" />
+                  <span>Pindah Libur Karyawan</span>
+                </h3>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  {moveOffModal.emp.name} ({moveOffModal.emp.employeeCode}) ·{' '}
+                  {moveOffModal.emp.position || moveOffModal.emp.department}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMoveOffModal(null)}
+                className="p-2 text-slate-400 hover:text-white rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmMoveOff} className="p-5 space-y-4 overflow-y-auto pb-safe">
+              {/* Info Status Libur Asal */}
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-1">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <CalendarOff className="w-3.5 h-3.5 text-amber-700" />
+                  <span>
+                    Status Saat Ini: Libur pada hari{' '}
+                    {HARI_MAP[moveOffModal.sourceDayIndex]?.label} (
+                    {formatIndonesianDate(moveOffModal.sourceDateStr)})
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900">
+                  Agar dapat masuk jadwal shift pada hari tersebut, pindahkan <strong>hari libur rutin</strong> atau <strong>tanggal libur</strong> ke waktu pengganti.
+                </p>
+              </div>
+
+              {/* Switch Mode: Pindah Hari vs Pindah Tanggal */}
+              <div>
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoveOffMode('hari');
+                      setMoveOffError(null);
+                    }}
+                    className={`py-2 px-3 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      moveOffMode === 'hari'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Pindah Hari Libur
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoveOffMode('tanggal');
+                      setMoveOffError(null);
+                    }}
+                    className={`py-2 px-3 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      moveOffMode === 'tanggal'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Pindah Tanggal Libur
+                  </button>
+                </div>
+              </div>
+
+              {moveOffMode === 'hari' ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Pilih Hari Libur Pengganti (menggantikan{' '}
+                      {HARI_MAP[moveOffModal.sourceDayIndex]?.label})
+                    </label>
+                    <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                      {HARI_WEEKDAYS.map((day) => {
+                        const isSource = day.index === moveOffModal.sourceDayIndex;
+                        const isAlreadyOff = moveOffModal.emp.offDays.includes(day.index);
+                        const isSelected = moveTargetDayIndex === day.index;
+                        const existingShift = getEmployeeScheduledShiftsForWeekday(
+                          moveOffModal.emp.id,
+                          day.index,
+                          shifts
+                        )[0];
+                        return (
+                          <button
+                            key={day.index}
+                            type="button"
+                            disabled={isSource || isAlreadyOff}
+                            onClick={() => {
+                              setMoveTargetDayIndex(day.index);
+                              setMoveOffError(null);
+                            }}
+                            className={`py-2 px-1.5 rounded-lg border text-center transition-colors ${
+                              isSource || isAlreadyOff
+                                ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                                : isSelected
+                                  ? 'bg-blue-700 border-blue-700 text-white font-semibold cursor-pointer'
+                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer'
+                            }`}
+                          >
+                            <div className="text-xs font-semibold">{day.short}</div>
+                            <div
+                              className={`text-[9px] mt-0.5 truncate ${
+                                isSelected ? 'text-blue-100' : 'text-slate-500'
+                              }`}
+                            >
+                              {isSource
+                                ? 'Asal'
+                                : isAlreadyOff
+                                  ? 'Libur'
+                                  : existingShift
+                                    ? existingShift.name.replace(/^shift\s+/i, '')
+                                    : 'Kosong'}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const conflictShift = getEmployeeScheduledShiftsForWeekday(
+                      moveOffModal.emp.id,
+                      moveTargetDayIndex,
+                      shifts
+                    )[0];
+                    return conflictShift ? (
+                      <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-900 flex items-start gap-2">
+                        <AlertCircle className="w-3.5 h-3.5 text-blue-700 shrink-0 mt-0.5" />
+                        <span>
+                          <strong>{moveOffModal.emp.name}</strong> saat ini terjadwal di{' '}
+                          <strong>{conflictShift.name}</strong> hari{' '}
+                          {HARI_MAP[moveTargetDayIndex]?.label}. Jika libur dipindah ke hari tersebut, jadwal shift hari {HARI_MAP[moveTargetDayIndex]?.label} otomatis akan dilepas.
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Tanggal Libur Asal
+                    </label>
+                    {moveOffModal.emp.customOffDates &&
+                    moveOffModal.emp.customOffDates.length > 0 &&
+                    !moveOffModal.emp.customOffDates.includes(moveOffModal.sourceDateStr) ? (
+                      <select
+                        value={moveSourceCustomDate}
+                        onChange={(e) => {
+                          setMoveSourceCustomDate(e.target.value);
+                          setMoveOffError(null);
+                        }}
+                        className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg bg-white"
+                      >
+                        <option value={moveOffModal.sourceDateStr}>
+                          {moveOffModal.sourceDateStr} ({HARI_MAP[moveOffModal.sourceDayIndex]?.label})
+                        </option>
+                        {moveOffModal.emp.customOffDates.map((dt) => (
+                          <option key={dt} value={dt}>
+                            {dt} ({formatIndonesianDate(dt)})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono text-slate-800">
+                        {moveSourceCustomDate || moveOffModal.sourceDateStr} —{' '}
+                        <span className="font-sans font-medium">
+                          {formatIndonesianDate(moveSourceCustomDate || moveOffModal.sourceDateStr)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Tanggal Libur Pengganti
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={moveTargetCustomDate}
+                      onChange={(e) => {
+                        setMoveTargetCustomDate(e.target.value);
+                        setMoveOffError(null);
+                      }}
+                      className="w-full px-3 py-2.5 sm:py-2 text-sm sm:text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                    />
+                    {moveTargetCustomDate && (
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Pengganti: <strong>{formatIndonesianDate(moveTargetCustomDate)}</strong>
+                      </p>
+                    )}
+                  </div>
+
+                  {moveOffModal.emp.offDays.includes(moveOffModal.sourceDayIndex) && (
+                    <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-900 flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-blue-700 shrink-0 mt-0.5" />
+                      <span>
+                        Hari {HARI_MAP[moveOffModal.sourceDayIndex]?.label} merupakan libur rutin mingguan {moveOffModal.emp.name}. Menyimpan perpindahan tanggal ini akan melepas libur rutin hari {HARI_MAP[moveOffModal.sourceDayIndex]?.label} dan mencatat tanggal pengganti sebagai tanggal libur khusus.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!moveOffModal.autoAddToDailyModal && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Langsung Masukkan ke Shift Hari {HARI_MAP[moveOffModal.sourceDayIndex]?.label} (Opsional)
+                  </label>
+                  <select
+                    value={moveTargetShiftId}
+                    onChange={(e) => setMoveTargetShiftId(e.target.value)}
+                    className="w-full px-3 py-2.5 sm:py-2 text-xs font-medium border border-slate-300 rounded-lg bg-white"
+                  >
+                    <option value="">Hanya pindah libur (atur shift nanti)</option>
+                    {shifts.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        Masuk ke {s.name} ({s.startTime} – {s.endTime})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {moveOffError && (
+                <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs font-medium text-red-800 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span>{moveOffError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setMoveOffModal(null)}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingMoveOff}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-slate-400 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  <span>
+                    {savingMoveOff
+                      ? 'Menyimpan...'
+                      : moveOffModal.autoAddToDailyModal
+                        ? 'Pindah & Pilih ke Shift'
+                        : moveTargetShiftId
+                          ? 'Pindah Libur & Masuk Shift'
+                          : 'Simpan Pindah Libur'}
+                  </span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

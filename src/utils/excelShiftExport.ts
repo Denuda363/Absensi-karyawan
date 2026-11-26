@@ -2,9 +2,11 @@ import ExcelJS from 'exceljs';
 import {
   Employee,
   formatOffDaysSummary,
+  getActiveWeekDates,
   getEmployeeScheduledShiftsForWeekday,
   getShiftMembersForWeekday,
   HARI_WEEKDAYS,
+  isEmployeeOffOnShiftDay,
   ShiftConfig,
 } from '../types';
 import { buildDailyScheduleBlocks } from './shiftScheduleLayout';
@@ -16,6 +18,7 @@ export async function exportShiftScheduleToExcel(params: {
   days?: ReadonlyArray<{ index: number; label: string }>;
 }): Promise<void> {
   const { companyName, shifts, employees, days } = params;
+  const activeWeekDates = getActiveWeekDates();
   const targetDays = days && days.length > 0 ? days : HARI_WEEKDAYS;
   const isSingleDayExport = targetDays.length === 1;
   const activeEmployees = employees
@@ -291,7 +294,9 @@ export async function exportShiftScheduleToExcel(params: {
   for (const emp of activeEmployees) {
     const r = rosterSheet.getRow(rowIdx++);
     const dayValues = HARI_WEEKDAYS.map((day) => {
-      if (emp.offDays.includes(day.index)) return 'Libur';
+      if (isEmployeeOffOnShiftDay(emp, day.index, activeWeekDates[day.index]).isOff) {
+        return 'Libur';
+      }
       const scheduled = getEmployeeScheduledShiftsForWeekday(emp.id, day.index, shifts)[0];
       return scheduled ? scheduled.name.replace(/^shift\s+/i, '') : '-';
     });
@@ -357,9 +362,13 @@ export async function exportShiftScheduleToExcel(params: {
 
     let maxLen = 1;
     HARI_WEEKDAYS.forEach((day, dIdx) => {
+      const weekDateStr = activeWeekDates[day.index];
       const { members } = getShiftMembersForWeekday(shift, day.index, activeEmployees);
-      if (members.length > maxLen) maxLen = members.length;
-      const workingNames = members.map((e, i) => `${i + 1}. ${e.name}`);
+      const workingMembers = members.filter(
+        (e) => !isEmployeeOffOnShiftDay(e, day.index, weekDateStr).isOff
+      );
+      if (workingMembers.length > maxLen) maxLen = workingMembers.length;
+      const workingNames = workingMembers.map((e, i) => `${i + 1}. ${e.name}`);
       const cell = row.getCell(dIdx + 2);
       cell.value = workingNames.length > 0 ? workingNames.join('\n') : '(Tidak ada)';
       cell.font = {
@@ -386,8 +395,9 @@ export async function exportShiftScheduleToExcel(params: {
 
   let maxOffLen = 1;
   HARI_WEEKDAYS.forEach((day, dIdx) => {
+    const weekDateStr = activeWeekDates[day.index];
     const offList = activeEmployees
-      .filter((e) => e.offDays.includes(day.index))
+      .filter((e) => isEmployeeOffOnShiftDay(e, day.index, weekDateStr).isOff)
       .map((e, i) => `${i + 1}. ${e.name} (${e.position || e.department})`);
     if (offList.length > maxOffLen) maxOffLen = offList.length;
     const cell = offRow.getCell(dIdx + 2);
