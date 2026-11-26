@@ -9,11 +9,15 @@ import {
   FileSpreadsheet,
   LogIn,
   LogOut,
+  Palette,
   Pencil,
   Plus,
   Printer,
+  RotateCcw,
+  Save,
   Search,
   ShieldCheck,
+  Sparkles,
   Table2,
   Trash2,
   X,
@@ -25,6 +29,7 @@ import {
   AttendanceStatus,
   calculateLatenessMinutes,
   calculateWorkDurationLabel,
+  DEFAULT_MATRIX_COLORS,
   Employee,
   evaluateLateness,
   formatEmployeeShiftForDisplay,
@@ -39,7 +44,10 @@ import {
   isEmployeeShiftAssigned,
   LATE_PERMIT_REASON_PRESETS,
   LateSettlement,
+  MATRIX_COLOR_PRESETS,
+  MatrixColorSettings,
   normalizeMatrixColors,
+  pickContrastTextColor,
   resolveAttendanceShift,
   resolveEmployeeDefaultShiftForDate,
   statusToMatrixCode,
@@ -48,6 +56,7 @@ import {
   bulkMarkScheduledOffDays,
   createAttendanceRecord,
   deleteAttendanceRecord,
+  updateAppSettings,
   updateAttendanceRecord,
 } from '../services/attendanceService';
 import { exportAttendanceMatrixToExcel } from '../utils/excelAttendanceExport';
@@ -132,6 +141,16 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   const [inputLatePermitApprovedBy, setInputLatePermitApprovedBy] = useState<string>('Admin HR');
   const [inputSaving, setInputSaving] = useState<boolean>(false);
   const [inputError, setInputError] = useState<string | null>(null);
+
+  // Direct Matrix Color Editor Modal (triggered from Keterangan legend)
+  const [colorModalOpen, setColorModalOpen] = useState<boolean>(false);
+  const [activeColorKey, setActiveColorKey] =
+    useState<keyof MatrixColorSettings>('hadir');
+  const [draftMatrixColors, setDraftMatrixColors] = useState<MatrixColorSettings>(() =>
+    normalizeMatrixColors(settings?.matrixColors)
+  );
+  const [savingColors, setSavingColors] = useState<boolean>(false);
+  const [colorModalError, setColorModalError] = useState<string | null>(null);
 
   const meta = useMemo(() => getMonthMetadata(selectedMonth), [selectedMonth]);
   const days = useMemo(() => getDaysInMonth(selectedMonth), [selectedMonth]);
@@ -971,10 +990,81 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
     inputStatus === 'izin_terlambat';
   const companyName = settings?.companyName || 'KARYAPRESENSI';
   const companySubtitle = settings?.companySubtitle || 'HRIS PERUSAHAAN';
-  const matrixColors = useMemo(
+  const savedMatrixColors = useMemo(
     () => normalizeMatrixColors(settings?.matrixColors),
     [settings?.matrixColors]
   );
+  const matrixColors = colorModalOpen ? draftMatrixColors : savedMatrixColors;
+
+  const matrixColorItemMeta: {
+    key: keyof MatrixColorSettings;
+    label: string;
+    sample: string;
+    category: 'status' | 'header';
+  }[] = [
+    { key: 'hadir', label: 'HADIR', sample: 'H', category: 'status' },
+    { key: 'terlambat', label: 'TERLAMBAT', sample: 'H', category: 'status' },
+    { key: 'izinTerlambat', label: 'IZIN TELAT', sample: 'H', category: 'status' },
+    { key: 'izin', label: 'IZIN', sample: 'I', category: 'status' },
+    { key: 'sakit', label: 'SAKIT', sample: 'S', category: 'status' },
+    { key: 'alpha', label: 'ALPHA', sample: 'A', category: 'status' },
+    { key: 'libur', label: 'LIBUR KARYAWAN', sample: 'L', category: 'status' },
+    { key: 'brandHeader', label: 'Kotak Brand', sample: 'PT', category: 'header' },
+    { key: 'groupHeader', label: 'Header Grup', sample: 'HDR', category: 'header' },
+    { key: 'tableHeader', label: 'Header Tabel', sample: 'ID', category: 'header' },
+  ];
+
+  const openColorEditorModal = (focusKey: keyof MatrixColorSettings = 'hadir') => {
+    setDraftMatrixColors(normalizeMatrixColors(settings?.matrixColors));
+    setActiveColorKey(focusKey);
+    setColorModalError(null);
+    setColorModalOpen(true);
+  };
+
+  const handleUpdateDraftColor = (
+    key: keyof MatrixColorSettings,
+    field: 'bg' | 'text',
+    hex: string,
+    autoContrast = false
+  ) => {
+    const normalizedHex = hex.toUpperCase();
+    setDraftMatrixColors((prev) => {
+      const nextPair = {
+        ...prev[key],
+        [field]: normalizedHex,
+      };
+      if (field === 'bg' && autoContrast) {
+        nextPair.text = pickContrastTextColor(normalizedHex);
+      }
+      return {
+        ...prev,
+        [key]: nextPair,
+      };
+    });
+    setColorModalError(null);
+  };
+
+  const handleSaveMatrixColorsFromModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingColors(true);
+    setColorModalError(null);
+    try {
+      const normalized = normalizeMatrixColors(draftMatrixColors);
+      await updateAppSettings({ matrixColors: normalized });
+      await onRefresh();
+      setColorModalOpen(false);
+      setActionBanner({
+        type: 'success',
+        text: 'Warna matriks berhasil diperbarui dan disimpan untuk tampilan matriks, cetak, dan ekspor Excel.',
+      });
+    } catch (err) {
+      setColorModalError(
+        err instanceof Error ? err.message : 'Gagal menyimpan warna matriks.'
+      );
+    } finally {
+      setSavingColors(false);
+    }
+  };
 
   const estimatedPrintSheetHeight =
     36 + Math.max(320, 60 + Math.max(1, matrixData.rows.length) * 16 + 76);
@@ -1486,89 +1576,67 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   </div>
                 </div>
 
-                {/* Legend */}
+                {/* Legend (Keterangan — klik untuk ubah warna langsung) */}
                 <div
                   style={{
                     backgroundColor: matrixColors.groupHeader.bg,
                     color: matrixColors.groupHeader.text,
                   }}
-                  className="border-b border-slate-400 py-1 px-2 print:py-0.5 print:text-[7.5px] text-center font-bold text-[11px]"
+                  className="border-b border-slate-400 py-1 px-2 print:py-0.5 print:text-[7.5px] font-bold text-[11px] flex items-center justify-between gap-1"
                 >
-                  KETERANGAN
+                  <span className="flex-1 text-center print:text-center">KETERANGAN</span>
+                  <button
+                    type="button"
+                    onClick={() => openColorEditorModal('hadir')}
+                    title="Ubah skema warna matriks langsung"
+                    className="no-print inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/85 hover:bg-white text-slate-800 border border-slate-400/70 text-[9.5px] font-semibold cursor-pointer shrink-0 shadow-2xs"
+                  >
+                    <Palette className="w-2.5 h-2.5 text-blue-700" />
+                    <span>Warna</span>
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-1 print:grid-cols-1 xl:divide-y xl:divide-slate-200 print:divide-y print:divide-slate-200 text-[11px] print:text-[7px]">
-                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-r border-slate-200 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span
-                      style={{
-                        backgroundColor: matrixColors.hadir.bg,
-                        color: matrixColors.hadir.text,
-                      }}
-                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
-                    >
-                      H
-                    </span>
-                    <span className="truncate">HADIR / TERLAMBAT</span>
-                  </div>
-                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 sm:border-r xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span
-                      style={{
-                        backgroundColor: matrixColors.izinTerlambat.bg,
-                        color: matrixColors.izinTerlambat.text,
-                      }}
-                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
-                    >
-                      H
-                    </span>
-                    <span className="truncate">IZIN TELAT</span>
-                  </div>
-                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-r border-slate-200 sm:border-r-0 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span
-                      style={{
-                        backgroundColor: matrixColors.izin.bg,
-                        color: matrixColors.izin.text,
-                      }}
-                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 border border-slate-300 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
-                    >
-                      I
-                    </span>
-                    <span className="truncate">IZIN</span>
-                  </div>
-                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 sm:border-b-0 sm:border-r xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span
-                      style={{
-                        backgroundColor: matrixColors.sakit.bg,
-                        color: matrixColors.sakit.text,
-                      }}
-                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
-                    >
-                      S
-                    </span>
-                    <span className="truncate">SAKIT</span>
-                  </div>
-                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-r border-slate-200 xl:border-0 print:border-0 flex items-center gap-2 print:gap-1">
-                    <span
-                      style={{
-                        backgroundColor: matrixColors.alpha.bg,
-                        color: matrixColors.alpha.text,
-                      }}
-                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
-                    >
-                      A
-                    </span>
-                    <span className="truncate">ALPHA</span>
-                  </div>
-                  <div className="px-2.5 py-1.5 print:px-1.5 print:py-0.5 flex items-center gap-2 print:gap-1">
-                    <span
-                      style={{
-                        backgroundColor: matrixColors.libur.bg,
-                        color: matrixColors.libur.text,
-                      }}
-                      className="inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 border border-slate-400 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0"
-                    >
-                      L
-                    </span>
-                    <span className="truncate">LIBUR KARYAWAN</span>
-                  </div>
+                  {(
+                    [
+                      { key: 'hadir', code: 'H', label: 'HADIR', borderClass: '' },
+                      { key: 'terlambat', code: 'H', label: 'TERLAMBAT', borderClass: '' },
+                      { key: 'izinTerlambat', code: 'H', label: 'IZIN TELAT', borderClass: '' },
+                      { key: 'izin', code: 'I', label: 'IZIN', borderClass: 'border border-slate-300' },
+                      { key: 'sakit', code: 'S', label: 'SAKIT', borderClass: '' },
+                      { key: 'alpha', code: 'A', label: 'ALPHA', borderClass: '' },
+                      { key: 'libur', code: 'L', label: 'LIBUR KARYAWAN', borderClass: 'border border-slate-400' },
+                    ] as const
+                  ).map((item, idx) => {
+                    const pair = matrixColors[item.key];
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => openColorEditorModal(item.key)}
+                        title={`Klik untuk ubah warna ${item.label}`}
+                        className={`w-full text-left px-2.5 py-1.5 print:px-1.5 print:py-0.5 border-b border-slate-200 xl:border-0 print:border-0 flex items-center justify-between gap-1.5 hover:bg-blue-50/70 transition-colors cursor-pointer group ${
+                          idx % 2 === 0 ? 'border-r sm:border-r' : 'sm:border-r'
+                        } ${idx === 6 ? 'col-span-2 sm:col-span-1 border-b-0' : ''}`}
+                      >
+                        <div className="flex items-center gap-2 print:gap-1 min-w-0">
+                          <span
+                            style={{
+                              backgroundColor: pair.bg,
+                              color: pair.text,
+                            }}
+                            className={`inline-flex items-center justify-center w-4 h-4 print:w-2.5 print:h-2.5 font-mono font-bold text-[10px] print:text-[6.5px] shrink-0 ${item.borderClass}`}
+                          >
+                            {item.code}
+                          </span>
+                          <span className="truncate">{item.label}</span>
+                        </div>
+                        <Pencil className="w-2.5 h-2.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 no-print" />
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="no-print px-2 py-1 bg-slate-50 border-t border-slate-200 text-[9.5px] text-slate-500 text-center">
+                  Ketuk item keterangan untuk ubah warna
                 </div>
               </aside>
 
@@ -2748,6 +2816,272 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       : 'Simpan Absensi'}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ubah Warna Matriks langsung dari Keterangan */}
+      {colorModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 no-print">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-2xl w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto shadow-xl pb-safe">
+            <div className="px-5 py-4 bg-slate-950 text-white flex items-center justify-between gap-3 sticky top-0 z-10">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
+                  <Palette className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-display text-sm font-bold truncate">
+                    Ubah Warna Matriks
+                  </h3>
+                  <p className="text-[11px] text-slate-300 truncate">
+                    Tampilan matriks di belakang ikut berubah secara langsung saat Anda memilih warna
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setColorModalOpen(false)}
+                aria-label="Tutup modal warna"
+                className="p-2 text-slate-400 hover:text-white rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMatrixColorsFromModal} className="p-5 space-y-4">
+              {colorModalError && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{colorModalError}</span>
+                </div>
+              )}
+
+              {/* Active Item Editor */}
+              {(() => {
+                const activeItem =
+                  matrixColorItemMeta.find((m) => m.key === activeColorKey) ??
+                  matrixColorItemMeta[0];
+                const pair = draftMatrixColors[activeItem.key];
+                const quickBgSwatches = [
+                  '#548235',
+                  '#15803D',
+                  '#0F766E',
+                  '#1D4ED8',
+                  '#4338CA',
+                  '#D97706',
+                  '#EA580C',
+                  '#C00000',
+                  '#FFF2CC',
+                  '#DCFCE7',
+                  '#E0F2FE',
+                  '#D9D9D9',
+                  '#FFC000',
+                  '#D9E1F2',
+                  '#1F4E78',
+                  '#0F172A',
+                ];
+
+                return (
+                  <div className="p-4 rounded-xl border-2 border-blue-200 bg-blue-50/35 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">
+                          Item Keterangan Dipilih
+                        </div>
+                        <div className="font-display text-sm font-bold text-slate-900">
+                          {activeItem.label}
+                        </div>
+                      </div>
+                      <span
+                        style={{ backgroundColor: pair.bg, color: pair.text }}
+                        className="px-3 h-9 min-w-[36px] rounded-lg border border-slate-400 font-mono font-bold text-sm inline-flex items-center justify-center shadow-2xs"
+                      >
+                        {activeItem.sample}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <label className="flex items-center justify-between gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer">
+                        <span className="text-xs font-medium text-slate-700">
+                          Warna Latar
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-mono text-slate-500 uppercase">
+                            {pair.bg}
+                          </span>
+                          <input
+                            type="color"
+                            value={pair.bg}
+                            onChange={(e) =>
+                              handleUpdateDraftColor(activeItem.key, 'bg', e.target.value, true)
+                            }
+                            aria-label={`Warna latar ${activeItem.label}`}
+                            className="w-7 h-7 p-0 border-0 rounded cursor-pointer bg-transparent"
+                          />
+                        </div>
+                      </label>
+
+                      <label className="flex items-center justify-between gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer">
+                        <span className="text-xs font-medium text-slate-700">
+                          Warna Teks
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-mono text-slate-500 uppercase">
+                            {pair.text}
+                          </span>
+                          <input
+                            type="color"
+                            value={pair.text}
+                            onChange={(e) =>
+                              handleUpdateDraftColor(activeItem.key, 'text', e.target.value)
+                            }
+                            aria-label={`Warna teks ${activeItem.label}`}
+                            className="w-7 h-7 p-0 border-0 rounded cursor-pointer bg-transparent"
+                          />
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* Quick Color Swatches */}
+                    <div>
+                      <div className="text-[11px] font-medium text-slate-600 mb-1.5">
+                        Pilihan Warna Cepat:
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {quickBgSwatches.map((hex) => {
+                          const isSelectedSwatch = pair.bg === hex;
+                          return (
+                            <button
+                              key={hex}
+                              type="button"
+                              onClick={() =>
+                                handleUpdateDraftColor(activeItem.key, 'bg', hex, true)
+                              }
+                              title={`Pilih warna ${hex}`}
+                              style={{ backgroundColor: hex }}
+                              className={`w-6 h-6 rounded-md border transition-transform cursor-pointer ${
+                                isSelectedSwatch
+                                  ? 'border-blue-700 ring-2 ring-blue-500/40 scale-110'
+                                  : 'border-slate-300 hover:scale-105'
+                              }`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* All Legend & Header Items Selector */}
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-slate-800">
+                  Pilih Item Keterangan / Header untuk Diubah:
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {matrixColorItemMeta.map((item) => {
+                    const pair = draftMatrixColors[item.key];
+                    const isActive = activeColorKey === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setActiveColorKey(item.key)}
+                        className={`px-2.5 py-2 rounded-lg border text-left flex items-center gap-2 transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-blue-50 border-blue-500 text-blue-950 font-semibold'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span
+                          style={{ backgroundColor: pair.bg, color: pair.text }}
+                          className="px-1.5 min-w-[24px] h-6 rounded border border-slate-400/80 font-mono font-bold text-[10px] inline-flex items-center justify-center shrink-0"
+                        >
+                          {item.sample}
+                        </span>
+                        <span className="text-[11px] truncate">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Quick Theme Presets */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Tema Cepat</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftMatrixColors(normalizeMatrixColors(DEFAULT_MATRIX_COLORS));
+                      setColorModalError(null);
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset Default</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {MATRIX_COLOR_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        setDraftMatrixColors(normalizeMatrixColors(preset.colors));
+                        setColorModalError(null);
+                      }}
+                      className="p-2 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-white hover:border-blue-400 transition-colors text-left cursor-pointer"
+                    >
+                      <div className="text-[11px] font-semibold text-slate-800 truncate mb-1">
+                        {preset.name}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {(
+                          [
+                            { code: 'H', pair: preset.colors.hadir },
+                            { code: 'I', pair: preset.colors.izin },
+                            { code: 'S', pair: preset.colors.sakit },
+                            { code: 'A', pair: preset.colors.alpha },
+                            { code: 'L', pair: preset.colors.libur },
+                          ] as const
+                        ).map((sw) => (
+                          <span
+                            key={sw.code}
+                            style={{ backgroundColor: sw.pair.bg, color: sw.pair.text }}
+                            className="w-4 h-4 rounded text-[9px] font-mono font-bold inline-flex items-center justify-center border border-slate-300/80"
+                          >
+                            {sw.code}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={savingColors}
+                  onClick={() => setColorModalOpen(false)}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingColors}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-slate-400 rounded-lg inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{savingColors ? 'Menyimpan...' : 'Simpan Warna'}</span>
+                </button>
               </div>
             </form>
           </div>

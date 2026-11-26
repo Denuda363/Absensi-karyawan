@@ -89,6 +89,66 @@ export const DEFAULT_MATRIX_COLORS: MatrixColorSettings = {
   tableHeader: { bg: '#1F4E78', text: '#FFFFFF' },
 };
 
+export const MATRIX_COLOR_PRESETS: {
+  id: string;
+  name: string;
+  colors: MatrixColorSettings;
+}[] = [
+  {
+    id: 'klasik',
+    name: 'Klasik Excel (Default)',
+    colors: DEFAULT_MATRIX_COLORS,
+  },
+  {
+    id: 'korporat',
+    name: 'Korporat Navy',
+    colors: {
+      hadir: { bg: '#0F766E', text: '#FFFFFF' },
+      terlambat: { bg: '#D97706', text: '#FFFFFF' },
+      izinTerlambat: { bg: '#0284C7', text: '#FFFFFF' },
+      izin: { bg: '#E0F2FE', text: '#0369A1' },
+      sakit: { bg: '#6366F1', text: '#FFFFFF' },
+      alpha: { bg: '#DC2626', text: '#FFFFFF' },
+      libur: { bg: '#E2E8F0', text: '#334155' },
+      brandHeader: { bg: '#0F172A', text: '#F8FAFC' },
+      groupHeader: { bg: '#DBEAFE', text: '#1E3A8A' },
+      tableHeader: { bg: '#1E3A8A', text: '#FFFFFF' },
+    },
+  },
+  {
+    id: 'pastel',
+    name: 'Soft Pastel',
+    colors: {
+      hadir: { bg: '#DCFCE7', text: '#166534' },
+      terlambat: { bg: '#FEF3C7', text: '#92400E' },
+      izinTerlambat: { bg: '#CCFBF1', text: '#115E59' },
+      izin: { bg: '#E0F2FE', text: '#075985' },
+      sakit: { bg: '#EDE9FE', text: '#5B21B6' },
+      alpha: { bg: '#FEE2E2', text: '#991B1B' },
+      libur: { bg: '#F1F5F9', text: '#475569' },
+      brandHeader: { bg: '#FDE68A', text: '#78350F' },
+      groupHeader: { bg: '#E2E8F0', text: '#0F172A' },
+      tableHeader: { bg: '#334155', text: '#FFFFFF' },
+    },
+  },
+  {
+    id: 'kontras',
+    name: 'Kontras Tinggi',
+    colors: {
+      hadir: { bg: '#15803D', text: '#FFFFFF' },
+      terlambat: { bg: '#EA580C', text: '#FFFFFF' },
+      izinTerlambat: { bg: '#0E7490', text: '#FFFFFF' },
+      izin: { bg: '#FACC15', text: '#111827' },
+      sakit: { bg: '#7E22CE', text: '#FFFFFF' },
+      alpha: { bg: '#B91C1C', text: '#FFFFFF' },
+      libur: { bg: '#475569', text: '#FFFFFF' },
+      brandHeader: { bg: '#F59E0B', text: '#111827' },
+      groupHeader: { bg: '#CBD5E1', text: '#0F172A' },
+      tableHeader: { bg: '#0F172A', text: '#FFFFFF' },
+    },
+  },
+];
+
 function sanitizeHexColor(raw: unknown, fallback: string): string {
   const s = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
   return /^#[0-9A-F]{6}$/.test(s) ? s : fallback;
