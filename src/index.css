@@ -376,11 +376,20 @@
   }
 
   .book-cover {
-    min-height: 263mm !important;
-    padding: 12mm !important;
+    page: cover-page;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+    margin: 0 !important;
+    padding: 14mm !important;
+    border: 0 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
     background: #080f1f !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
   }
 
   .book-avoid-break {
