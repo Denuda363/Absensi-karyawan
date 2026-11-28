@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  CalendarDays,
   CalendarOff,
   CheckCircle2,
   Clock,
@@ -38,6 +39,7 @@ import {
   getCurrentTimeStr,
   getCurrentYearMonth,
   getDayNameIndonesian,
+  getDayOfWeekFromDateStr,
   getDaysInMonth,
   getMonthMetadata,
   getTodayDateStr,
@@ -61,8 +63,13 @@ import {
   updateAttendanceRecord,
 } from '../services/attendanceService';
 import { exportAttendanceMatrixToExcel } from '../utils/excelAttendanceExport';
+import {
+  getHolidaysInMonth,
+  NationalHoliday,
+} from '../utils/indonesianHolidays';
 import { SearchableEmployeeSelect } from './SearchableEmployeeSelect';
 import { ReadOnlyModeBanner } from './ReadOnlyModeBanner';
+import { MatrixCalendarModal } from './MatrixCalendarModal';
 
 interface AttendanceMatrixViewProps {
   employees: Employee[];
@@ -158,8 +165,22 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
   const [savingColors, setSavingColors] = useState<boolean>(false);
   const [colorModalError, setColorModalError] = useState<string | null>(null);
 
+  // Full Calendar & National Holidays Modal
+  const [calendarModalOpen, setCalendarModalOpen] = useState<boolean>(false);
+
   const meta = useMemo(() => getMonthMetadata(selectedMonth), [selectedMonth]);
   const days = useMemo(() => getDaysInMonth(selectedMonth), [selectedMonth]);
+  const monthHolidays = useMemo(
+    () => getHolidaysInMonth(selectedMonth),
+    [selectedMonth]
+  );
+  const monthHolidayMap = useMemo(() => {
+    const map = new Map<string, NationalHoliday>();
+    for (const h of monthHolidays) {
+      map.set(h.date, h);
+    }
+    return map;
+  }, [monthHolidays]);
 
   const activeEmployees = useMemo(
     () =>
@@ -1271,8 +1292,18 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
 
                 <button
                   type="button"
+                  onClick={() => setCalendarModalOpen(true)}
+                  title="Lihat Kalender Lengkap & Hari Libur Nasional"
+                  className="btn-3d-secondary sm:order-4 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50/90 border border-blue-200 rounded-xl hover:bg-blue-100 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                  <span>Kalender</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => window.print()}
-                  className="btn-3d-secondary sm:order-4 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
+                  className="btn-3d-secondary sm:order-5 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 shrink-0" />
                   <span>Cetak</span>
@@ -1282,7 +1313,7 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                   type="button"
                   onClick={handleExportExcel}
                   disabled={exporting || scopedEmployees.length === 0}
-                  className="sm:order-5 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-emerald-600 to-emerald-700 rounded-xl hover:from-emerald-500 hover:to-emerald-600 shadow-[0_2px_0_#065f46,0_6px_12px_-4px_rgba(5,150,105,0.35)] disabled:opacity-50 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                  className="sm:order-6 min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gradient-to-b from-emerald-600 to-emerald-700 rounded-xl hover:from-emerald-500 hover:to-emerald-600 shadow-[0_2px_0_#065f46,0_6px_12px_-4px_rgba(5,150,105,0.35)] disabled:opacity-50 transition-all whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <FileSpreadsheet className="w-4 h-4 shrink-0" />
                   <span className="truncate">{exporting ? 'Menyiapkan...' : 'Ekspor Excel'}</span>
@@ -1300,6 +1331,16 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                     <span>Input di Matriks</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setCalendarModalOpen(true)}
+                  title="Lihat Kalender Lengkap & Hari Libur Nasional"
+                  className="min-h-[40px] sm:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                  <span>Kalender</span>
+                </button>
 
                 <button
                   type="button"
@@ -1583,6 +1624,35 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
             </div>
             )}
 
+            {/* Quick National Holiday Notice Strip for Selected Matrix Month */}
+            {monthHolidays.length > 0 && (
+              <div className="no-print flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 rounded-lg bg-rose-50/75 border border-rose-200/80 text-xs text-rose-950">
+                <div className="flex items-start sm:items-center gap-2 min-w-0">
+                  <CalendarDays className="w-4 h-4 text-rose-700 shrink-0 mt-0.5 sm:mt-0" />
+                  <div className="min-w-0 leading-relaxed">
+                    <span className="font-semibold text-rose-900">
+                      Libur Nasional {meta.monthName}:
+                    </span>{' '}
+                    <span className="text-rose-800">
+                      {monthHolidays
+                        .map(
+                          (h) =>
+                            `${Number(h.date.slice(8, 10))} (${h.name})`
+                        )
+                        .join(' · ')}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCalendarModalOpen(true)}
+                  className="text-xs font-semibold text-rose-800 hover:text-rose-950 hover:underline whitespace-nowrap shrink-0 self-start sm:self-auto cursor-pointer"
+                >
+                  Buka Kalender Lengkap →
+                </button>
+              </div>
+            )}
+
             {/* Top Title Banner aligned over the main table */}
             <div className="xl:pl-60 print:pl-[124px]">
               <div
@@ -1804,28 +1874,56 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       >
                         PEGAWAI
                       </th>
-                      {days.map((dateStr) => (
-                        <th
-                          key={dateStr}
-                          style={{
-                            backgroundColor: matrixColors.groupHeader.bg,
-                            color: matrixColors.groupHeader.text,
-                          }}
-                          className="border border-slate-400 p-0.5 h-16 sm:h-20 print:h-[38px] w-8 sm:w-7 matrix-print-day-col align-middle"
-                        >
-                          <div className="flex items-center justify-center h-full">
-                            <span
-                              className="font-semibold text-[10px] print:text-[7px] whitespace-nowrap uppercase"
-                              style={{
-                                writingMode: 'vertical-rl',
-                                transform: 'rotate(180deg)',
-                              }}
-                            >
-                              {getDayNameIndonesian(dateStr).toUpperCase()}
-                            </span>
-                          </div>
-                        </th>
-                      ))}
+                      {days.map((dateStr) => {
+                        const holiday = monthHolidayMap.get(dateStr);
+                        const isSunday = getDayOfWeekFromDateStr(dateStr) === 0;
+                        const headerTitle = holiday
+                          ? `${getDayNameIndonesian(dateStr)}, ${dateStr} — ${holiday.name} (${
+                              holiday.category === 'libur_nasional'
+                                ? 'Libur Nasional'
+                                : 'Cuti Bersama'
+                            })`
+                          : `${getDayNameIndonesian(dateStr)}, ${dateStr}`;
+                        return (
+                          <th
+                            key={dateStr}
+                            title={headerTitle}
+                            style={{
+                              backgroundColor: matrixColors.groupHeader.bg,
+                              color: matrixColors.groupHeader.text,
+                            }}
+                            className="border border-slate-400 p-0.5 h-16 sm:h-20 print:h-[38px] w-8 sm:w-7 matrix-print-day-col align-middle relative"
+                          >
+                            {holiday && (
+                              <span
+                                aria-hidden="true"
+                                className={`absolute top-0 inset-x-0 h-1 print:hidden ${
+                                  holiday.category === 'libur_nasional'
+                                    ? 'bg-red-600'
+                                    : 'bg-amber-500'
+                                }`}
+                              />
+                            )}
+                            <div className="flex items-center justify-center h-full">
+                              <span
+                                className={`font-semibold text-[10px] print:text-[7px] whitespace-nowrap uppercase ${
+                                  holiday?.category === 'libur_nasional' || isSunday
+                                    ? 'text-red-700'
+                                    : holiday?.category === 'cuti_bersama'
+                                    ? 'text-amber-800'
+                                    : ''
+                                }`}
+                                style={{
+                                  writingMode: 'vertical-rl',
+                                  transform: 'rotate(180deg)',
+                                }}
+                              >
+                                {getDayNameIndonesian(dateStr).toUpperCase()}
+                              </span>
+                            </div>
+                          </th>
+                        );
+                      })}
                       <th className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
                       <th
                         colSpan={4}
@@ -1860,14 +1958,32 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
                       <th className="border border-slate-400 py-1.5 px-2 font-bold text-center whitespace-nowrap matrix-print-off-col">
                         HARI LIBUR
                       </th>
-                      {days.map((dateStr) => (
-                        <th
-                          key={dateStr}
-                          className="border border-slate-400 py-1.5 px-1 font-mono font-bold text-center tabular-nums min-w-[30px] sm:min-w-0 matrix-print-day-col"
-                        >
-                          {dateStr.slice(8, 10)}
-                        </th>
-                      ))}
+                      {days.map((dateStr) => {
+                        const holiday = monthHolidayMap.get(dateStr);
+                        return (
+                          <th
+                            key={dateStr}
+                            title={
+                              holiday
+                                ? `${dateStr} — ${holiday.name}`
+                                : dateStr
+                            }
+                            className="border border-slate-400 py-1.5 px-1 font-mono font-bold text-center tabular-nums min-w-[30px] sm:min-w-0 matrix-print-day-col relative"
+                          >
+                            {dateStr.slice(8, 10)}
+                            {holiday && (
+                              <span
+                                aria-hidden="true"
+                                className={`block mx-auto mt-0.5 w-1 h-1 rounded-full print:hidden ${
+                                  holiday.category === 'libur_nasional'
+                                    ? 'bg-red-400'
+                                    : 'bg-amber-300'
+                                }`}
+                              />
+                            )}
+                          </th>
+                        );
+                      })}
                       <th className="w-2.5 border-0 bg-white matrix-print-spacer-col" />
                       <th className="border border-slate-400 py-1.5 px-2 font-mono font-bold text-center w-8 matrix-print-sum-col">
                         H
@@ -3257,6 +3373,43 @@ export const AttendanceMatrixView: React.FC<AttendanceMatrixViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Kalender Lengkap & Hari Libur Nasional */}
+      <MatrixCalendarModal
+        open={calendarModalOpen}
+        onClose={() => setCalendarModalOpen(false)}
+        initialMonth={selectedMonth}
+        employees={scopedEmployees}
+        attendanceRecords={attendanceRecords}
+        isAttendanceAdmin={isAttendanceAdmin}
+        onSelectMonthForMatrix={(ym) => {
+          setSelectedMonth(ym);
+          if (!logSelectedDate.startsWith(ym)) {
+            setLogSelectedDate(`${ym}-01`);
+          }
+        }}
+        onOpenDateInLog={(dateStr) => {
+          setSelectedMonth(dateStr.slice(0, 7));
+          setLogSelectedDate(dateStr);
+          setLogShowAllDates(false);
+          setActiveSubTab('log');
+        }}
+        onQuickInputForDate={
+          isAttendanceAdmin
+            ? (dateStr) => {
+                const defaultEmp = scopedEmployees[0] || activeEmployees[0];
+                if (!defaultEmp) return;
+                setInputModalTitle('Input Absensi Karyawan');
+                setInputEmpQuery('');
+                setInputEmpId(defaultEmp.id);
+                setInputDate(dateStr);
+                syncInputFieldsForEmployeeAndDate(defaultEmp, dateStr);
+                setInputError(null);
+                setInputModalOpen(true);
+              }
+            : undefined
+        }
+      />
     </div>
   );
 };
